@@ -15,13 +15,36 @@ import { serverEnv } from "./env";
  * Usage from server components / route handlers / server actions:
  *   const sb = await createServerSupabaseClient();
  *   const { data } = await sb.from("brands").select("*");
+ *
+ * Defense-in-depth (we have observed Clerk session corruption in dev where
+ * getToken() returned plain prompt text instead of a JWT):
+ *   1. safeToken()       — strict JWT shape regex
+ *   2. isHeaderSafe()    — RFC 7230 token-value validation (no CR/LF/CTL)
+ *   3. tryCreateClient() — createClient itself wrapped in try/catch
+ *
+ * If ANY layer detects a problem we fall back to an unauthenticated anon
+ * client. RLS returns empty rows; the page renders empty rather than 500ing.
  */
+
 // Strict JWT shape: <header>.<payload>.<signature>, each part base64url-encoded.
 // All Clerk session tokens are JWTs and always start with "eyJ" (the base64
 // encoding of `{"alg":...`). Anything else — chat text, html, error strings,
-// random gibberish — is rejected and we fall back to anon access (RLS returns
-// nothing, page renders empty rather than 500ing on Headers.set).
+// random gibberish — is rejected.
 const VALID_JWT = /^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
+
+// RFC 7230 §3.2.6: header field-value is *(field-content / obs-fold).
+// field-content = field-vchar [ 1*( SP / HTAB ) field-vchar ].
+// field-vchar = VCHAR (visible ASCII 0x21–0x7E) / obs-text (0x80–0xFF).
+// So: any CR (0x0D), LF (0x0A), NUL (0x00), or other control char is illegal.
+// Undici's Headers.set throws TypeError on these — we want to detect FIRST.
+function isHeaderSafe(value: string): boolean {
+  // Reject any control character (0x00–0x1F or 0x7F)
+  // eslint-disable-next-line no-control-regex
+  if (/[\x00-\x1f\x7f]/.test(value)) return false;
+  // Length sanity — Clerk JWTs are typically 700–1200 chars, hard cap at 4096
+  if (value.length === 0 || value.length > 4096) return false;
+  return true;
+}
 
 function safeToken(token: string | null | undefined): string | null {
   if (!token || typeof token !== "string") return null;
@@ -29,28 +52,68 @@ function safeToken(token: string | null | undefined): string | null {
     console.error(
       `[supabase-server] Clerk getToken() returned a non-JWT value ` +
         `(${token.length} chars, starts with: ${JSON.stringify(token.slice(0, 30))}). ` +
-        `Falling back to anon access. User likely needs to sign out + delete their ` +
-        `Clerk user (corrupted metadata) and sign up again with a fresh email.`
+        `Falling back to anon access. User likely needs to sign out + sign in ` +
+        `again with a fresh email; if persistent, delete the Clerk user.`
+    );
+    return null;
+  }
+  // Belt-and-suspenders: even valid-looking JWTs get one more check.
+  if (!isHeaderSafe(token)) {
+    console.error(
+      `[supabase-server] JWT passed regex but failed header-value safety check ` +
+        `(contains CR/LF/control chars or out-of-bounds length). Falling back to anon.`
     );
     return null;
   }
   return token;
 }
 
+function makeAnonClient(): SupabaseClient {
+  return createClient(serverEnv.NEXT_PUBLIC_SUPABASE_URL, serverEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY, {
+    global: { headers: {} },
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
+
+function tryCreateClient(token: string | null): SupabaseClient {
+  const headers: Record<string, string> = {};
+  if (token) {
+    const authValue = `Bearer ${token}`;
+    if (!isHeaderSafe(authValue)) {
+      console.error(
+        "[supabase-server] Authorization header would be malformed; falling back to anon."
+      );
+      return makeAnonClient();
+    }
+    headers.Authorization = authValue;
+  }
+  try {
+    return createClient(serverEnv.NEXT_PUBLIC_SUPABASE_URL, serverEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY, {
+      global: { headers },
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+  } catch (err) {
+    console.error(
+      "[supabase-server] createClient threw:",
+      err instanceof Error ? `${err.name}: ${err.message}` : err
+    );
+    return makeAnonClient();
+  }
+}
+
 export async function createServerSupabaseClient(): Promise<SupabaseClient> {
   let token: string | null = null;
   try {
     const { getToken } = await auth();
-    token = safeToken(await getToken());
+    const raw = await getToken();
+    token = safeToken(raw);
   } catch (err) {
-    console.error("[supabase-server] auth().getToken() threw:", err);
-    // Continue with anon — RLS will scope to no rows, but page renders.
+    console.error(
+      "[supabase-server] auth().getToken() threw:",
+      err instanceof Error ? `${err.name}: ${err.message}` : err
+    );
+    // Fall through with token=null → anon client.
   }
 
-  return createClient(serverEnv.NEXT_PUBLIC_SUPABASE_URL, serverEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY, {
-    global: {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    },
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+  return tryCreateClient(token);
 }
