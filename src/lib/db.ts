@@ -21,6 +21,27 @@
 import "server-only";
 import { auth } from "@clerk/nextjs/server";
 import { createServerSupabaseClient } from "./supabase-server";
+
+/**
+ * Guard rail: wrap a DB query so any THROWN exception (not just supabase's
+ * { error } shape) returns a fallback instead of 500'ing the page.
+ * Examples that throw rather than return error:
+ *   - Headers.set TypeError from a malformed Clerk token (audit incident)
+ *   - Network failure mid-fetch
+ *   - JSON parse failure on response body
+ * Without this, any one of these crashes the whole server-rendered page.
+ */
+async function safe<T>(label: string, fn: () => Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    console.error(
+      `[db] ${label} threw:`,
+      err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+    );
+    return fallback;
+  }
+}
 import type {
   DbProject,
   DbContentItem,
@@ -33,17 +54,19 @@ import type {
 // ─── Projects ─────────────────────────────────────────────────────────────────
 
 export async function getProjects(): Promise<DbProject[]> {
-  const sb = await createServerSupabaseClient();
-  const { data, error } = await sb
-    .from("projects")
-    .select("*")
-    .order("updated_at", { ascending: false });
+  return safe("getProjects", async () => {
+    const sb = await createServerSupabaseClient();
+    const { data, error } = await sb
+      .from("projects")
+      .select("*")
+      .order("updated_at", { ascending: false });
 
-  if (error) {
-    console.error("[db] getProjects:", error.message);
-    return [];
-  }
-  return (data ?? []) as DbProject[];
+    if (error) {
+      console.error("[db] getProjects:", error.message);
+      return [];
+    }
+    return (data ?? []) as DbProject[];
+  }, []);
 }
 
 export async function getProject(id: string): Promise<DbProject | null> {
@@ -106,20 +129,22 @@ export async function updateProject(
 export async function getContentItems(
   projectId?: string
 ): Promise<DbContentItem[]> {
-  const sb = await createServerSupabaseClient();
-  let q = sb
-    .from("content_items")
-    .select("*")
-    .order("created_at", { ascending: false });
+  return safe("getContentItems", async () => {
+    const sb = await createServerSupabaseClient();
+    let q = sb
+      .from("content_items")
+      .select("*")
+      .order("created_at", { ascending: false });
 
-  if (projectId) q = q.eq("project_id", projectId);
+    if (projectId) q = q.eq("project_id", projectId);
 
-  const { data, error } = await q;
-  if (error) {
-    console.error("[db] getContentItems:", error.message);
-    return [];
-  }
-  return (data ?? []) as DbContentItem[];
+    const { data, error } = await q;
+    if (error) {
+      console.error("[db] getContentItems:", error.message);
+      return [];
+    }
+    return (data ?? []) as DbContentItem[];
+  }, []);
 }
 
 export async function upsertContentItem(
@@ -145,21 +170,23 @@ export async function getRenderJobs(
   projectId?: string,
   limit = 20
 ): Promise<DbRenderJob[]> {
-  const sb = await createServerSupabaseClient();
-  let q = sb
-    .from("render_jobs")
-    .select("*")
-    .order("started_at", { ascending: false })
-    .limit(limit);
+  return safe("getRenderJobs", async () => {
+    const sb = await createServerSupabaseClient();
+    let q = sb
+      .from("render_jobs")
+      .select("*")
+      .order("started_at", { ascending: false })
+      .limit(limit);
 
-  if (projectId) q = q.eq("project_id", projectId);
+    if (projectId) q = q.eq("project_id", projectId);
 
-  const { data, error } = await q;
-  if (error) {
-    console.error("[db] getRenderJobs:", error.message);
-    return [];
-  }
-  return (data ?? []) as DbRenderJob[];
+    const { data, error } = await q;
+    if (error) {
+      console.error("[db] getRenderJobs:", error.message);
+      return [];
+    }
+    return (data ?? []) as DbRenderJob[];
+  }, []);
 }
 
 export async function createRenderJob(
@@ -195,18 +222,20 @@ export async function updateRenderJob(
 // ─── Activity ─────────────────────────────────────────────────────────────────
 
 export async function getActivity(limit = 20): Promise<DbActivityItem[]> {
-  const sb = await createServerSupabaseClient();
-  const { data, error } = await sb
-    .from("activity")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(limit);
+  return safe("getActivity", async () => {
+    const sb = await createServerSupabaseClient();
+    const { data, error } = await sb
+      .from("activity")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(limit);
 
-  if (error) {
-    console.error("[db] getActivity:", error.message);
-    return [];
-  }
-  return (data ?? []) as DbActivityItem[];
+    if (error) {
+      console.error("[db] getActivity:", error.message);
+      return [];
+    }
+    return (data ?? []) as DbActivityItem[];
+  }, []);
 }
 
 export async function logActivity(
@@ -223,49 +252,61 @@ export async function logActivity(
  * Per-user KPI snapshot. Every count flows through RLS so each user sees
  * only their own data. The `creditsTotal` is a plan-level constant for now.
  */
+const EMPTY_KPI: KPISummary = {
+  totalContent: 0,
+  totalVideos: 0,
+  creditsUsed: 0,
+  creditsTotal: 5000,
+  activeProjects: 0,
+  publishedToday: 0,
+  renderQueue: 0,
+};
+
 export async function getKPISummary(): Promise<KPISummary> {
-  const sb = await createServerSupabaseClient();
+  return safe("getKPISummary", async () => {
+    const sb = await createServerSupabaseClient();
 
-  // Run aggregates in parallel
-  const [contentRes, videoRes, projectRes, publishedRes, queueRes] =
-    await Promise.all([
-      sb.from("content_items").select("id", { count: "exact", head: true }),
-      sb
-        .from("render_jobs")
-        .select("id", { count: "exact", head: true })
-        .eq("status", "done"),
-      sb
-        .from("projects")
-        .select("id", { count: "exact", head: true })
-        .eq("status", "active"),
-      sb
-        .from("content_items")
-        .select("id", { count: "exact", head: true })
-        .eq("status", "published")
-        .gte("created_at", new Date(Date.now() - 86_400_000).toISOString()),
-      sb
-        .from("render_jobs")
-        .select("id", { count: "exact", head: true })
-        .in("status", ["queued", "rendering"]),
-    ]);
+    // Run aggregates in parallel
+    const [contentRes, videoRes, projectRes, publishedRes, queueRes] =
+      await Promise.all([
+        sb.from("content_items").select("id", { count: "exact", head: true }),
+        sb
+          .from("render_jobs")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "done"),
+        sb
+          .from("projects")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "active"),
+        sb
+          .from("content_items")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "published")
+          .gte("created_at", new Date(Date.now() - 86_400_000).toISOString()),
+        sb
+          .from("render_jobs")
+          .select("id", { count: "exact", head: true })
+          .in("status", ["queued", "rendering"]),
+      ]);
 
-  // Credits: sum from the user's own projects (RLS filters)
-  const { data: creditsData } = await sb.from("projects").select("credits_used");
+    // Credits: sum from the user's own projects (RLS filters)
+    const { data: creditsData } = await sb.from("projects").select("credits_used");
 
-  const creditsUsed = ((creditsData ?? []) as Array<{ credits_used: number | null }>).reduce(
-    (acc, r) => acc + (r.credits_used ?? 0),
-    0
-  );
+    const creditsUsed = ((creditsData ?? []) as Array<{ credits_used: number | null }>).reduce(
+      (acc, r) => acc + (r.credits_used ?? 0),
+      0
+    );
 
-  return {
-    totalContent: contentRes.count ?? 0,
-    totalVideos: videoRes.count ?? 0,
-    creditsUsed,
-    creditsTotal: 5000,
-    activeProjects: projectRes.count ?? 0,
-    publishedToday: publishedRes.count ?? 0,
-    renderQueue: queueRes.count ?? 0,
-  };
+    return {
+      totalContent: contentRes.count ?? 0,
+      totalVideos: videoRes.count ?? 0,
+      creditsUsed,
+      creditsTotal: 5000,
+      activeProjects: projectRes.count ?? 0,
+      publishedToday: publishedRes.count ?? 0,
+      renderQueue: queueRes.count ?? 0,
+    };
+  }, EMPTY_KPI);
 }
 
 // ─── Analytics ────────────────────────────────────────────────────────────────
@@ -280,7 +321,8 @@ export async function getKPISummary(): Promise<KPISummary> {
  * RLS scopes both tables to the current Clerk user.
  */
 export async function getAnalyticsData(days = 14): Promise<ChartPoint[]> {
-  const sb = await createServerSupabaseClient();
+  return safe("getAnalyticsData", async () => {
+    const sb = await createServerSupabaseClient();
   const since = new Date(Date.now() - days * 86_400_000);
   since.setUTCHours(0, 0, 0, 0);
   const sinceIso = since.toISOString();
@@ -332,5 +374,6 @@ export async function getAnalyticsData(days = 14): Promise<ChartPoint[]> {
       credits: videos * 50,
     });
   }
-  return points;
+    return points;
+  }, []);
 }

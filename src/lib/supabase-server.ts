@@ -16,20 +16,21 @@ import { serverEnv } from "./env";
  *   const sb = await createServerSupabaseClient();
  *   const { data } = await sb.from("brands").select("*");
  */
-// HTTP header values must be printable ASCII. A token containing newlines,
-// control chars, or non-ASCII would throw a TypeError from Headers.set —
-// we'd rather degrade to anon access (RLS returns nothing) than 500 the page.
-// Also defends against any future Clerk SDK regression that returns something
-// unexpected from getToken().
-const VALID_HEADER_VALUE = /^[\x21-\x7E]+$/;
+// Strict JWT shape: <header>.<payload>.<signature>, each part base64url-encoded.
+// All Clerk session tokens are JWTs and always start with "eyJ" (the base64
+// encoding of `{"alg":...`). Anything else — chat text, html, error strings,
+// random gibberish — is rejected and we fall back to anon access (RLS returns
+// nothing, page renders empty rather than 500ing on Headers.set).
+const VALID_JWT = /^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
 
 function safeToken(token: string | null | undefined): string | null {
   if (!token || typeof token !== "string") return null;
-  if (!VALID_HEADER_VALUE.test(token)) {
+  if (!VALID_JWT.test(token)) {
     console.error(
-      `[supabase-server] Clerk getToken() returned a malformed value ` +
-        `(${token.length} chars, contains non-printable or non-ASCII). ` +
-        `Falling back to anon access. User likely needs to sign out + clear cookies + sign in again.`
+      `[supabase-server] Clerk getToken() returned a non-JWT value ` +
+        `(${token.length} chars, starts with: ${JSON.stringify(token.slice(0, 30))}). ` +
+        `Falling back to anon access. User likely needs to sign out + delete their ` +
+        `Clerk user (corrupted metadata) and sign up again with a fresh email.`
     );
     return null;
   }
