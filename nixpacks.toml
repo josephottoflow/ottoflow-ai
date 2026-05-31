@@ -1,0 +1,21 @@
+# Railway / nixpacks build config for the worker service.
+#
+# Default nixpacks for Next.js: `npm ci` → `npm run build` → `npm run start`.
+# That assumes a web app. We're building a BullMQ worker, so override every
+# phase to drive `worker/build.mjs` (esbuild bundle) and `node worker/dist/index.js`.
+#
+# Critical: pin Node 20 (a couple of our transitive deps require >=20; default
+# nixpacks Node 18 issues EBADENGINE warns + an EBUSY race on node_modules/.cache
+# when our build command re-runs npm ci after the default phase already did).
+
+[variables]
+NIXPACKS_NODE_VERSION = "20"
+
+[phases.install]
+cmds = ["npm ci --include=dev"]
+
+[phases.build]
+cmds = ["npm run build:worker"]
+
+[start]
+cmd = "npm run start:worker"
