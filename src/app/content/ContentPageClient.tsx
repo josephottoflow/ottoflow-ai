@@ -102,7 +102,7 @@ export function ContentPageClient({ items, kpis }: Props) {
           title="Total Generated"
           value={formatNumber(kpis.totalContent)}
           subtitle="All time"
-          icon={FileText}
+          icon={<FileText size={18} />}
           iconColor="#a78bfa"
           iconBg="rgba(124,58,237,0.12)"
         />
@@ -110,7 +110,7 @@ export function ContentPageClient({ items, kpis }: Props) {
           title="Credits Left"
           value={formatNumber(kpis.creditsTotal - kpis.creditsUsed)}
           subtitle={`of ${formatNumber(kpis.creditsTotal)} total`}
-          icon={Zap}
+          icon={<Zap size={18} />}
           iconColor="#fbbf24"
           iconBg="rgba(245,158,11,0.12)"
         />
@@ -118,7 +118,7 @@ export function ContentPageClient({ items, kpis }: Props) {
           title="Published"
           value={publishedCount}
           subtitle="Across all platforms"
-          icon={Send}
+          icon={<Send size={18} />}
           iconColor="#34d399"
           iconBg="rgba(16,185,129,0.12)"
         />
@@ -126,7 +126,7 @@ export function ContentPageClient({ items, kpis }: Props) {
           title="Pending Review"
           value={draftCount}
           subtitle="Awaiting approval"
-          icon={Clock}
+          icon={<Clock size={18} />}
           iconColor="#fb923c"
           iconBg="rgba(251,146,60,0.12)"
         />

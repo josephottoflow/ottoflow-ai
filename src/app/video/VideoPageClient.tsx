@@ -100,7 +100,7 @@ export function VideoPageClient({ renderJobs, kpis }: Props) {
           title="Active Renders"
           value={activeJobs}
           subtitle={`${pendingJobs} jobs total queued`}
-          icon={Cpu}
+          icon={<Cpu size={18} />}
           iconColor="#67e8f9"
           iconBg="rgba(6,182,212,0.12)"
         />
@@ -108,7 +108,7 @@ export function VideoPageClient({ renderJobs, kpis }: Props) {
           title="Videos Generated"
           value={formatNumber(kpis.totalVideos)}
           subtitle="Completed"
-          icon={Video}
+          icon={<Video size={18} />}
           iconColor="#a78bfa"
           iconBg="rgba(124,58,237,0.12)"
         />
@@ -116,7 +116,7 @@ export function VideoPageClient({ renderJobs, kpis }: Props) {
           title="Render Credits"
           value={formatNumber(kpis.creditsTotal - kpis.creditsUsed)}
           subtitle="Available to use"
-          icon={Zap}
+          icon={<Zap size={18} />}
           iconColor="#fbbf24"
           iconBg="rgba(245,158,11,0.12)"
         />
@@ -124,7 +124,7 @@ export function VideoPageClient({ renderJobs, kpis }: Props) {
           title="Est. Render Cost"
           value={`$${(pendingJobs * 1.60).toFixed(2)}`}
           subtitle="For current queue"
-          icon={DollarSign}
+          icon={<DollarSign size={18} />}
           iconColor="#34d399"
           iconBg="rgba(16,185,129,0.12)"
         />
