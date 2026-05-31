@@ -70,18 +70,20 @@ export async function getProjects(): Promise<DbProject[]> {
 }
 
 export async function getProject(id: string): Promise<DbProject | null> {
-  const sb = await createServerSupabaseClient();
-  const { data, error } = await sb
-    .from("projects")
-    .select("*")
-    .eq("id", id)
-    .maybeSingle();
+  return safe("getProject", async () => {
+    const sb = await createServerSupabaseClient();
+    const { data, error } = await sb
+      .from("projects")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
 
-  if (error) {
-    console.error("[db] getProject:", error.message);
-    return null;
-  }
-  return (data ?? null) as DbProject | null;
+    if (error) {
+      console.error("[db] getProject:", error.message);
+      return null;
+    }
+    return (data ?? null) as DbProject | null;
+  }, null);
 }
 
 /**
