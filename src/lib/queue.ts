@@ -1,0 +1,125 @@
+/**
+ * BullMQ queue helpers. Used from both the Next.js process (to enqueue)
+ * and the worker process (to consume). REDIS_URL presence is guaranteed
+ * by whichever env validator ran first: src/lib/env.ts on the Next side,
+ * src/lib/worker-env.ts on the worker side.
+ */
+import { Queue, type QueueOptions, type JobsOptions, type ConnectionOptions } from "bullmq";
+import IORedis from "ioredis";
+
+// ─── Redis singleton ─────────────────────────────────────────────────────────
+// We hold the actual IORedis instance separately from the BullMQ-shaped
+// ConnectionOptions cast so callers can attach event listeners (see
+// attachRedisLogger) for ops visibility on disconnects / reconnects.
+
+let redisInstance: IORedis | null = null;
+
+function getRedisInstance(): IORedis {
+  if (redisInstance) return redisInstance;
+  const url = process.env.REDIS_URL;
+  if (!url) {
+    // Should be unreachable — env.ts / worker-env.ts catch this at boot.
+    throw new Error(
+      "[queue] REDIS_URL is not set — env validator was bypassed?"
+    );
+  }
+  redisInstance = new IORedis(url, {
+    // BullMQ requires this; suppresses ioredis's internal command retry that
+    // would otherwise interact badly with BullMQ's own retry semantics.
+    maxRetriesPerRequest: null,
+    enableReadyCheck: false,
+    // Cap the reconnect delay so a long Redis outage produces logs at a
+    // reasonable cadence (default doubles each time up to 30s — we cap at 5s
+    // to keep the worker visibly trying without spamming).
+    retryStrategy(times) {
+      return Math.min(times * 100, 5_000);
+    },
+  });
+  return redisInstance;
+}
+
+/**
+ * BullMQ's connection option (a cast view of the IORedis instance).
+ * BullMQ ships its own bundled ioredis types which are nominally distinct
+ * from the top-level ioredis types — the runtime instance is identical.
+ */
+export function getRedis(): ConnectionOptions {
+  return getRedisInstance() as unknown as ConnectionOptions;
+}
+
+/**
+ * Wire ioredis lifecycle events to an arbitrary logger so operators can see
+ * disconnects / reconnects in the worker log stream. Idempotent — safe to
+ * call multiple times (but each registers fresh listeners; call once at boot).
+ */
+export function attachRedisLogger(
+  log: (msg: string, extra?: Record<string, unknown>) => void
+): void {
+  const r = getRedisInstance();
+  r.on("connect", () => log("redis.connect"));
+  r.on("ready", () => log("redis.ready"));
+  r.on("close", () => log("redis.close"));
+  r.on("reconnecting", (delay: number) => log("redis.reconnecting", { delay }));
+  r.on("end", () => log("redis.end"));
+  r.on("error", (err: Error) => log("redis.error", { error: err.message }));
+}
+
+/**
+ * Disconnect the singleton Redis client. Call from the worker shutdown
+ * sequence after BullMQ workers are closed.
+ */
+export async function disconnectRedis(): Promise<void> {
+  if (!redisInstance) return;
+  try {
+    await redisInstance.quit();
+  } catch {
+    redisInstance.disconnect();
+  }
+  redisInstance = null;
+}
+
+// ─── Queue names (string-typed for safety across processes) ───────────────────
+export const QUEUE_NAMES = {
+  brandResearch: "brand-research",
+} as const;
+export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
+
+// ─── Per-queue payload schemas ────────────────────────────────────────────────
+export interface BrandResearchJobData {
+  brandId: string;
+  researchJobId: string;
+  // Snapshot of the input so the worker doesn't have to re-query
+  name: string;
+  website: string;
+  industry: string;
+}
+
+export interface JobPayloads {
+  "brand-research": BrandResearchJobData;
+}
+
+// ─── Queue accessors ──────────────────────────────────────────────────────────
+const queues = new Map<QueueName, Queue>();
+
+const defaultJobOpts: JobsOptions = {
+  attempts: 2,
+  backoff: { type: "exponential", delay: 5000 },
+  removeOnComplete: { age: 3600, count: 1000 },
+  removeOnFail: { age: 24 * 3600 },
+};
+
+export function getQueue<N extends QueueName>(name: N): Queue<JobPayloads[N]> {
+  const existing = queues.get(name);
+  if (existing) return existing as Queue<JobPayloads[N]>;
+
+  const opts: QueueOptions = {
+    connection: getRedis(),
+    defaultJobOptions: defaultJobOpts,
+  };
+  const q = new Queue<JobPayloads[N]>(name, opts);
+  queues.set(name, q as Queue);
+  return q;
+}
+
+// Convenience
+export const brandResearchQueue = () => getQueue(QUEUE_NAMES.brandResearch);

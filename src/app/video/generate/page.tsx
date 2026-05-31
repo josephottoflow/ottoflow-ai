@@ -1,0 +1,669 @@
+"use client";
+
+import { useState, useRef, useEffect, useCallback } from "react";
+import Link from "next/link";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import type { SSEEvent, GenerateRequest } from "@/lib/types";
+import {
+  ArrowLeft,
+  Sparkles,
+  Play,
+  Download,
+  Copy,
+  RefreshCw,
+  ChevronDown,
+  ChevronUp,
+  CheckCircle2,
+  Loader2,
+  Circle,
+  AlertCircle,
+  Video,
+  Mic,
+  Type,
+  Film,
+  Music,
+  Wand2,
+  Zap,
+} from "lucide-react";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type PipelineStage =
+  | "script"
+  | "storyboard"
+  | "voice"
+  | "clips"
+  | "music"
+  | "render";
+
+type StageStatus = "pending" | "running" | "done" | "error";
+
+interface Stage {
+  id: PipelineStage;
+  label: string;
+  icon: React.ElementType;
+}
+
+interface LogEntry {
+  level: "info" | "warn" | "error" | "success";
+  message: string;
+  ts: number;
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const STAGES: Stage[] = [
+  { id: "script", label: "Script", icon: Type },
+  { id: "storyboard", label: "Storyboard", icon: Film },
+  { id: "voice", label: "Voice", icon: Mic },
+  { id: "clips", label: "Clips", icon: Video },
+  { id: "music", label: "Music", icon: Music },
+  { id: "render", label: "Render", icon: Zap },
+];
+
+const PROVIDERS = [
+  { id: "veo3", label: "Veo 3 Lite", badge: "Best Quality", color: "#a78bfa" },
+  { id: "higgsfield", label: "Higgsfield", badge: "Director Mode", color: "#67e8f9" },
+  { id: "imagen3", label: "Imagen 3", badge: "Fastest", color: "#34d399" },
+] as const;
+
+const STYLES = [
+  "cinematic", "ugc", "minimal", "bold", "luxury", "tech", "outdoor", "neon",
+];
+
+const VIBES = ["energetic", "calm", "dramatic", "playful", "inspirational"];
+
+const EXAMPLES = [
+  "30-second TikTok ad for an ergonomic standing desk targeting remote workers",
+  "UGC-style product review video for a skincare serum, warm lifestyle tone",
+  "High-energy Facebook ad for a fitness app with before/after transformation",
+  "Luxury brand video for a Swiss watch, cinematic black and white",
+  "Quick demo reel showing 3 features of an AI writing tool",
+];
+
+function stageFromLog(msg: string): PipelineStage | null {
+  const m = msg.toLowerCase();
+  if (m.includes("script")) return "script";
+  if (m.includes("storyboard")) return "storyboard";
+  if (m.includes("voice") || m.includes("audio")) return "voice";
+  if (m.includes("clip") || m.includes("veo") || m.includes("imagen") || m.includes("higgsfield")) return "clips";
+  if (m.includes("music") || m.includes("ffmpeg")) return "music";
+  if (m.includes("render") || m.includes("remotion") || m.includes("export") || m.includes("done")) return "render";
+  return null;
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
+export default function VideoGeneratePage() {
+  const [prompt, setPrompt] = useState("");
+  const [provider, setProvider] = useState<GenerateRequest["provider"]>("veo3");
+  const [style, setStyle] = useState("cinematic");
+  const [sceneCount, setSceneCount] = useState(4);
+  const [vibe, setVibe] = useState("energetic");
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [hookStyle, setHookStyle] = useState("bold-statement");
+  const [renderVariant, setRenderVariant] = useState("ugc-v2");
+
+  const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [statusLabel, setStatusLabel] = useState("");
+  const [stages, setStages] = useState<Record<PipelineStage, StageStatus>>({
+    script: "pending", storyboard: "pending", voice: "pending",
+    clips: "pending", music: "pending", render: "pending",
+  });
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [showLogs, setShowLogs] = useState(false);
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const logsRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Auto-scroll logs
+  useEffect(() => {
+    if (logsRef.current) {
+      logsRef.current.scrollTop = logsRef.current.scrollHeight;
+    }
+  }, [logs]);
+
+  const advanceStage = useCallback((stage: PipelineStage) => {
+    setStages((prev) => {
+      const next = { ...prev };
+      // Mark all previous stages done
+      let found = false;
+      for (const s of STAGES) {
+        if (s.id === stage) { found = true; next[s.id] = "running"; }
+        else if (!found && next[s.id] !== "done") next[s.id] = "done";
+      }
+      return next;
+    });
+  }, []);
+
+  const handleGenerate = useCallback(async () => {
+    if (!prompt.trim() || running) return;
+
+    // Reset state
+    setRunning(true);
+    setProgress(0);
+    setStatusLabel("Initializing pipeline…");
+    setVideoUrl(null);
+    setJobId(null);
+    setError(null);
+    setLogs([]);
+    setStages({ script: "pending", storyboard: "pending", voice: "pending", clips: "pending", music: "pending", render: "pending" });
+
+    abortRef.current = new AbortController();
+
+    const body: GenerateRequest = {
+      prompt,
+      provider,
+      style,
+      sceneCount,
+      musicVibe: vibe,
+      hookStyle,
+      renderVariant,
+    };
+
+    try {
+      const res = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: abortRef.current.signal,
+      });
+
+      if (!res.ok || !res.body) {
+        throw new Error(`Server returned ${res.status}`);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data:")) continue;
+          const raw = line.slice(5).trim();
+          if (!raw) continue;
+
+          let event: SSEEvent;
+          try { event = JSON.parse(raw); } catch { continue; }
+
+          if (event.type === "log") {
+            const level = event.level ?? "info";
+            const message = event.message ?? "";
+            setLogs((prev) => [...prev, { level, message, ts: Date.now() }]);
+
+            // Detect stage advancement from log message
+            const stage = stageFromLog(message);
+            if (stage) advanceStage(stage);
+          }
+
+          if (event.type === "status") {
+            if (event.label) setStatusLabel(event.label);
+            if (event.pct !== undefined) setProgress(event.pct);
+          }
+
+          if (event.type === "done") {
+            // Mark all stages done
+            setStages({ script: "done", storyboard: "done", voice: "done", clips: "done", music: "done", render: "done" });
+            setProgress(100);
+            setStatusLabel("Complete!");
+            if (event.videoUrl) setVideoUrl(event.videoUrl);
+            if (event.jobId) setJobId(event.jobId);
+            setRunning(false);
+          }
+
+          if (event.type === "error") {
+            setError(event.error ?? "Unknown error");
+            setRunning(false);
+          }
+        }
+      }
+    } catch (err) {
+      if ((err as Error).name !== "AbortError") {
+        setError((err as Error).message);
+      }
+      setRunning(false);
+    }
+  }, [prompt, provider, style, sceneCount, vibe, hookStyle, renderVariant, running, advanceStage]);
+
+  const handleStop = () => {
+    abortRef.current?.abort();
+    setRunning(false);
+    setStatusLabel("Stopped");
+  };
+
+  const handleCopyLink = () => {
+    if (videoUrl) navigator.clipboard.writeText(videoUrl);
+  };
+
+  return (
+    <div className="p-6 max-w-[1200px] mx-auto">
+
+      {/* Header */}
+      <div className="flex items-center gap-3 mb-8">
+        <Link href="/video">
+          <button className="flex items-center gap-1.5 text-xs text-white/40 hover:text-white/60 transition-colors">
+            <ArrowLeft size={12} /> Video Pipeline
+          </button>
+        </Link>
+        <span className="text-white/20">/</span>
+        <span className="text-xs text-cyan-400 font-medium">Generate</span>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_420px] gap-6">
+
+        {/* ── Left: Prompt form ── */}
+        <div className="space-y-4">
+          <div className="glass rounded-2xl p-6">
+            <div className="flex items-center gap-2 mb-5">
+              <Wand2 size={16} className="text-cyan-400" />
+              <h2 className="text-base font-bold text-white">Video Prompt</h2>
+              <Badge variant="info" className="text-[10px] ml-auto">Advanced Tier</Badge>
+            </div>
+
+            {/* Prompt textarea */}
+            <div className="mb-4">
+              <textarea
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder="Describe your video… e.g. '30-second TikTok ad for an ergonomic standing desk targeting remote workers'"
+                className="w-full text-sm text-white/75 placeholder:text-white/20 resize-none outline-none transition-colors rounded-xl p-4 leading-relaxed"
+                style={{
+                  background: "rgba(255,255,255,0.03)",
+                  border: `1px solid ${prompt ? "rgba(6,182,212,0.25)" : "rgba(255,255,255,0.08)"}`,
+                  minHeight: 110,
+                }}
+                disabled={running}
+              />
+              {/* Example prompts */}
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {EXAMPLES.slice(0, 3).map((ex) => (
+                  <button
+                    key={ex}
+                    onClick={() => setPrompt(ex)}
+                    disabled={running}
+                    className="text-[10px] text-white/30 hover:text-white/55 transition-colors px-2 py-1 rounded-lg max-w-[200px] text-left truncate"
+                    style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
+                  >
+                    {ex}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Provider */}
+            <div className="mb-4">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-white/35 mb-2">AI Provider</p>
+              <div className="flex gap-2">
+                {PROVIDERS.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => setProvider(p.id)}
+                    disabled={running}
+                    className="flex-1 flex flex-col items-center gap-1 py-2.5 px-3 rounded-xl text-xs font-medium transition-all"
+                    style={{
+                      background: provider === p.id ? `${p.color}12` : "rgba(255,255,255,0.02)",
+                      border: provider === p.id ? `1px solid ${p.color}35` : "1px solid rgba(255,255,255,0.06)",
+                      color: provider === p.id ? p.color : "rgba(255,255,255,0.35)",
+                    }}
+                  >
+                    {p.label}
+                    <span className="text-[9px] opacity-60">{p.badge}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Style pills */}
+            <div className="mb-4">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-white/35 mb-2">Visual Style</p>
+              <div className="flex flex-wrap gap-1.5">
+                {STYLES.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setStyle(s)}
+                    disabled={running}
+                    className="text-xs px-3 py-1.5 rounded-full capitalize transition-all font-medium"
+                    style={{
+                      background: style === s ? "rgba(124,58,237,0.15)" : "rgba(255,255,255,0.04)",
+                      border: style === s ? "1px solid rgba(124,58,237,0.3)" : "1px solid rgba(255,255,255,0.06)",
+                      color: style === s ? "#a78bfa" : "rgba(255,255,255,0.4)",
+                    }}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Scene count + Music vibe */}
+            <div className="flex gap-4 mb-4">
+              <div className="flex-1">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-white/35 mb-2">Scenes</p>
+                <div className="flex gap-1.5">
+                  {[3, 4, 5].map((n) => (
+                    <button
+                      key={n}
+                      onClick={() => setSceneCount(n)}
+                      disabled={running}
+                      className="flex-1 py-1.5 rounded-lg text-xs font-bold transition-all"
+                      style={{
+                        background: sceneCount === n ? "rgba(124,58,237,0.15)" : "rgba(255,255,255,0.04)",
+                        border: sceneCount === n ? "1px solid rgba(124,58,237,0.3)" : "1px solid rgba(255,255,255,0.06)",
+                        color: sceneCount === n ? "#a78bfa" : "rgba(255,255,255,0.35)",
+                      }}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex-1">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-white/35 mb-2">Music Vibe</p>
+                <div className="flex flex-wrap gap-1">
+                  {VIBES.map((v) => (
+                    <button
+                      key={v}
+                      onClick={() => setVibe(v)}
+                      disabled={running}
+                      className="text-[10px] px-2 py-1 rounded-lg capitalize transition-all font-medium"
+                      style={{
+                        background: vibe === v ? "rgba(6,182,212,0.12)" : "rgba(255,255,255,0.03)",
+                        border: vibe === v ? "1px solid rgba(6,182,212,0.25)" : "1px solid rgba(255,255,255,0.05)",
+                        color: vibe === v ? "#67e8f9" : "rgba(255,255,255,0.3)",
+                      }}
+                    >
+                      {v}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Advanced toggle */}
+            <button
+              onClick={() => setShowAdvanced((v) => !v)}
+              className="flex items-center gap-1.5 text-[11px] text-white/30 hover:text-white/50 transition-colors mb-3"
+            >
+              {showAdvanced ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+              Advanced options
+            </button>
+
+            {showAdvanced && (
+              <div className="grid grid-cols-2 gap-4 mb-4 pt-3"
+                style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}>
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-white/35 mb-2">Hook Style</p>
+                  {["bold-statement", "question", "shocking-stat", "story"].map((h) => (
+                    <button
+                      key={h}
+                      onClick={() => setHookStyle(h)}
+                      disabled={running}
+                      className="block w-full text-left text-[11px] px-2.5 py-1.5 rounded-lg mb-1 capitalize transition-all"
+                      style={{
+                        background: hookStyle === h ? "rgba(124,58,237,0.1)" : "transparent",
+                        color: hookStyle === h ? "#a78bfa" : "rgba(255,255,255,0.35)",
+                      }}
+                    >
+                      {h.replace(/-/g, " ")}
+                    </button>
+                  ))}
+                </div>
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-white/35 mb-2">Render Template</p>
+                  {["ugc-v2", "cinematic", "product-demo", "before-after"].map((t) => (
+                    <button
+                      key={t}
+                      onClick={() => setRenderVariant(t)}
+                      disabled={running}
+                      className="block w-full text-left text-[11px] px-2.5 py-1.5 rounded-lg mb-1 capitalize transition-all"
+                      style={{
+                        background: renderVariant === t ? "rgba(6,182,212,0.08)" : "transparent",
+                        color: renderVariant === t ? "#67e8f9" : "rgba(255,255,255,0.35)",
+                      }}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* CTA */}
+            <div className="flex gap-2">
+              {running ? (
+                <Button
+                  onClick={handleStop}
+                  variant="outline"
+                  className="flex-1 gap-2 text-red-400 border-red-500/20 hover:border-red-500/40"
+                >
+                  <Circle size={13} className="fill-red-500 text-red-500" />
+                  Stop Generation
+                </Button>
+              ) : (
+                <Button
+                  onClick={handleGenerate}
+                  disabled={!prompt.trim()}
+                  variant="gradient-cyan"
+                  size="lg"
+                  className="flex-1 gap-2"
+                >
+                  <Sparkles size={15} />
+                  Generate Video
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Right: Progress + Output ── */}
+        <div className="space-y-4">
+
+          {/* Pipeline progress */}
+          <div className="glass rounded-2xl p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-white">Pipeline Progress</h3>
+              {running && (
+                <div className="flex items-center gap-1.5">
+                  <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                  <span className="text-[10px] text-cyan-400">Running</span>
+                </div>
+              )}
+              {!running && progress === 100 && (
+                <Badge variant="success" className="text-[10px]">Complete</Badge>
+              )}
+            </div>
+
+            {/* Overall progress bar */}
+            <div className="mb-4">
+              <div className="flex justify-between text-[10px] text-white/40 mb-1.5">
+                <span>{statusLabel || "Ready"}</span>
+                <span>{progress}%</span>
+              </div>
+              <Progress value={progress} className="h-1.5" />
+            </div>
+
+            {/* Stage badges */}
+            <div className="grid grid-cols-3 gap-2">
+              {STAGES.map((stage) => {
+                const status = stages[stage.id];
+                const Icon = stage.icon;
+                return (
+                  <div
+                    key={stage.id}
+                    className="flex flex-col items-center gap-1.5 p-2.5 rounded-xl text-center transition-all"
+                    style={{
+                      background:
+                        status === "done" ? "rgba(16,185,129,0.08)"
+                        : status === "running" ? "rgba(6,182,212,0.08)"
+                        : status === "error" ? "rgba(239,68,68,0.08)"
+                        : "rgba(255,255,255,0.02)",
+                      border:
+                        status === "done" ? "1px solid rgba(16,185,129,0.2)"
+                        : status === "running" ? "1px solid rgba(6,182,212,0.2)"
+                        : status === "error" ? "1px solid rgba(239,68,68,0.2)"
+                        : "1px solid rgba(255,255,255,0.05)",
+                    }}
+                  >
+                    {status === "done" ? (
+                      <CheckCircle2 size={14} className="text-emerald-400" />
+                    ) : status === "running" ? (
+                      <Loader2 size={14} className="text-cyan-400 animate-spin" />
+                    ) : status === "error" ? (
+                      <AlertCircle size={14} className="text-red-400" />
+                    ) : (
+                      <Icon size={14} className="text-white/20" />
+                    )}
+                    <span className="text-[10px] font-medium"
+                      style={{
+                        color: status === "done" ? "#34d399"
+                          : status === "running" ? "#67e8f9"
+                          : status === "error" ? "#f87171"
+                          : "rgba(255,255,255,0.25)",
+                      }}>
+                      {stage.label}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Error state */}
+          {error && (
+            <div className="rounded-xl p-4 flex items-start gap-3"
+              style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)" }}>
+              <AlertCircle size={15} className="text-red-400 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-xs font-semibold text-red-400">Pipeline error</p>
+                <p className="text-xs text-red-400/70 mt-0.5">{error}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Video output */}
+          {videoUrl ? (
+            <div className="glass rounded-2xl overflow-hidden">
+              <video
+                src={videoUrl}
+                controls
+                autoPlay
+                className="w-full aspect-video bg-black"
+              />
+              <div className="p-4 flex gap-2">
+                <a href={videoUrl} download>
+                  <Button variant="gradient-cyan" size="sm" className="gap-1.5">
+                    <Download size={13} />
+                    Download
+                  </Button>
+                </a>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={handleCopyLink}
+                >
+                  <Copy size={13} />
+                  Copy Link
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5 text-white/40 ml-auto"
+                  onClick={() => {
+                    setVideoUrl(null);
+                    setProgress(0);
+                    setStatusLabel("");
+                    setPrompt("");
+                    setStages({ script: "pending", storyboard: "pending", voice: "pending", clips: "pending", music: "pending", render: "pending" });
+                    setLogs([]);
+                  }}
+                >
+                  <RefreshCw size={13} />
+                  New
+                </Button>
+              </div>
+            </div>
+          ) : !running && progress === 0 ? (
+            /* Placeholder */
+            <div className="rounded-2xl flex flex-col items-center justify-center py-12 gap-3"
+              style={{ border: "1px dashed rgba(255,255,255,0.07)", background: "rgba(255,255,255,0.01)" }}>
+              <div className="w-12 h-12 rounded-full flex items-center justify-center"
+                style={{ background: "rgba(6,182,212,0.08)", border: "1px solid rgba(6,182,212,0.15)" }}>
+                <Play size={18} className="text-cyan-500/50 ml-0.5" />
+              </div>
+              <p className="text-sm text-white/25">Your video will appear here</p>
+              <p className="text-xs text-white/15">Enter a prompt and click Generate</p>
+            </div>
+          ) : null}
+
+          {/* Log console */}
+          <div className="glass rounded-2xl overflow-hidden">
+            <button
+              onClick={() => setShowLogs((v) => !v)}
+              className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/[0.02] transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-white/50">Pipeline Logs</span>
+                {logs.length > 0 && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold"
+                    style={{ background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.3)" }}>
+                    {logs.length}
+                  </span>
+                )}
+              </div>
+              {showLogs ? (
+                <ChevronUp size={13} className="text-white/30" />
+              ) : (
+                <ChevronDown size={13} className="text-white/30" />
+              )}
+            </button>
+
+            {showLogs && (
+              <div
+                ref={logsRef}
+                className="overflow-y-auto px-4 pb-4 font-mono text-[10px] leading-relaxed space-y-0.5"
+                style={{ maxHeight: 260, borderTop: "1px solid rgba(255,255,255,0.05)" }}
+              >
+                {logs.length === 0 ? (
+                  <p className="text-white/20 py-3 text-center">No logs yet</p>
+                ) : (
+                  logs.map((entry, i) => (
+                    <div key={i} className="flex gap-2"
+                      style={{
+                        color:
+                          entry.level === "error" ? "#f87171"
+                          : entry.level === "warn" ? "#fbbf24"
+                          : entry.level === "success" ? "#34d399"
+                          : "rgba(148,163,184,0.7)",
+                      }}>
+                      <span className="text-white/20 flex-shrink-0 select-none">
+                        {entry.level === "error" ? "✗"
+                          : entry.level === "success" ? "✓"
+                          : entry.level === "warn" ? "⚠"
+                          : "›"}
+                      </span>
+                      <span>{entry.message}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
