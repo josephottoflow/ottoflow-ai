@@ -4,12 +4,16 @@
 # That assumes a web app. We're building a BullMQ worker, so override every
 # phase to drive `worker/build.mjs` (esbuild bundle) and `node worker/dist/index.js`.
 #
-# Critical: pin Node 20 (a couple of our transitive deps require >=20; default
-# nixpacks Node 18 issues EBADENGINE warns + an EBUSY race on node_modules/.cache
-# when our build command re-runs npm ci after the default phase already did).
+# Critical: pin Node 22 (Node 20 has no native WebSocket and supabase-js auto-
+# initializes a Realtime client at SupabaseClient construction — even when we
+# don't use Realtime from the worker. Without native WebSocket the worker
+# crashes at startup with "Node.js 20 detected without native WebSocket
+# support. install ws package…". Node 22 has WebSocket natively, so we
+# don't need to ship the `ws` polyfill. Also fixes the original EBADENGINE
+# warnings from transitive deps requiring >=20.)
 
 [variables]
-NIXPACKS_NODE_VERSION = "20"
+NIXPACKS_NODE_VERSION = "22"
 
 [phases.install]
 cmds = ["npm ci --include=dev"]
