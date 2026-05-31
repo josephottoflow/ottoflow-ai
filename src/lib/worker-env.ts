@@ -16,20 +16,43 @@
  */
 import { z } from "zod";
 
+// Any value that ends up in an HTTP header must be safe to pass to
+// `Headers.set()` — no CR/LF, no NUL, no control characters. We've seen
+// clipboard-paste corruption in deployment dashboards land control chars
+// in env values; catch them at boot.
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARS = /[\x00-\x1f\x7f]/;
+const isHeaderSafe = (v: string): boolean =>
+  !CONTROL_CHARS.test(v) && v.length > 0 && v.length <= 4096;
+const headerSafe = (msg: string) =>
+  z
+    .string()
+    .refine(
+      isHeaderSafe,
+      `${msg} (contains control chars / newlines or exceeds 4096 chars — corrupted paste in env field?)`
+    );
+
 const WorkerSchema = z.object({
   // Required
-  NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
+  NEXT_PUBLIC_SUPABASE_URL: z.string().url().pipe(headerSafe("invalid Supabase URL")),
   SUPABASE_SERVICE_ROLE_KEY: z
     .string()
-    .min(20, "looks too short to be a real service-role key"),
+    .min(20, "looks too short to be a real service-role key")
+    .max(2048, "looks too long to be a real service-role key (corrupted paste?)")
+    .pipe(headerSafe("service-role key has invalid characters for an HTTP header")),
   REDIS_URL: z
     .string()
     .min(1)
     .refine(
       (v) => /^rediss?:\/\//.test(v),
       "must start with redis:// or rediss:// (Upstash uses rediss://)"
-    ),
-  GOOGLE_API_KEY: z.string().min(10, "Google AI API key looks too short"),
+    )
+    .pipe(headerSafe("Redis URL has invalid characters")),
+  GOOGLE_API_KEY: z
+    .string()
+    .min(10, "Google AI API key looks too short")
+    .max(2048, "Google AI API key looks too long (corrupted paste?)")
+    .pipe(headerSafe("Google API key has invalid characters")),
 
   // Optional with defaults
   GEMINI_MODEL: z.string().default("gemini-2.5-flash"),

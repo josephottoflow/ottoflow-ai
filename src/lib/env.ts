@@ -25,30 +25,60 @@ import { z } from "zod";
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
+/**
+ * Every env value that will end up in an HTTP header (api keys, JWTs,
+ * tokens, URLs) must be safe to put in a Headers object — no CR/LF, no
+ * NUL, no other control chars. We've burned hours debugging a TypeError
+ * deep inside supabase-js because a corrupted clipboard paste landed in
+ * a Vercel env field. Catch it at boot instead.
+ */
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARS = /[\x00-\x1f\x7f]/;
+
+const isHeaderSafe = (v: string): boolean =>
+  !CONTROL_CHARS.test(v) && v.length > 0 && v.length <= 4096;
+
+const headerSafe = (msg: string) =>
+  z
+    .string()
+    .refine(
+      isHeaderSafe,
+      `${msg} (contains control chars / newlines or exceeds 4096 chars — corrupted paste in env field?)`
+    );
+
 const PublicSchema = z.object({
-  NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(20, "looks too short to be a real anon key"),
+  NEXT_PUBLIC_SUPABASE_URL: z.string().url().pipe(headerSafe("invalid Supabase URL")),
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: z
+    .string()
+    .min(20, "looks too short to be a real anon key")
+    .max(2048, "looks too long to be a real anon key (corrupted paste in env field?)")
+    .pipe(headerSafe("anon key has invalid characters for an HTTP header")),
   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: z
     .string()
     .min(10, "expected a Clerk publishable key (pk_test_… or pk_live_…)")
-    .refine((v) => v.startsWith("pk_"), "must start with pk_test_ or pk_live_"),
+    .refine((v) => v.startsWith("pk_"), "must start with pk_test_ or pk_live_")
+    .pipe(headerSafe("publishable key has invalid characters")),
 });
 
 const ServerSchema = PublicSchema.extend({
   SUPABASE_SERVICE_ROLE_KEY: z
     .string()
-    .min(20, "looks too short to be a real service-role key"),
+    .min(20, "looks too short to be a real service-role key")
+    .max(2048, "looks too long to be a real service-role key (corrupted paste in env field?)")
+    .pipe(headerSafe("service-role key has invalid characters for an HTTP header")),
   CLERK_SECRET_KEY: z
     .string()
     .min(10, "expected a Clerk secret key (sk_test_… or sk_live_…)")
-    .refine((v) => v.startsWith("sk_"), "must start with sk_test_ or sk_live_"),
+    .refine((v) => v.startsWith("sk_"), "must start with sk_test_ or sk_live_")
+    .pipe(headerSafe("secret key has invalid characters")),
   REDIS_URL: z
     .string()
     .min(1)
     .refine(
       (v) => /^rediss?:\/\//.test(v),
       "must start with redis:// or rediss:// (Upstash uses rediss://)"
-    ),
+    )
+    .pipe(headerSafe("Redis URL has invalid characters")),
   // Optional but with documented defaults
   GEMINI_MODEL: z.string().default("gemini-2.5-flash"),
 });
