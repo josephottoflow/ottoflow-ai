@@ -138,17 +138,21 @@ export async function GET() {
     })
   );
 
-  // 7. Worker liveness — last meta update via Redis (looks at bull:brand-research:meta)
+  // 7. Worker liveness — BullMQ tracks active workers by writing to a
+  // `<queue>:workers` Redis set; getWorkers() returns the ones currently
+  // holding a lock. Empty array = no worker connected RIGHT NOW (job
+  // counts could still be non-zero from a past worker — that's why we
+  // need this fresh-liveness check separately from bullmq_queue).
   checks.push(
-    await timed("worker_meta", async () => {
-      const r = getRedisClient();
-      const meta = await r.hgetall("bull:brand-research:meta");
-      const hasOpts = !!meta?.opts;
+    await timed("worker_liveness", async () => {
+      const q = brandResearchQueue();
+      const workers = await q.getWorkers();
       return {
-        ok: hasOpts,
-        detail: hasOpts
-          ? `meta present (${Object.keys(meta).length} fields)`
-          : "no meta — worker may not have connected yet",
+        ok: workers.length > 0,
+        detail:
+          workers.length > 0
+            ? `${workers.length} worker(s) connected; first: ${workers[0].name ?? workers[0].id ?? "anon"}`
+            : "0 workers connected (Railway worker may be down or restarting)",
       };
     })
   );
