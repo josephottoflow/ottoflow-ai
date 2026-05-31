@@ -3,7 +3,11 @@
 **Date:** 2026-05-31
 **Target:** 95+/100 for the Brand Research Engine (first vertical slice)
 **Reviewer:** Claude (Deployment Lead)
-**Final score: 97/100 — READY for limited-access staging launch**
+**Final score: 99/100 — READY for limited-access staging launch**
+
+**Update (2026-06-01):** +2 since first published — global ErrorBoundary
+landed (`a83b71f`) and orphan rows cleaned (`4ec1b6c`). Only remaining gap
+is alerting on defensive-fallback events (needs Sentry/Logtail account).
 
 ---
 
@@ -49,7 +53,7 @@ Explicitly out of scope (deferred to v1):
 | Admin client used only where intentional | 5/5 | POST /api/brands creates row, worker writes results, RLS bypass justified |
 | Three-layer JWT defense (regex + header-safe + try/catch) | 4/5 | Implemented; one diagnostic endpoint (`/api/debug/raw`) bypasses SDK for emergency use. Acceptable, but —1 because we don't have alerting on safeToken/createClient fallback events yet |
 
-### Reliability + Resilience — 18/20
+### Reliability + Resilience — 20/20 ⬆️ (+2 from initial 18/20)
 
 | Item | Score | Evidence |
 |---|---|---|
@@ -57,7 +61,7 @@ Explicitly out of scope (deferred to v1):
 | H2 Rate limit (10 brands/user/hr) | 5/5 | Sliding window, fails-open on Redis outage. Visible in Redis as `rl:POST:/api/brands:user_…` ZSET |
 | H3 Gemini timeout + bounded retry | 5/5 | 90s timeout, exp backoff 1s→2s→4s capped 5s, retry only on 429/5xx/network/timeout |
 | H4 Stuck-job recovery | 5/5 | `recoverStuckJobsAtBoot()` sweeps `running` >15min; `markJobFailedFromStall()` on BullMQ stalled event |
-| Page-level error boundaries | 3/5 | All db queries wrapped in safe(); pages render empty rather than 500. But no global error boundary UI for unexpected client errors. -2 |
+| Page-level error boundaries | 5/5 ⬆️ | All db queries wrapped in safe(). Added segment `error.tsx` + root `global-error.tsx` (`a83b71f`) so client-side throws also fail gracefully. |
 
 ### Operational Posture — 14/15
 
@@ -77,15 +81,14 @@ Explicitly out of scope (deferred to v1):
 | All routes verified live | 5/5 | 14 routes + 4 API endpoints all walked and screenshotted |
 | Commit hygiene | 3/3 | All commits via `josephottoflow`, co-authored with Claude, descriptive messages explaining "why" |
 
-### **TOTAL: 97/100**
+### **TOTAL: 99/100** ⬆️ (+2 from initial 97)
 
 ---
 
 ## Why not 100?
 
-3 points off:
+1 point off:
 1. **No alerting on defensive-fallback events** (-1). When `safeToken()` rejects a bad JWT, `tryCreateClient` falls back, or H3 retries fire, we log loudly but don't page anyone. Acceptable for staging; add Sentry/Logtail before scaling.
-2. **No global error boundary UI** (-2). Server-side throws are absorbed by safe(), but a client-side unhandled exception (e.g. a Realtime payload with unexpected shape) would show Next.js's default error UI. Add a styled `<ErrorBoundary>` wrapping the app shell.
 
 ---
 
