@@ -245,6 +245,38 @@ const seoBundleSchema: Schema = {
 
 // ─── Generic structured-output helper ────────────────────────────────────────
 
+/**
+ * Gemini has a hard incompatibility:
+ *
+ *   "Tool use with a response mime type: 'application/json' is unsupported"
+ *
+ * You can use responseMimeType:'application/json' + responseSchema (strict
+ * structured output), OR you can use tools (urlContext, googleSearch, etc.),
+ * but NOT both in the same call.
+ *
+ * Strategy:
+ *  - No tools  → strict mode: send responseMimeType + responseSchema, parse
+ *                directly.
+ *  - With tools → lenient mode: drop the mime type, append the schema as a
+ *                JSON instruction at the end of the prompt, parse text after
+ *                stripping ``` code fences. Slightly less reliable but
+ *                preserves grounding.
+ */
+
+/** Minimal-but-useful JSON-schema description for prompting the model. */
+function schemaToHint(schema: Schema): string {
+  return JSON.stringify(schema, null, 2);
+}
+
+/** Strip ```json … ``` (or plain ```) fences and trim whitespace. */
+function unfence(text: string): string {
+  const trimmed = text.trim();
+  const fence = trimmed.match(/^```(?:json)?\s*\n([\s\S]*?)\n?```$/i);
+  if (fence) return fence[1].trim();
+  // No fence — return as-is
+  return trimmed;
+}
+
 async function generateStructured<T>(opts: {
   prompt: string;
   schema: Schema;
@@ -252,17 +284,36 @@ async function generateStructured<T>(opts: {
   systemInstruction?: string;
   label?: string;
 }): Promise<T> {
+  const usingTools = !!opts.tools && opts.tools.length > 0;
+
+  const baseSystem =
+    opts.systemInstruction ??
+    "You are a senior brand strategist and SEO researcher. Be specific and concrete — never use generic filler.";
+
+  // In tools mode we instruct the model in-band; in strict mode the SDK handles it.
+  const promptWithSchemaHint = usingTools
+    ? `${opts.prompt}
+
+Return your response as a single JSON object that exactly matches this JSON
+Schema (no extra commentary, no markdown fences, just the JSON object):
+
+${schemaToHint(opts.schema)}`
+    : opts.prompt;
+
+  const systemInstruction = usingTools
+    ? `${baseSystem} Always respond with a single JSON object matching the schema provided in the user message. Do not include explanations or code fences.`
+    : `${baseSystem} Always return strictly valid JSON matching the requested schema.`;
+
   const resp = await callGemini(opts.label ?? "generateStructured", () =>
     ai().models.generateContent({
       model: MODEL,
-      contents: opts.prompt,
+      contents: promptWithSchemaHint,
       config: {
-        systemInstruction:
-          opts.systemInstruction ??
-          "You are a senior brand strategist and SEO researcher. Always return strictly valid JSON matching the requested schema. Be specific and concrete — never use generic filler.",
-        responseMimeType: "application/json",
-        responseSchema: opts.schema,
-        tools: opts.tools,
+        systemInstruction,
+        // Strict structured output ONLY when no tools — Gemini rejects both together.
+        ...(usingTools
+          ? { tools: opts.tools }
+          : { responseMimeType: "application/json", responseSchema: opts.schema }),
         // Lower temperature for structured output stability
         temperature: 0.4,
       },
@@ -272,11 +323,14 @@ async function generateStructured<T>(opts: {
   const text = resp.text;
   if (!text) throw new Error("Gemini returned empty response");
 
+  // In tools mode we may get markdown fences around the JSON; strip them.
+  const cleaned = usingTools ? unfence(text) : text;
+
   try {
-    return JSON.parse(text) as T;
+    return JSON.parse(cleaned) as T;
   } catch (err) {
     throw new Error(
-      `Failed to parse Gemini JSON output: ${(err as Error).message}\n\nRaw: ${text.slice(0, 500)}`
+      `Failed to parse Gemini JSON output: ${(err as Error).message}\n\nRaw: ${cleaned.slice(0, 500)}`
     );
   }
 }
