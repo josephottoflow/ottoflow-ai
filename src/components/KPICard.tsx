@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+import type { ReactNode } from "react";
 
 interface KPICardProps {
   title: string;
@@ -10,7 +10,14 @@ interface KPICardProps {
   change?: number;
   changePct?: number;
   subtitle?: string;
-  icon: LucideIcon;
+  /**
+   * Pre-rendered icon JSX. NOTE: previously this was `LucideIcon` (a function
+   * reference), which Next.js 15 RSC refused to serialize across the server
+   * → client boundary ("Functions cannot be passed directly to Client
+   * Components"). Caller now renders the JSX element themselves and passes
+   * the node; we just position it.
+   */
+  icon: ReactNode;
   iconColor?: string;
   iconBg?: string;
   gradient?: string;
@@ -24,7 +31,7 @@ export function KPICard({
   change,
   changePct,
   subtitle,
-  icon: Icon,
+  icon,
   iconColor = "#a78bfa",
   iconBg = "rgba(124, 58, 237, 0.12)",
   gradient,
@@ -46,9 +53,9 @@ export function KPICard({
       <div className="flex items-start justify-between mb-4">
         <div
           className="w-10 h-10 rounded-xl flex items-center justify-center"
-          style={{ background: iconBg }}
+          style={{ background: iconBg, color: iconColor }}
         >
-          <Icon size={18} style={{ color: iconColor }} />
+          {icon}
         </div>
 
         {/* Trend badge */}

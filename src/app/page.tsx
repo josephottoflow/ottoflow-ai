@@ -70,7 +70,7 @@ export default async function DashboardPage() {
           title="Content Generated"
           value={formatNumber(kpis.totalContent)}
           subtitle="All time"
-          icon={FileText}
+          icon={<FileText size={18} />}
           iconColor="#a78bfa"
           iconBg="rgba(124, 58, 237, 0.12)"
         />
@@ -78,7 +78,7 @@ export default async function DashboardPage() {
           title="Videos Rendered"
           value={kpis.totalVideos}
           subtitle="Completed"
-          icon={Video}
+          icon={<Video size={18} />}
           iconColor="#67e8f9"
           iconBg="rgba(6, 182, 212, 0.12)"
         />
@@ -86,7 +86,7 @@ export default async function DashboardPage() {
           title="Credits Used"
           value={formatNumber(kpis.creditsUsed)}
           subtitle={`${formatNumber(kpis.creditsTotal - kpis.creditsUsed)} remaining`}
-          icon={Zap}
+          icon={<Zap size={18} />}
           iconColor="#fbbf24"
           iconBg="rgba(245, 158, 11, 0.12)"
         />
@@ -94,7 +94,7 @@ export default async function DashboardPage() {
           title="Active Projects"
           value={kpis.activeProjects}
           subtitle={`${kpis.publishedToday} posts today`}
-          icon={FolderOpen}
+          icon={<FolderOpen size={18} />}
           iconColor="#34d399"
           iconBg="rgba(16, 185, 129, 0.12)"
         />
