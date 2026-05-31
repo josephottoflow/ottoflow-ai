@@ -48,6 +48,15 @@ export function getRedis(): ConnectionOptions {
 }
 
 /**
+ * Raw IORedis client for non-BullMQ use cases (rate limiting, idempotency
+ * cache). Same singleton instance as BullMQ uses, just typed as IORedis
+ * directly so callers can call commands without the ConnectionOptions cast.
+ */
+export function getRedisClient(): IORedis {
+  return getRedisInstance();
+}
+
+/**
  * Wire ioredis lifecycle events to an arbitrary logger so operators can see
  * disconnects / reconnects in the worker log stream. Idempotent — safe to
  * call multiple times (but each registers fresh listeners; call once at boot).
