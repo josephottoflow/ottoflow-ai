@@ -15,6 +15,10 @@ import type {
 } from "./types";
 
 const MODEL = process.env.GEMINI_MODEL ?? "gemini-2.5-flash";
+const TIMEOUT_MS = Number(process.env.GEMINI_TIMEOUT_MS ?? 90_000);
+const MAX_RETRIES = 3;
+const INITIAL_BACKOFF_MS = 1_000;
+const MAX_BACKOFF_MS = 5_000;
 
 let client: GoogleGenAI | null = null;
 function ai(): GoogleGenAI {
@@ -23,6 +27,79 @@ function ai(): GoogleGenAI {
   if (!apiKey) throw new Error("GOOGLE_API_KEY is not set");
   client = new GoogleGenAI({ apiKey });
   return client;
+}
+
+// ─── Timeout + retry guardrails (audit H3) ───────────────────────────────────
+
+export class GeminiTimeoutError extends Error {
+  constructor(timeoutMs: number, label: string) {
+    super(`Gemini call "${label}" timed out after ${timeoutMs}ms`);
+    this.name = "GeminiTimeoutError";
+  }
+}
+
+/** Race a promise against a timeout. Rejects with GeminiTimeoutError on miss. */
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const timeoutP = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new GeminiTimeoutError(timeoutMs, label)),
+      timeoutMs
+    );
+  });
+  return Promise.race([promise, timeoutP]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
+/**
+ * Classify an error as retryable. Conservative: only retry on transient
+ * conditions (rate limit, server error, network blip). Client errors and
+ * SDK validation errors are NOT retried.
+ */
+function isRetryable(err: unknown): boolean {
+  if (err instanceof GeminiTimeoutError) return true;
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  // HTTP status codes — Gemini SDK surfaces these in error.message
+  if (/(?:^|[^0-9])(429|500|502|503|504)(?:[^0-9]|$)/.test(msg)) return true;
+  // Rate / quota wording variations
+  if (/rate.?limit|quota|too many requests|temporarily unavailable/.test(msg)) {
+    return true;
+  }
+  // Network-level
+  if (/econnreset|etimedout|enotfound|socket hang up|fetch failed/.test(msg)) {
+    return true;
+  }
+  return false;
+}
+
+/** Exponential backoff with cap. attempt is 0-indexed. */
+function backoffDelay(attempt: number): number {
+  return Math.min(INITIAL_BACKOFF_MS * 2 ** attempt, MAX_BACKOFF_MS);
+}
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/**
+ * Wrap a Gemini call with timeout + bounded retry on transient errors.
+ * Returns on first success. Propagates the last error if all attempts fail.
+ */
+async function callGemini<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      return await withTimeout(fn(), TIMEOUT_MS, label);
+    } catch (err) {
+      lastErr = err;
+      if (attempt === MAX_RETRIES - 1 || !isRetryable(err)) break;
+      await sleep(backoffDelay(attempt));
+    }
+  }
+  throw lastErr;
 }
 
 // ─── JSON schemas (Type-based for strict structured output) ──────────────────
@@ -173,21 +250,24 @@ async function generateStructured<T>(opts: {
   schema: Schema;
   tools?: Array<{ urlContext?: object; googleSearch?: object }>;
   systemInstruction?: string;
+  label?: string;
 }): Promise<T> {
-  const resp = await ai().models.generateContent({
-    model: MODEL,
-    contents: opts.prompt,
-    config: {
-      systemInstruction:
-        opts.systemInstruction ??
-        "You are a senior brand strategist and SEO researcher. Always return strictly valid JSON matching the requested schema. Be specific and concrete — never use generic filler.",
-      responseMimeType: "application/json",
-      responseSchema: opts.schema,
-      tools: opts.tools,
-      // Lower temperature for structured output stability
-      temperature: 0.4,
-    },
-  });
+  const resp = await callGemini(opts.label ?? "generateStructured", () =>
+    ai().models.generateContent({
+      model: MODEL,
+      contents: opts.prompt,
+      config: {
+        systemInstruction:
+          opts.systemInstruction ??
+          "You are a senior brand strategist and SEO researcher. Always return strictly valid JSON matching the requested schema. Be specific and concrete — never use generic filler.",
+        responseMimeType: "application/json",
+        responseSchema: opts.schema,
+        tools: opts.tools,
+        // Lower temperature for structured output stability
+        temperature: 0.4,
+      },
+    })
+  );
 
   const text = resp.text;
   if (!text) throw new Error("Gemini returned empty response");
