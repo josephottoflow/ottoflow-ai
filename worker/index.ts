@@ -13,7 +13,9 @@
  *      anything is missing/invalid BEFORE BullMQ or anything else loads
  *   3. real imports (BullMQ, queue helpers, processor)
  *   4. attach Redis lifecycle logging so operators see connect / disconnect
- *   5. construct Worker and register signal handlers
+ *   5. stuck-job recovery sweep (audit H4) — mark orphans from previous
+ *      crashes as failed so the UI doesn't sit at "Researching" forever
+ *   6. construct Worker and register signal handlers
  *
  * Validated env: see src/lib/worker-env.ts.
  */
@@ -35,7 +37,9 @@ import {
   QUEUE_NAMES,
   type BrandResearchJobData,
 } from "@/lib/queue";
+import { createAdminClient } from "@/lib/supabase";
 import { processBrandResearch } from "./processors/brand-research";
+import { recoverStuckJobsAtBoot, markJobFailedFromStall } from "./recovery";
 
 // ─── Logging ─────────────────────────────────────────────────────────────────
 // Minimal structured logger. Upgrade to pino in Phase 5 (audit M3).
@@ -53,7 +57,23 @@ function logError(scope: string, msg: string, extra?: Record<string, unknown>) {
 // Without this, a bad REDIS_URL just makes the worker silently do nothing.
 attachRedisLogger((evt, extra) => log("redis", evt, extra));
 
-// ─── Step 5: Brand Research worker ───────────────────────────────────────────
+// Single admin client reused for the recovery sweep + stalled-event handler.
+// Worker writes use service role since they act on behalf of users without
+// their session token; RLS is bypassed intentionally here.
+const recoveryAdmin = createAdminClient();
+
+// ─── Step 5: Stuck-job recovery sweep (H4) ───────────────────────────────────
+// Fire-and-forget at boot. Don't block worker startup on this — if recovery
+// fails, the worker should still start processing new jobs.
+void recoverStuckJobsAtBoot(recoveryAdmin, (msg, extra) =>
+  log("recovery", msg.replace(/^recovery\./, ""), extra)
+).catch((err) => {
+  logError("recovery", "boot.unhandled", {
+    error: err instanceof Error ? err.message : String(err),
+  });
+});
+
+// ─── Step 6: Brand Research worker ───────────────────────────────────────────
 const brandResearchWorker = new Worker<BrandResearchJobData>(
   QUEUE_NAMES.brandResearch,
   async (job: Job<BrandResearchJobData>) => {
@@ -95,13 +115,23 @@ brandResearchWorker.on("failed", (job, err) => {
 
 brandResearchWorker.on("stalled", (jobId) => {
   logError("brand-research", "job.stalled", { jobId });
+  // Sync Postgres so the UI doesn't sit at "Researching" forever (audit H4).
+  // BullMQ will re-queue the job automatically; we just flip our DB state.
+  void markJobFailedFromStall(recoveryAdmin, jobId, (msg, extra) =>
+    log("recovery", msg.replace(/^recovery\./, ""), extra)
+  ).catch((err) => {
+    logError("recovery", "stall.unhandled", {
+      jobId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
 });
 
 brandResearchWorker.on("error", (err) => {
   logError("brand-research", "worker.error", { error: err.message });
 });
 
-// ─── Step 6: Graceful shutdown with hard cap ─────────────────────────────────
+// ─── Step 7: Graceful shutdown with hard cap ─────────────────────────────────
 // Railway sends SIGTERM during a deploy and waits for a grace period before
 // SIGKILL. We try a graceful close (lets active jobs finish) but cap at a
 // timeout under Railway's grace window so we always close cleanly rather than
