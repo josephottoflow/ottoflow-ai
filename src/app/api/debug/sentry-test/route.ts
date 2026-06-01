@@ -1,31 +1,34 @@
 /**
  * Sentry activation probe.
  *
- * Purpose: once SENTRY_DSN is set in Vercel (and NEXT_PUBLIC_SENTRY_DSN for
- * the client bundle), hitting this endpoint should produce a visible event
- * in the Sentry dashboard within ~10 seconds. If it doesn't, the DSN is
- * wrong, the environment scope is wrong, or the redeploy didn't pick up the
- * new env var.
+ * Diagnoses Sentry wiring at three levels and surfaces what's broken in
+ * the JSON response so we don't need server logs to triage:
  *
- * What it does:
- *   1. Reports whether the observability shim has a handler registered
- *      (`isObservabilityWired()`). False = no Sentry-side init ran, which
- *      almost always means SENTRY_DSN is missing on this runtime.
- *   2. Drops a breadcrumb (`sentry.activation.test` / "probe fired") so the
- *      crumb appears attached to the exception below — proves both code
- *      paths reach Sentry.
- *   3. Calls `captureFallback("sentry.activation.test", new Error(...))`,
- *      which the bridge in sentry.server.config.ts forwards to
- *      Sentry.captureException with stable tag `fallback.label`.
+ *   1. SDK client live? — `Sentry.getClient()` returns the registered
+ *      client. If undefined, the SDK never initialized on this runtime
+ *      (config wasn't imported by the instrumentation hook).
  *
- * Side-effect-free: no DB writes, no Gemini calls, no queue inserts. Safe
- * to hit repeatedly.
+ *   2. Shim handler registered? — `isObservabilityWired()` reports
+ *      whether `setObservabilityHandlers()` was called. False here while
+ *      (1) is true means the shim's module-level state didn't survive
+ *      bundling — different routes ended up with separate copies of the
+ *      observability module, so the handler registered in one bundle
+ *      isn't visible from this route's bundle.
  *
- * Auth-gated to match the rest of /api/debug/*. Remove pre-public-beta
- * along with the other debug routes.
+ *   3. End-to-end event reaches Sentry? — we fire BOTH a direct
+ *      `Sentry.captureException` AND a `captureFallback()` via the shim.
+ *      If the direct one shows up in Sentry but the shim one doesn't,
+ *      that's the singleton bug. If neither shows, the SDK isn't live.
+ *
+ * Always flushes before responding so events ship before the serverless
+ * function freezes.
+ *
+ * Side-effect-free: no DB writes, no Gemini calls, no queue inserts.
+ * Auth-gated. Remove pre-public-beta with the other debug routes.
  */
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
+import * as Sentry from "@sentry/nextjs";
 import {
   captureFallback,
   addBreadcrumb,
@@ -41,35 +44,90 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const wired = isObservabilityWired();
   const firedAt = new Date().toISOString();
 
-  // Breadcrumb first so it gets attached to the exception below.
-  addBreadcrumb("sentry.activation.test", "probe fired", {
+  // ── Level 1: is the SDK client registered on this runtime? ───────────
+  const client = Sentry.getClient();
+  const sdkActive = !!client;
+  const sdkDsn = client?.getDsn();
+  const sdkOptions = client?.getOptions();
+
+  // ── Level 2: is our shim's handler wired? ───────────────────────────
+  const shimWired = isObservabilityWired();
+
+  // ── Level 3: end-to-end — fire BOTH paths so we can compare in Sentry ──
+  addBreadcrumb("sentry.activation.test", "probe fired (shim path)", {
     userId,
     firedAt,
   });
-
-  // Stable label `sentry.activation.test` → easy to filter/group in Sentry.
   captureFallback(
     "sentry.activation.test",
-    new Error("Sentry activation probe — safe to ignore"),
-    {
-      userId,
-      firedAt,
-      vercelEnv: process.env.VERCEL_ENV ?? null,
-      sentryEnv: process.env.SENTRY_ENVIRONMENT ?? null,
-      runtime: "nextjs-node",
-    },
+    new Error("Sentry activation probe — shim path"),
+    { userId, firedAt, path: "shim", runtime: "nextjs-node" },
   );
+
+  let directEventId: string | undefined;
+  try {
+    directEventId = Sentry.captureException(
+      new Error("Sentry activation probe — direct path"),
+      {
+        tags: {
+          "fallback.label": "sentry.activation.test.direct",
+          runtime: "nextjs-node",
+        },
+        extra: { userId, firedAt, path: "direct" },
+      },
+    );
+  } catch (err) {
+    directEventId = `threw: ${err instanceof Error ? err.message : String(err)}`;
+  }
+
+  // Drain Sentry's queue before the function freezes — without this,
+  // events get dropped on cold-path invocations.
+  let flushed = false;
+  try {
+    flushed = await Sentry.flush(2_000);
+  } catch {
+    flushed = false;
+  }
+
+  // Diagnosis from the four bits
+  let diagnosis: string;
+  if (sdkActive && shimWired) {
+    diagnosis = "OK — SDK live and shim wired. Both events should appear in Sentry within ~10s.";
+  } else if (sdkActive && !shimWired) {
+    diagnosis =
+      "SDK is live but the shim is NOT wired in this route's bundle (ES-module singleton issue). " +
+      "Direct captures will reach Sentry; shim captures (gemini retries, db safe() wrappers, etc.) " +
+      "will silently drop. Fix: move handler state onto globalThis in src/lib/observability.ts.";
+  } else if (!sdkActive && shimWired) {
+    diagnosis = "Impossible state — investigate. Shim was set but SDK client is missing.";
+  } else {
+    diagnosis =
+      "SDK not initialized on this runtime. Check that src/instrumentation.ts ran and " +
+      "imported sentry.server.config.ts. Verify SENTRY_DSN is set on Production scope.";
+  }
 
   return NextResponse.json({
     ok: true,
-    wired,
     firedAt,
-    expectedTag: "fallback.label = sentry.activation.test",
-    nextStep: wired
-      ? "Check Sentry → Issues — event should appear within ~10s."
-      : "Observability NOT wired: SENTRY_DSN missing on this runtime. Set it in Vercel and redeploy.",
+    sdk: {
+      active: sdkActive,
+      dsnHost: sdkDsn?.host ?? null,
+      environment: sdkOptions?.environment ?? null,
+      release: sdkOptions?.release ?? null,
+    },
+    shim: {
+      wired: shimWired,
+    },
+    events: {
+      direct: directEventId ?? null,
+      flushed,
+    },
+    expected: {
+      directTag: "fallback.label = sentry.activation.test.direct",
+      shimTag: "fallback.label = sentry.activation.test",
+    },
+    diagnosis,
   });
 }
