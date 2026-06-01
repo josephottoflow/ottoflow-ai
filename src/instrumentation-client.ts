@@ -24,7 +24,7 @@ const env =
 Sentry.init({
   dsn,
   environment: env,
-  tracesSampleRate: Number(process.env.NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE ?? 0.05),
+  tracesSampleRate: Number(process.env.NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE ?? 0.1),
   // No session replay yet — it ships ~70KB of extra JS and we want to
   // verify error volume first. Easy to add later by appending an
   // integrations array here.

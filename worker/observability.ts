@@ -24,7 +24,7 @@ const env =
 Sentry.init({
   dsn,
   environment: env,
-  tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE ?? 0.05),
+  tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE ?? 0.1),
   profilesSampleRate: 0,
   attachStacktrace: true,
   initialScope: { tags: { runtime: "worker" } },

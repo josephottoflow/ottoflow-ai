@@ -19,7 +19,7 @@ const env = process.env.SENTRY_ENVIRONMENT ?? process.env.VERCEL_ENV ?? "develop
 Sentry.init({
   dsn,
   environment: env,
-  tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE ?? 0.05),
+  tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE ?? 0.1),
   attachStacktrace: true,
   initialScope: { tags: { runtime: "nextjs-edge" } },
 });

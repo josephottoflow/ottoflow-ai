@@ -26,7 +26,7 @@ Sentry.init({
   dsn,
   environment: env,
   // Conservative tracing — bump later once we know error volume + cost.
-  tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE ?? 0.05),
+  tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE ?? 0.1),
   // Profiling off by default — adds CPU overhead.
   profilesSampleRate: 0,
   // Source-map upload happens via withSentryConfig in next.config.ts (no-op
