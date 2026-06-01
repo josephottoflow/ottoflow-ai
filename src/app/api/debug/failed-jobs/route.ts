@@ -41,7 +41,7 @@ export async function GET() {
       started_at,
       completed_at,
       logs,
-      brands ( name, website, owner_clerk_user_id )
+      brands ( name, website, user_id, status )
       `,
     )
     .neq("status", "done")
