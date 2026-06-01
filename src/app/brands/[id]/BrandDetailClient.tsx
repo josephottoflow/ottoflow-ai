@@ -18,7 +18,10 @@ import {
   Key,
   Sparkles,
   ExternalLink,
+  RefreshCw,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { captureFallback } from "@/lib/observability";
 import { useSupabase } from "@/components/SupabaseProvider";
 import type {
   DbBrand,
@@ -190,7 +193,7 @@ export function BrandDetailClient({
       {isRunning && job && <ProgressCard job={job} />}
 
       {/* Failure card */}
-      {isFailed && job && <FailureCard job={job} />}
+      {isFailed && job && <FailureCard brandId={brand.id} job={job} />}
 
       {/* Ready: profile + competitors + keywords + pillars */}
       {isReady && brand.profile && (
@@ -290,16 +293,62 @@ function LogRow({ log }: { log: ResearchLogEntry }) {
   );
 }
 
-function FailureCard({ job }: { job: DbBrandResearchJob }) {
+function FailureCard({ brandId, job }: { brandId: string; job: DbBrandResearchJob }) {
+  const router = useRouter();
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
+
+  async function handleRetry() {
+    if (retrying) return;
+    setRetrying(true);
+    setRetryError(null);
+    try {
+      const res = await fetch(`/api/brands/${brandId}/retry`, { method: "POST" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        throw new Error(body.error || `Retry failed (HTTP ${res.status})`);
+      }
+      // Realtime subscription will pick up the new queued/running state and
+      // re-render. Refresh to also pull the reset SSR snapshot in case the
+      // user navigated here from a stale tab.
+      router.refresh();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      captureFallback("brands.retry.client_failed", err, { brandId });
+      setRetryError(message);
+    } finally {
+      setRetrying(false);
+    }
+  }
+
   return (
     <div className="rounded-2xl border border-red-500/20 bg-red-500/5 p-6 mb-6">
       <div className="flex items-start gap-3">
         <AlertTriangle size={18} className="text-red-400 flex-shrink-0 mt-0.5" />
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold text-red-300 mb-1">Research failed</h3>
-          <p className="text-xs text-red-300/80 break-words">
+          <p className="text-xs text-red-300/80 break-words mb-4">
             {job.error_message ?? "Unknown error. Check the worker logs."}
           </p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRetry}
+              disabled={retrying}
+              className="border-red-500/30 text-red-300 hover:bg-red-500/10 gap-1.5"
+            >
+              {retrying ? (
+                <Loader2 size={13} className="animate-spin" />
+              ) : (
+                <RefreshCw size={13} />
+              )}
+              {retrying ? "Restarting…" : "Retry research"}
+            </Button>
+            {retryError && (
+              <span className="text-[11px] text-red-400/90">{retryError}</span>
+            )}
+          </div>
         </div>
       </div>
     </div>
