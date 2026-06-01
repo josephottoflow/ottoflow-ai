@@ -193,7 +193,30 @@ export function BrandDetailClient({
       {isRunning && job && <ProgressCard job={job} />}
 
       {/* Failure card */}
-      {isFailed && job && <FailureCard brandId={brand.id} job={job} />}
+      {isFailed && job && (
+        <FailureCard
+          brandId={brand.id}
+          job={job}
+          onRetried={() => {
+            // The retry endpoint already mutated the DB; mirror that into
+            // local state so the FailureCard branch unmounts immediately,
+            // without waiting on Realtime + router.refresh + React reconcile.
+            setBrand((prev) => ({ ...prev, status: "pending" }));
+            setJob((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    status: "queued",
+                    current_step: "queued",
+                    progress: 0,
+                    error_message: null,
+                    completed_at: null,
+                  }
+                : prev,
+            );
+          }}
+        />
+      )}
 
       {/* Ready: profile + competitors + keywords + pillars */}
       {isReady && brand.profile && (
@@ -293,7 +316,15 @@ function LogRow({ log }: { log: ResearchLogEntry }) {
   );
 }
 
-function FailureCard({ brandId, job }: { brandId: string; job: DbBrandResearchJob }) {
+function FailureCard({
+  brandId,
+  job,
+  onRetried,
+}: {
+  brandId: string;
+  job: DbBrandResearchJob;
+  onRetried: () => void;
+}) {
   const router = useRouter();
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
@@ -308,9 +339,10 @@ function FailureCard({ brandId, job }: { brandId: string; job: DbBrandResearchJo
         const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
         throw new Error(body.error || `Retry failed (HTTP ${res.status})`);
       }
-      // Realtime subscription will pick up the new queued/running state and
-      // re-render. Refresh to also pull the reset SSR snapshot in case the
-      // user navigated here from a stale tab.
+      // Mirror the DB mutation into parent React state so the FailureCard
+      // unmounts immediately. Realtime + router.refresh() take care of the
+      // subsequent worker progress updates.
+      onRetried();
       router.refresh();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
