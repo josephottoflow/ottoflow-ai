@@ -151,6 +151,20 @@ export async function POST(
   // job sweep / manual retry can pick it up.
   try {
     const queue = brandResearchQueue();
+
+    // Remove any existing BullMQ job with the same id. BullMQ dedupes by
+    // jobId — calling queue.add() with an id that already exists in any
+    // of the completed/failed/waiting sets returns the existing job
+    // (no new run). Without this remove() the worker would silently
+    // skip the retry. Verified by repro: the first retry of the Linear
+    // brand reset the DB row to queued but the worker never picked up
+    // the BullMQ side. queue.remove() is idempotent — safe if no job.
+    try {
+      await queue.remove(researchJobId);
+    } catch {
+      // ignore — job didn't exist or already removed
+    }
+
     const bullJob = await queue.add(
       "research",
       {
