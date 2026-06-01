@@ -61,9 +61,10 @@ export function ProjectsPageClient({ projects }: Props) {
             {stats.active} active · {stats.content} content · {stats.video} video
           </p>
         </div>
-        <Button variant="gradient" size="sm" className="gap-1.5">
+        <Button variant="gradient" size="sm" className="gap-1.5" disabled title="Project creation arrives with content/video pipelines">
           <Plus size={14} />
           New Project
+          <Badge variant="info" className="text-[9px] ml-1">Soon</Badge>
         </Button>
       </div>
 

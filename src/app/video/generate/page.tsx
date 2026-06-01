@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { captureFallback } from "@/lib/observability";
 import type { SSEEvent, GenerateRequest } from "@/lib/types";
 import {
   ArrowLeft,
@@ -232,6 +233,18 @@ export default function VideoGeneratePage() {
       }
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
+        // Surface to UI immediately, AND forward through the observability
+        // shim → Sentry. AbortError is voluntary (user clicked Stop) so it
+        // stays filtered. Everything else — 404 (route not built yet),
+        // 500 from upstream, network failure — needs to be visible to ops.
+        captureFallback("video.generate.failed", err, {
+          provider,
+          sceneCount,
+          style,
+          vibe,
+          // Don't include the prompt verbatim — could contain PII.
+          promptLength: prompt.length,
+        });
         setError((err as Error).message);
       }
       setRunning(false);

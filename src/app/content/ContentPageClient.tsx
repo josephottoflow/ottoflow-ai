@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { KPICard } from "@/components/KPICard";
@@ -85,13 +86,16 @@ export function ContentPageClient({ items, kpis }: Props) {
           <p className="text-white/40 text-sm mt-1">AI-powered multi-platform content automation · Gemini Flash Lite</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="gap-1.5">
-            <Settings2 size={14} />
-            Configure
-          </Button>
-          <Button variant="gradient" size="sm" className="gap-1.5">
+          <Link href="/settings">
+            <Button variant="outline" size="sm" className="gap-1.5">
+              <Settings2 size={14} />
+              Configure
+            </Button>
+          </Link>
+          <Button variant="gradient" size="sm" className="gap-1.5" disabled title="Content worker coming with v1">
             <Sparkles size={14} />
             Run Pipeline
+            <Badge variant="info" className="text-[9px] ml-1">Soon</Badge>
           </Button>
         </div>
       </div>

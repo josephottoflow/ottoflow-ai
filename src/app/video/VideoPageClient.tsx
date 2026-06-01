@@ -81,10 +81,12 @@ export function VideoPageClient({ renderJobs, kpis }: Props) {
           <p className="text-white/40 text-sm mt-1">AI-powered video factory · Higgsfield + Veo 3 Lite + ElevenLabs</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="gap-1.5">
-            <Settings2 size={14} />
-            Configure
-          </Button>
+          <Link href="/settings">
+            <Button variant="outline" size="sm" className="gap-1.5">
+              <Settings2 size={14} />
+              Configure
+            </Button>
+          </Link>
           <Link href="/video/generate">
             <Button variant="gradient-cyan" size="sm" className="gap-1.5">
               <Sparkles size={14} />

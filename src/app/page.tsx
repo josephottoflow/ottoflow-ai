@@ -53,14 +53,18 @@ export default async function DashboardPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="gap-1.5">
-            <BarChart3 size={14} />
-            Reports
-          </Button>
-          <Button variant="gradient" size="sm" className="gap-1.5">
-            <Plus size={14} />
-            New Project
-          </Button>
+          <Link href="/analytics">
+            <Button variant="outline" size="sm" className="gap-1.5">
+              <BarChart3 size={14} />
+              Reports
+            </Button>
+          </Link>
+          <Link href="/projects">
+            <Button variant="gradient" size="sm" className="gap-1.5">
+              <Plus size={14} />
+              New Project
+            </Button>
+          </Link>
         </div>
       </div>
 
