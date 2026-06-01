@@ -193,9 +193,10 @@ export function ContentPageClient({ items, kpis }: Props) {
               ))}
             </div>
 
-            <Button variant="gradient" className="w-full mt-4 gap-2" size="sm">
+            <Button variant="gradient" className="w-full mt-4 gap-2" size="sm" disabled title="Pipeline progression requires the content worker (v1)">
               <Play size={13} />
               Continue Pipeline
+              <Badge variant="info" className="text-[9px] ml-1">Soon</Badge>
             </Button>
           </div>
 
@@ -299,7 +300,11 @@ export function ContentPageClient({ items, kpis }: Props) {
             </div>
           )}
 
-          <button className="w-full mt-3 py-3 text-xs text-white/30 hover:text-white/50 transition-colors text-center">
+          <button
+            className="w-full mt-3 py-3 text-xs text-white/20 transition-colors text-center cursor-not-allowed"
+            disabled
+            title="Pagination arrives with the content worker (v1)"
+          >
             Load more content
           </button>
         </div>

@@ -185,9 +185,10 @@ export function VideoPageClient({ renderJobs, kpis }: Props) {
               ))}
             </div>
 
-            <Button variant="gradient-cyan" className="w-full mt-4 gap-2 text-sm" size="sm">
+            <Button variant="gradient-cyan" className="w-full mt-4 gap-2 text-sm" size="sm" disabled title="Pipeline progression requires the video worker (v1)">
               <Play size={13} />
               Continue Pipeline
+              <Badge variant="info" className="text-[9px] ml-1">Soon</Badge>
             </Button>
           </div>
 
@@ -255,7 +256,17 @@ export function VideoPageClient({ renderJobs, kpis }: Props) {
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                <Button variant="ghost" size="sm" className="text-xs h-7 gap-1.5 text-white/40">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs h-7 gap-1.5 text-white/40"
+                  disabled={activeJobs === 0}
+                  title={
+                    activeJobs === 0
+                      ? "No active renders to pause"
+                      : "Pause every running render"
+                  }
+                >
                   <Pause size={12} /> Pause all
                 </Button>
               </div>
