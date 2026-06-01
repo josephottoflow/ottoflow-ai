@@ -30,7 +30,27 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { userId } = await auth();
+  // The root layout runs for *every* request — including static-asset paths
+  // like `/favicon.ico` and `/robots.txt` that are intentionally excluded
+  // from the Clerk middleware matcher (see middleware.ts). For those
+  // requests Clerk's `auth()` throws "auth() was called but Clerk can't
+  // detect usage of clerkMiddleware()", which then becomes an unhandled
+  // server-side error per request.
+  //
+  // Verified in production via Sentry (issue JAVASCRIPT-NEXTJS-2): the
+  // failing transaction was "Layout Server Component (/)" with the request
+  // URL pointing at /favicon.ico, firing on essentially every favicon
+  // fetch. Treating the throw as "no user" is correct — those requests
+  // have no auth context and don't render the authenticated shell anyway.
+  let userId: string | null = null;
+  try {
+    userId = (await auth()).userId;
+  } catch (err) {
+    console.error(
+      "[layout] auth() threw — likely a static-asset request bypassing middleware:",
+      err instanceof Error ? err.message : err,
+    );
+  }
 
   // Domain allowlist (audit standing order: ottoflow.ai-only access on free
   // Clerk plan). If signed in with a non-allowed domain, render the
