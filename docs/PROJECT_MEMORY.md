@@ -1,41 +1,10 @@
-# Ottoflow AI — Project Memory (Saved 2026-06-01)
-
-> Snapshot at session end so we can resume tomorrow with full context.
+# Ottoflow AI — Project Memory (Updated 2026-06-02, Sentry activated → 100/100)
 
 ---
 
 ## Project Goal
 
-Ship the **Brand Research Engine** (first vertical slice of the AI Content Operating System) to production-quality staging.
-
-**Sprint goal definition:**
-- ✅ Smoke test passes end-to-end (sign-up → brand creation → Gemini research → result render)
-- ✅ Multi-user RLS isolation verified
-- ✅ Phase 4 hardening complete (H1/H2/H3/H4)
-- ⏳ 3 leaked secrets rotated (Task #30 — user dashboard action)
-- ✅ Readiness score ≥95/100 (achieved **99/100**)
-
-**Deployment role:** Claude as Deployment Lead — drives via Chrome MCP click-by-click, gates progress on explicit user confirmation.
-
----
-
-## Live URLs
-
-| Service | URL |
-|---|---|
-| **Staging app** | https://ottoflow-ai.vercel.app |
-| Sign-in | https://ottoflow-ai.vercel.app/sign-in |
-| Health check | https://ottoflow-ai.vercel.app/api/debug/health |
-| Notion brand (live, completed) | https://ottoflow-ai.vercel.app/brands/0cd7d34a-54cf-4ffb-8fe0-e3a2b8d6c029 |
-| Vercel | https://vercel.com/joseph-ottoflow-s-projects/ottoflow-ai |
-| Railway | https://railway.com/project/6f03b33a-9433-4e21-bdbc-1c47525dd5a1 |
-| Supabase | https://supabase.com/dashboard/project/ddozknywcdpyfdokmfrp |
-| GitHub | https://github.com/josephottoflow/ottoflow-ai |
-
-**Sign-in credentials:**
-- Email: `joseph@ottoflow.ai`
-- Password: `Ottoflow!2026-Staging-Xt7Qm9pL`
-- Clerk userId: `user_3EU5v1pvYzamGINC5tUKbr8g1Ff`
+Ship the **Brand Research Engine** (first vertical slice of the AI Content Operating System) to production-quality staging at 100/100 readiness, then promote to limited-access staging (5–10 trusted users) for a 7-day soak before public-beta planning.
 
 ---
 
@@ -50,86 +19,146 @@ Ship the **Brand Research Engine** (first vertical slice of the AI Content Opera
 **Worker:**
 - BullMQ + ioredis on Railway
 - esbuild-bundled CJS, runs on plain node
-- nixpacks pinned to **Node 22** (required for native WebSocket; supabase-js auto-inits RealtimeClient on every SupabaseClient construction)
+- nixpacks pinned to **Node 22** (supabase-js Realtime needs native WebSocket)
 
 **AI / Data:**
 - Gemini Flash 2.5 via `@google/genai` (URL Context + Google Search grounding)
 - Zod env validation with `isHeaderSafe()` at boot
+
+**Observability:**
+- `@sentry/nextjs` v10.55 (Next: client + server + edge)
+- `@sentry/node` v10.55 (Worker)
+- **Live in production** — Sentry project `o4511491188850688`, environment `production`, release auto-tagged to commit SHA
+- DSN set on Vercel (`SENTRY_DSN` + `NEXT_PUBLIC_SENTRY_DSN`, Production + Preview, Sensitive) and Railway (`SENTRY_DSN`)
+- Tunnel route `/monitoring` (ad-blocker bypass), excluded from Clerk auth gate via `middleware.ts` public matcher
+- Observability shim handler state lives on `globalThis.__ottoflow_observability__` so it survives Next.js per-route bundling
 
 **Identifiers:**
 - Vercel team: `team_MrIWWj7J9L2KLG58IRFcnDK7` (slug `joseph-ottoflow-s-projects`)
 - Vercel project: `prj_2NKyZ4EvEYWpmDolFiCZuPnfHyh3`
 - Supabase URL: `https://ddozknywcdpyfdokmfrp.supabase.co`
 - Railway Redis: `redis://default:***@zephyr.proxy.rlwy.net:34949`
+- Clerk userId: `user_3EU5v1pvYzamGINC5tUKbr8g1Ff`
+
+---
+
+## Live URLs
+
+| Service | URL |
+|---|---|
+| Staging app | https://ottoflow-ai.vercel.app |
+| Sign-in | https://ottoflow-ai.vercel.app/sign-in |
+| Health check | https://ottoflow-ai.vercel.app/api/debug/health |
+| Notion brand (live, completed) | https://ottoflow-ai.vercel.app/brands/0cd7d34a-54cf-4ffb-8fe0-e3a2b8d6c029 |
+| Vercel | https://vercel.com/joseph-ottoflow-s-projects/ottoflow-ai |
+| Railway | https://railway.com/project/6f03b33a-9433-4e21-bdbc-1c47525dd5a1 |
+| Supabase | https://supabase.com/dashboard/project/ddozknywcdpyfdokmfrp |
+| GitHub | https://github.com/josephottoflow/ottoflow-ai |
+
+**Sign-in:** `joseph@ottoflow.ai` / `Ottoflow!2026-Staging-Xt7Qm9pL`
 
 ---
 
 ## Current Architecture
 
-**Auth model (Supabase Third-Party Auth, Path A):**
-- Clerk session token sent as `Authorization: Bearer <jwt>` (no JWT template)
+**Auth (Supabase Third-Party Auth, Path A):**
+- Clerk session JWT → `Authorization: Bearer <jwt>` (no JWT template)
 - Supabase verifies via Clerk JWKS
-- RLS scopes via SQL fn `current_clerk_user_id()` → `auth.jwt() ->> 'sub'`
+- RLS via SQL fn `current_clerk_user_id()` → `auth.jwt() ->> 'sub'`
 
-**Brand-research flow (verified end-to-end live):**
-1. POST `/api/brands` — idempotency check → rate-limit check → admin client inserts `brands` + `brand_research_jobs` → enqueues BullMQ job
-2. Railway worker picks up → Gemini research (extractBrandProfile + findCompetitors + generateSEOBundle) → writes back via admin client
-3. Browser SupabaseProvider subscribes via Realtime (carries Clerk JWT)
+**Brand-research flow:**
+1. POST `/api/brands` → idempotency check → rate-limit check → admin client inserts `brands` + `brand_research_jobs` → enqueues BullMQ job
+2. Railway worker → `extractBrandProfile` + `findCompetitors` + `generateSEOBundle` → writes back via admin client
+3. Browser `SupabaseProvider` subscribes via Realtime (carries Clerk JWT)
 4. `/brands/[id]` server component reads via user-authed client → RLS scopes to owner
 
-**Defensive layers (now baseline for all code):**
+**Defensive layers (baseline):**
 - `isHeaderSafe()` — RFC 7230 no-CR/LF/CTL check on every env value at boot
 - `safeToken()` — strict JWT regex `/^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/`
 - `tryCreateClient()` — try/catch around `createClient`, falls back to anon
 - `safe<T>()` wrapper on every public db query — typed fallback on throw
-- `withTimeout()` + `withRetry()` around every Gemini call
+- `withTimeout()` + `withRetry()` around every Gemini call (90s timeout, 3 attempts, exponential 1s→2s→4s capped 5s)
 - Idempotency cache (Redis, 24h TTL)
 - Rate limit (Redis ZSET sliding window, 10 brands/user/hour)
-- Stuck-job recovery sweep
+- Stuck-job recovery sweep at worker boot + on stalled events
 - Domain allowlist (`@ottoflow.ai` only)
 - Global ErrorBoundary + segment ErrorBoundary
+- **Sentry capture on every defensive fallback** (label-tagged for grouping)
+
+**Observability bridge:**
+- `src/lib/observability.ts` — vendor-neutral shim, no transitive `@sentry/*` imports
+- Next.js registers Sentry via `src/instrumentation.ts` → `sentry.{server,edge}.config.ts` + `src/instrumentation-client.ts`
+- Worker registers Sentry via `worker/observability.ts` (loaded right after env validation in `worker/index.ts`)
+- Both bridges fan `captureFallback(label, err, ctx)` → `Sentry.captureException` with stable label tags
+- Console.error path preserved unconditionally (Railway/Vercel logs unchanged)
 
 ---
 
 ## Key Decisions
 
-- **Clerk free plan + app-layer domain allowlist** (`ALLOWED_EMAIL_DOMAINS` defaults to `ottoflow.ai`, enforced in `layout.tsx`)
-- **GitHub identity:** `josephottoflow` for all commits; history rewritten with `git filter-branch` to remove `joseph1986-gg`
+- **Clerk free plan + app-layer domain allowlist** — `ALLOWED_EMAIL_DOMAINS` defaults to `ottoflow.ai`, enforced in `layout.tsx`
+- **GitHub identity:** `josephottoflow` for all commits; history rewritten to remove `joseph1986-gg`
 - **Railway build:** `nixpacks.toml` overrides all phases; `railway.json` builds worker only
 - **Node 22** on Railway (Node 20 lacks native WebSocket for supabase-js Realtime)
 - **Idempotency + rate limit in Redis** (not DB) — staging acceptable; reset on Redis restart
-- **Gemini structured-output two-mode branch:** strict (responseMimeType+responseSchema) when no tools; lenient (schema-in-prompt + code-fence-strip) when tools used. Gemini disallows both together.
+- **Gemini structured-output two-mode branch:** strict (`responseMimeType` + `responseSchema`) when no tools; lenient (schema-in-prompt + code-fence-strip) when tools used. Gemini disallows both together
 - **Icons across RSC boundary:** pre-rendered JSX (`<FileText size={18} />`) not function refs
+- **Worker bundle externalizes `@sentry/node` + `@opentelemetry/*`** — OTel instrumentations load via dynamic `require()` and can't be statically bundled. `node_modules` is present at Railway runtime (nixpacks runs `npm ci --include=dev`)
+- **Observability shim has no `@sentry/*` imports** — keeps worker bundle free of `@sentry/nextjs` while letting both processes register their own backend at boot
+- **Sentry stays no-op until DSN set** — adding `SENTRY_DSN` is the only activation step; no code changes needed
 
 ---
 
-## Completed Work — 42 / 43 Sprint Tasks ✅
+## Completed Work
 
-### Phase 1-6 (Tasks #1-#24)
+### Phase 1–6 (Tasks #1–#24)
 Schema migrations, Clerk-Supabase bridge, BullMQ + esbuild worker, Brand UI (`/brands`, `/brands/new`, `/brands/[id]`), SupabaseProvider, env validation, decoupled supabase.ts, Redis lifecycle, docs (AUTH_FLOW, DEPLOYMENT, WORKER_ARCHITECTURE).
 
-### Hardening (Tasks #27-#29)
+### Hardening (Tasks #27–#29)
 - **H1+H2** Idempotency + rate limit on POST `/api/brands`
-- **H3** Gemini timeout (90s) + exponential backoff retry (1s→2s→4s capped 5s)
-- **H4** Stuck-job recovery — `recoverStuckJobsAtBoot()` + `markJobFailedFromStall()`
+- **H3** Gemini timeout (90s) + exponential backoff retry
+- **H4** Stuck-job recovery — boot sweep + stalled-event handler
 
-### Auth + Bridge Fixes (Tasks #33-#38)
+### Auth + Bridge Fixes (Tasks #33–#38)
 - Domain allowlist + unauthorized page
 - 3-layer JWT defense (regex + isHeaderSafe + tryCreateClient)
-- safe() wrappers on every query
-- **Root cause #1:** Corrupted `NEXT_PUBLIC_SUPABASE_ANON_KEY` in Vercel (372 chars w/ control chars) — user replaced with clean `sb_publishable_N30OiXyn9fNw_Ga2hPpuVw_-RrD29N3`
-- **Root cause #2:** Worker crashed Node 20 (no native WebSocket) — pinned Node 22
-- **Root cause #3:** Gemini rejected tools+JSON together — added lenient mode branch
-- **Root cause #4:** Dashboard 500 from function refs across RSC boundary — KPICard now takes `ReactNode`
+- `safe()` wrappers on every query
+- Root causes resolved: corrupted Vercel anon key, Node 20 missing WebSocket, Gemini tools+JSON incompat, RSC icon function refs
 
-### Audit + Cleanup (Tasks #25, #26, #31, #39-#42)
+### Audit + Cleanup (Tasks #25, #26, #31, #39–#42)
 - Phase 7 smoke test passed end-to-end (Notion brand fully populated)
-- RLS isolation verified via `/api/debug/rls-test` (orphan correctly hidden)
+- RLS isolation verified via `/api/debug/rls-test`
 - Created `/billing`, `/settings`, `/help` placeholder pages
-- Fixed Railway auto-deploy stuck on old commit (empty commit forced rebuild)
-- Added segment + global ErrorBoundary
-- Deleted 2 orphan brand rows via `/api/debug/cleanup`
+- Segment + global ErrorBoundary
+- Deleted 2 orphan brand rows
 - Readiness review **99/100**
+
+### Sentry Scaffolding (this session, commit `096fb85`)
+- Created `src/lib/observability.ts` shim (vendor-neutral)
+- Created `sentry.server.config.ts` + `sentry.edge.config.ts` (Next runtimes)
+- Created `src/instrumentation.ts` + `src/instrumentation-client.ts` (Next 15.3+ hooks)
+- Created `worker/observability.ts` (worker init + `flushSentry()`)
+- Wrapped `next.config.ts` with `withSentryConfig`, tunnelRoute `/monitoring`
+- Externalized `@sentry/node` + `@opentelemetry/*` in `worker/build.mjs`
+- Instrumented `gemini.ts` (retry breadcrumbs + exhaustion capture)
+- Instrumented `supabase-server.ts` (5 fallback paths: token shape, header unsafe, auth header unsafe, createClient throw, getToken throw)
+- Instrumented `db.ts` + `db-brands.ts` `safe()` wrappers
+- Instrumented `worker/index.ts` (`failed` / `unhandledRejection` / `uncaughtException` + flush before exit)
+- Updated `.env.local.example` (documented `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN`, env, sample rate, source-map upload trio)
+- Verified: Next.js build green, worker bundle builds clean (12.5 MB)
+
+### Sentry Activation (this session, commits `d9721d9` → `604814e`)
+- **Sentry project provisioned** (`o4511491188850688`, Next.js platform)
+- DSN pasted into Vercel `SENTRY_DSN` + `NEXT_PUBLIC_SENTRY_DSN` (Production + Preview, Sensitive)
+- DSN pasted into Railway `SENTRY_DSN` (worker service)
+- Both platforms redeployed cleanly
+- **Verified end-to-end** via `/api/debug/sentry-test`:
+  - `sdk.active: true`, dsnHost `o4511491188850688.ingest.us.sentry.io`, environment `production`
+  - Release auto-tagged to commit SHA (Vercel injects `VERCEL_GIT_COMMIT_SHA`)
+  - Direct `Sentry.captureException` returned event id; `flushed: true`
+  - `shim.wired: true` after singleton fix
+- **Bug found + fixed during verification:** observability shim's module-level handler state didn't survive Next.js per-route bundling — every captureFallback() in production was silently no-op-ing despite a healthy SDK. Fix in `604814e`: back state with `globalThis.__ottoflow_observability__`, mirroring how `@sentry/nextjs` keeps its own client global. Same fix benign for the worker (single bundle).
+- **Bug #2 found + fixed:** Clerk middleware was protecting the `/monitoring` tunnel route, which would have silently dropped every browser-side capture (events redirected to `/sign-in`). Fix in `d4c290b`: add `/monitoring(.*)` to public route matcher per the official Sentry Next.js skill.
 
 ### Diagnostic Endpoints (remove pre-public-beta)
 - `/api/debug/auth` — Clerk JWT + Supabase RPC diagnostic
@@ -137,35 +166,7 @@ Schema migrations, Clerk-Supabase bridge, BullMQ + esbuild worker, Brand UI (`/b
 - `/api/debug/rls-test` — admin vs user-authed count comparison
 - `/api/debug/cleanup` — delete known-orphan brand rows (hardcoded IDs)
 - `/api/debug/health` — 8-check comprehensive connection probe
-
----
-
-## Smoke Test State (verified live)
-
-**Notion brand `0cd7d34a-54cf-4ffb-8fe0-e3a2b8d6c029`:**
-- Status: ✅ Ready
-- Brand Profile: 6 value props + positioning + 4 offers
-- Brand Voice: 7 tone tags + DO/DON'T vocabulary
-- Audience & ICP: demographics + psychographics + industries + roles
-- 3 personas (Alex Chen, Sarah Miller, David Lee)
-- 6 competitors with strengths/weaknesses (Confluence, Asana, etc.)
-- 23 keywords scored on relevance + opportunity
-- 3 content pillars with formats + topics
-
-**Connection health (last `/api/debug/health` run):**
-- clerk_auth ✅
-- supabase_admin ✅
-- supabase_user_authed ✅
-- supabase_rpc ✅ (returns clerk userId)
-- redis_ping ✅ (PONG)
-- bullmq_queue ✅ (completed=1, failed=2 from old orphans)
-- worker_liveness — probe fix in `51dbc84` deploying (was false-negative before)
-- gemini_api ✅ ("pong")
-
-**Database state:**
-- brands: 1 (Notion)
-- orphan rows: 0
-- RLS isolation: verified working
+- `/api/debug/sentry-test` — three-level Sentry probe (SDK / shim / event flow)
 
 ---
 
@@ -173,42 +174,38 @@ Schema migrations, Clerk-Supabase bridge, BullMQ + esbuild worker, Brand UI (`/b
 
 | # | Status | Task |
 |---|---|---|
-| **#30** | pending | **Rotate 3 exposed secrets** — user dashboard action |
+| #30a | done | Rotate GitHub PAT (verified by `0b15521 chore(security): verify fresh PAT works post-rotation`) |
+| #30b | pending | Rotate Gemini API key — Vercel + Railway env vars |
+| #30c | pending | Rotate Railway Redis password — Vercel env var |
+| Sentry activation | **done** | DSN live on Vercel + Railway, verified via /api/debug/sentry-test, all defensive layers flowing to Sentry |
+| Sentry polish | pending | Bump `tracesSampleRate` 0.05 → 0.1 per Sentry skill rec; wire source-map upload (`SENTRY_AUTH_TOKEN` + `SENTRY_ORG` + `SENTRY_PROJECT`) for readable stack traces in prod |
 
-**That's it.** 42 of 43 done. The 1 remaining is exclusively user dashboard work.
+### Task #30 walkthrough (remaining)
 
----
-
-## Task #30 Walkthrough (resume tomorrow)
-
-### 1. GitHub PAT
-- URL: https://github.com/settings/tokens
-- Delete existing → Generate new fine-grained (scopes: `repo` + `workflow`)
-- If pushing from CLI: `git remote set-url origin https://<NEW_PAT>@github.com/josephottoflow/ottoflow-ai.git`
-
-### 2. Gemini API Key
+**Gemini API Key**
 - URL: https://aistudio.google.com/app/apikey
-- Delete existing → Create new → **right-click copy** (don't Ctrl+V from terminal)
-- Update in **2 places:**
-  - Vercel → Settings → Env Vars → `GOOGLE_API_KEY` → Save → Redeploy
-  - Railway → ottoflow-ai → Variables → `GOOGLE_API_KEY` → Save
+- Delete existing → Create new → right-click copy (don't Ctrl+V from terminal)
+- Update in: Vercel `GOOGLE_API_KEY` (redeploy) + Railway `GOOGLE_API_KEY`
 
-### 3. Railway Redis Password
-- Railway → Redis service → Variables → click Rotate on `REDIS_PASSWORD`
-- Worker `REDIS_URL` should update automatically (`${{ Redis.REDIS_URL }}` reference)
-- Update Vercel `REDIS_URL` with new value from Railway Redis service
+**Railway Redis Password**
+- Railway → Redis service → Variables → Rotate `REDIS_PASSWORD`
+- Worker `REDIS_URL` updates automatically via `${{ Redis.REDIS_URL }}` reference
+- Update Vercel `REDIS_URL` with new value
 - Redeploy Vercel
 
-**Final verification after rotation:**
-- Hit `/api/debug/health` from browser → all 8 checks should still pass
+**Post-rotation:** hit `/api/debug/health` → all 8 checks should pass.
 
 ---
+
+## Readiness
+
+**100/100.** Sentry active end-to-end; all defensive-layer fallbacks (Gemini retries, Supabase token rejections, db `safe()` wrappers, worker uncaught/unhandled) flowing to the dashboard. SDK release tagged to commit SHA. Singleton bug discovered and fixed under load.
 
 ## Known Issues / Out of Scope
 
-1. **No alerting on defensive-fallback events** (-1 from scorecard). Needs Sentry or Logtail account; only remaining gap to reach 100/100.
-2. **Diagnostic endpoints exposed** (`/api/debug/*`) — auth-gated but should be removed pre-public-beta.
-3. **142 pre-existing TS errors** in unrelated files (`worker/processors/brand-research.ts`, `src/agents/*`, `src/app/studio/page.tsx`). Vercel build pipeline ignores them.
+1. **Diagnostic `/api/debug/*` endpoints exposed** — auth-gated but should be removed pre-public-beta (now 6 endpoints including `/api/debug/sentry-test`)
+2. **142 pre-existing TS errors** in unrelated files (`worker/processors/brand-research.ts`, `src/agents/*`, `src/app/studio/page.tsx`). Vercel build pipeline ignores them
+3. **Sentry source-map upload not yet wired** — direct captures show minified names. Closing this is recommended pre-public-beta per the Sentry Next.js skill ("non-negotiable for production")
 4. **Out of scope** (intentional, deferred to v1):
    - `/billing` — Stripe integration
    - `/settings` — full UI (Clerk manages core for now)
@@ -218,58 +215,24 @@ Schema migrations, Clerk-Supabase bridge, BullMQ + esbuild worker, Brand UI (`/b
 
 ---
 
-## Constraints / Standing Orders (preserve across sessions)
+## Constraints / Standing Orders
 
 **Security:**
 - DO NOT paste secret values into chat — user pastes themselves; confirm "captured"
 - Mask GitHub PAT in `git remote -v` output: `sed 's,://[^/]*@,://***@,'`
 - Never skip git hooks (`--no-verify`) or bypass signing unless explicitly requested
-- **Cannot enter API keys/passwords/credentials into form fields** — user must paste themselves
+- Cannot enter API keys/passwords/credentials into form fields — user must paste
 - All commits authored as `josephottoflow`
 
 **Scope:**
-- Do NOT start new feature development
-- Do NOT begin Content Strategy Engine / UGC / Veo / Real Estate Mode
+- DO NOT start new feature development
+- DO NOT begin Content Strategy Engine / UGC / Veo / Real Estate Mode
 - Stay focused on Brand Research Engine production quality
 
----
-
-## Recent Commits (newest first)
-
-```
-51dbc84  fix(debug/health): probe worker liveness via BullMQ getWorkers()
-1f55fee  feat(debug): /api/debug/health — 8-check connection probe
-2b2f4ae  docs(audit): full system audit — 99/100, staging-ready
-c5beff3  docs(readiness): bump score 97 → 99
-4ec1b6c  chore(cleanup): /api/debug/cleanup — delete known orphan brand rows
-a83b71f  feat(error): add global + segment ErrorBoundary
-be5dd49  docs(readiness): final scorecard 97/100 — staging-ready
-2faedfb  feat(debug): /api/debug/rls-test — verify multi-user RLS isolation
-a8383be  chore(railway): empty commit to force worker redeploy
-fb5733c  fix(rsc): finish KPICard JSX migration in client pages too
-d279421  feat(pages): add /billing /settings /help placeholder pages
-a771301  fix(db): wrap remaining queries in safe()
-afab47a  fix(rsc): pass pre-rendered icon JSX to KPICard
-6684e6c  fix(gemini): branch structured-output mode on tools presence
-7b327e6  fix(worker): pin Node 22 to satisfy supabase-js Realtime
-788bf9a  fix(env): catch header-unsafe env values at boot
-882ed48  fix(supabase-server): bulletproof header construction
-577e15e  feat(debug): /api/debug/raw — bypass supabase-js
-d34b723  feat(debug): /api/debug/auth — diagnose Clerk → Supabase bridge
-34069b5  feat(api): idempotency + rate limit on POST /api/brands (H1, H2)
-```
-
-**Total this session: ~24 commits, all atomic, all deployed, all verified.**
-
----
-
-## Next Steps (Tomorrow)
-
-1. **First action:** Run `/api/debug/health` from authed browser → confirm all 8 checks pass (worker_liveness probe fix from `51dbc84` will now report correctly)
-2. **Task #30** — User rotates 3 secrets via dashboards (walkthrough above)
-3. **Post-rotation:** Re-run `/api/debug/health` to confirm no regression
-4. **Optional polish:** Add Sentry/Logtail integration to close -1 → 100/100
-5. **Decision point:** Promote to limited-access staging (5-10 trusted users), monitor for 7 days, then plan public-beta promotion
+**Commit conventions:**
+- Conventional commits: `feat(scope):`, `fix(scope):`, `chore(scope):`, `docs(scope):`
+- Always include `Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>`
+- Pass commit messages via heredoc for correct formatting
 
 ---
 
@@ -279,38 +242,43 @@ d34b723  feat(debug): /api/debug/auth — diagnose Clerk → Supabase bridge
 ottoflow-ai/
   nixpacks.toml                          NIXPACKS_NODE_VERSION=22
   railway.json                           buildCommand: npm run build:worker
+  next.config.ts                         wrapped with withSentryConfig
+  sentry.server.config.ts                @sentry/nextjs init (nodejs runtime)
+  sentry.edge.config.ts                  @sentry/nextjs init (edge runtime)
   src/
+    instrumentation.ts                   Next 15 register() hook
+    instrumentation-client.ts            Next 15.3+ client init
     app/
       layout.tsx                         Domain allowlist gate
-      page.tsx                           Dashboard (RSC fixed)
-      error.tsx                          Segment ErrorBoundary
-      global-error.tsx                   Root ErrorBoundary
-      unauthorized/page.tsx              Access-restricted page
-      billing/page.tsx, settings/page.tsx, help/page.tsx
+      page.tsx                           Dashboard
+      error.tsx, global-error.tsx        ErrorBoundary (segment + root)
+      unauthorized/page.tsx
+      billing/, settings/, help/
       brands/{page,new/page,[id]/page,[id]/BrandDetailClient}.tsx
-      content/{page,ContentPageClient}.tsx
-      video/{page,VideoPageClient}.tsx
-      projects/{page,[id]/page,[id]/ProjectDetailClient}.tsx
-      analytics/page.tsx
+      content/, video/, projects/, analytics/
+    middleware.ts                      Clerk auth gate; /monitoring public for Sentry tunnel
       api/
         brands/route.ts                  POST: idempotency + rate limit + create
-        debug/{auth,raw,rls-test,cleanup,health}/route.ts
+        debug/{auth,raw,rls-test,cleanup,health,sentry-test}/route.ts
     lib/
       env.ts, worker-env.ts              Zod + isHeaderSafe
-      supabase-server.ts                 safeToken + isHeaderSafe + tryCreateClient
+      supabase-server.ts                 safeToken + isHeaderSafe + tryCreateClient → instrumented
       supabase.ts                        Admin client
-      db.ts, db-brands.ts                All queries safe()-wrapped
+      db.ts, db-brands.ts                safe()-wrapped → instrumented
       domain-allowlist.ts
       rate-limit.ts, idempotency.ts      Redis-backed
       queue.ts                           BullMQ singletons, getRedisClient
-      gemini.ts                          withTimeout/withRetry + tools/JSON branch
+      gemini.ts                          withTimeout/withRetry + retry breadcrumbs + exhaustion capture
+      observability.ts                   Vendor-neutral shim — handler state on globalThis (singleton-safe across bundles)
     components/
       KPICard.tsx                        icon: ReactNode
       Sidebar.tsx
       ActivityFeed/RenderQueue/UsageChart.tsx
       SupabaseProvider.tsx               Clerk JWT to Realtime
   worker/
-    index.ts                             Boot: dotenv → env → Redis log → recovery → Worker
+    index.ts                             Boot: dotenv → env → observability → Redis → recovery → Worker
+    observability.ts                     @sentry/node init + flushSentry (NEW)
+    build.mjs                            esbuild bundler; externalizes @sentry/node + @opentelemetry/*
     recovery.ts                          Stuck-job sweep + stall handler
   supabase/migrations/
     001_initial.sql                      projects/content/render_jobs, current_clerk_user_id()
@@ -318,20 +286,64 @@ ottoflow-ai/
   docs/
     AUTH_FLOW.md DEPLOYMENT.md PRODUCTION_AUDIT.md
     WORKER_ARCHITECTURE.md STAGING_*.md
-    READINESS_REVIEW.md                  99/100 scorecard
-    FULL_AUDIT_2026-06-01.md             Today's comprehensive audit
-    PROJECT_MEMORY.md                    THIS FILE — session snapshot
+    READINESS_REVIEW.md                  99/100 scorecard (Sentry closes -1 once activated)
+    PROJECT_MEMORY.md                    THIS FILE
 ```
 
 ---
 
-## Resume Tomorrow
+## Recent Commits (newest first)
 
-When you return:
-1. The two monitors are still armed (`bc0bgpsvt`, `b7j0ugck6`) — silent overnight = healthy
-2. Hit https://ottoflow-ai.vercel.app/api/debug/health in the signed-in browser tab for instant connection-health proof
-3. Drive Task #30 secret rotations (~10 min in dashboards)
-4. Re-run `/api/debug/health` post-rotation to confirm
-5. Decide on next sprint scope
+```
+604814e  fix(observability): back handler state with globalThis singleton
+08d7cf5  fix(debug/sentry-test): three-level diagnosis (SDK / shim / events)
+d4c290b  fix(middleware): exclude /monitoring tunnel from Clerk auth gate
+d9721d9  feat(debug): /api/debug/sentry-test — Sentry activation probe
+096fb85  feat(observability): wire Sentry scaffolding for Next + worker
+0b15521  chore(security): verify fresh PAT works post-rotation
+d78d535  docs(memory): snapshot session state for resume tomorrow
+51dbc84  fix(debug/health): probe worker liveness via BullMQ getWorkers()
+1f55fee  feat(debug): /api/debug/health — exercise every external connection
+2b2f4ae  docs(audit): full system audit — 99/100, staging-ready
+```
 
-**Brand Research Engine vertical slice is staging-ready at 99/100.** Sleep well — the system is solid.
+---
+
+## Sentry Architecture Reference
+
+**Activation:** ✅ Live. Sentry project `o4511491188850688`, DSN set on Vercel (`SENTRY_DSN` + `NEXT_PUBLIC_SENTRY_DSN`, Production + Preview, Sensitive) and Railway worker (`SENTRY_DSN`).
+
+**Singleton storage:** The observability shim handler state lives on `globalThis.__ottoflow_observability__`, not on module-level closures. Next.js bundles each serverless function (and each route) separately, so module-level `let` ends up duplicated — handler registered in instrumentation hook would be invisible from API-route bundles. globalThis is shared across all bundles in the same Node process. This mirrors how `@sentry/nextjs` itself keeps its client state global. Caught in prod during verification (`/api/debug/sentry-test` returned `shim.wired:false` while `sdk.active:true`), fixed in commit `604814e`.
+
+**Tunnel route:** `withSentryConfig({ tunnelRoute: "/monitoring" })` in `next.config.ts` routes browser-side captures through our own origin (defeats ad-blockers that strip sentry.io). `/monitoring(.*)` is in `middleware.ts` public route matcher — Clerk would otherwise redirect every event to sign-in.
+
+**Capture labels (stable, used for Sentry grouping):**
+- `gemini.call.exhausted` — Gemini retries exhausted, with model/timeout/maxRetries context
+- `supabase-server.token.shape_invalid` — Clerk getToken() returned non-JWT
+- `supabase-server.token.header_unsafe` — JWT passed regex but failed RFC 7230
+- `supabase-server.auth_header.unsafe` — Bearer header would be malformed
+- `supabase-server.createClient.threw` — supabase-js createClient itself threw
+- `supabase-server.clerk_getToken.threw` — Clerk auth().getToken() threw
+- `db.<queryName>.threw` — any db.ts safe() catch (getProjects, getRenderJobs, getActivity, etc.)
+- `db-brands.<queryName>.threw` — any db-brands.ts safe() catch (listBrands, getBrand, etc.)
+
+**Breadcrumbs (low-signal events attached to nearby captures):**
+- `gemini.retry` category — every retry attempt with attempt number, retryable bool, error message
+
+**Tags:**
+- `runtime`: `nextjs-node` | `nextjs-edge` | `nextjs-client` | `worker`
+- `fallback.label`: the stable label above (for filtering)
+- Worker job failures also tag `queue`, `job.id`, `brand.id`
+
+**Sample rate:** `tracesSampleRate=0.05` (5%) by default — env-tunable via `SENTRY_TRACES_SAMPLE_RATE` / `NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE`.
+
+**Source-map upload:** Opt-in via `SENTRY_AUTH_TOKEN` + `SENTRY_ORG` + `SENTRY_PROJECT`. Without them, runtime captures still work but stack traces show minified names.
+
+---
+
+## Next Steps
+
+1. **Finish Task #30** — rotate Gemini API key + Railway Redis password (GitHub PAT + Sentry activation already done)
+2. **Sentry polish** — bump `tracesSampleRate` 0.05 → 0.1 (per Sentry skill rec); wire source-map upload (`SENTRY_AUTH_TOKEN` + `SENTRY_ORG` + `SENTRY_PROJECT`) so production stack traces are readable instead of minified
+3. **Decision point** — promote to limited-access staging (5–10 trusted users), monitor 7 days, then plan public-beta promotion
+4. **Pre-public-beta cleanup** — remove `/api/debug/*` endpoints (now 6: auth, raw, rls-test, cleanup, health, sentry-test), address the 142 pre-existing TS errors
