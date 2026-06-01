@@ -14,12 +14,27 @@
  *   - At process boot, ONE of two integrations registers handlers via
  *     `setObservabilityHandlers()`:
  *        - Next.js: `sentry.server.config.ts` / `sentry.edge.config.ts` /
- *                   `sentry.client.config.ts` register `@sentry/nextjs`.
+ *                   `instrumentation-client.ts` register `@sentry/nextjs`.
  *        - Worker:  `worker/observability.ts` registers `@sentry/node`.
  *     Until then, every call is a pure console log — preserving today's
  *     behavior. Adding SENTRY_DSN to env is the only switch needed.
  *   - Console logging is preserved even when Sentry is wired, so Vercel
  *     and Railway runtime logs still surface the same lines they do today.
+ *
+ * Singleton storage:
+ *   Handler refs live on `globalThis`, NOT module-level closures. Next.js
+ *   bundles each serverless function (and each route) separately; a
+ *   module-level `let` ends up duplicated across bundles, so a handler
+ *   registered by the instrumentation hook in bundle A is invisible from
+ *   bundle B's copy. Verified in production via /api/debug/sentry-test:
+ *   first iteration with closure storage returned shim.wired:false even
+ *   though Sentry.init() had clearly run (sdk.active was true).
+ *
+ *   Using `globalThis.__ottoflow_observability__` shares the registration
+ *   across every bundle that runs in the same Node.js process — exactly
+ *   how @sentry/nextjs itself keeps its client state global. Safe in the
+ *   Edge runtime too (globalThis exists; this module is loaded by both
+ *   server and edge config files).
  *
  * Call sites must NEVER throw from observability — telemetry is best-effort
  * and must not derail user-visible code paths.
@@ -37,20 +52,39 @@ export type BreadcrumbHandler = (
   data?: Record<string, unknown>
 ) => void;
 
-let captureHandler: CaptureHandler | null = null;
-let breadcrumbHandler: BreadcrumbHandler | null = null;
+type HandlerState = {
+  capture: CaptureHandler | null;
+  breadcrumb: BreadcrumbHandler | null;
+};
+
+const STORAGE_KEY = "__ottoflow_observability__";
+
+// Typed view onto globalThis — we don't pollute the global namespace
+// with unrelated keys; we just stash one well-named bag.
+type Global = typeof globalThis & {
+  [STORAGE_KEY]?: HandlerState;
+};
+
+function getState(): HandlerState {
+  const g = globalThis as Global;
+  if (!g[STORAGE_KEY]) {
+    g[STORAGE_KEY] = { capture: null, breadcrumb: null };
+  }
+  return g[STORAGE_KEY];
+}
 
 export function setObservabilityHandlers(handlers: {
   capture?: CaptureHandler;
   breadcrumb?: BreadcrumbHandler;
 }): void {
-  if (handlers.capture) captureHandler = handlers.capture;
-  if (handlers.breadcrumb) breadcrumbHandler = handlers.breadcrumb;
+  const state = getState();
+  if (handlers.capture) state.capture = handlers.capture;
+  if (handlers.breadcrumb) state.breadcrumb = handlers.breadcrumb;
 }
 
 /** True once a telemetry backend has registered. Useful for health probes. */
 export function isObservabilityWired(): boolean {
-  return captureHandler !== null;
+  return getState().capture !== null;
 }
 
 function formatErr(err: unknown): string {
@@ -78,7 +112,7 @@ export function captureFallback(
   console.error(`[fallback] ${label}: ${errPart}${ctxPart}`);
 
   try {
-    captureHandler?.(label, err, ctx);
+    getState().capture?.(label, err, ctx);
   } catch {
     // Telemetry must never throw — swallow.
   }
@@ -96,7 +130,7 @@ export function addBreadcrumb(
   data?: Record<string, unknown>
 ): void {
   try {
-    breadcrumbHandler?.(category, message, data);
+    getState().breadcrumb?.(category, message, data);
   } catch {
     // Swallow.
   }
