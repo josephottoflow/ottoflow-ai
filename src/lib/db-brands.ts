@@ -11,6 +11,7 @@
  */
 import "server-only";
 import { createServerSupabaseClient } from "./supabase-server";
+import { captureFallback } from "./observability";
 import type {
   DbBrand,
   DbBrandResearchJob,
@@ -23,10 +24,7 @@ async function safe<T>(label: string, fn: () => Promise<T>, fallback: T): Promis
   try {
     return await fn();
   } catch (err) {
-    console.error(
-      `[db-brands] ${label} threw:`,
-      err instanceof Error ? `${err.name}: ${err.message}` : String(err)
-    );
+    captureFallback(`db-brands.${label}.threw`, err);
     return fallback;
   }
 }

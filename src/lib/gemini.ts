@@ -5,6 +5,7 @@
  * never import this file directly.
  */
 import { GoogleGenAI, Type, type Schema } from "@google/genai";
+import { addBreadcrumb, captureFallback } from "./observability";
 import type {
   BrandProfile,
   BrandProfileService,
@@ -95,10 +96,28 @@ async function callGemini<T>(label: string, fn: () => Promise<T>): Promise<T> {
       return await withTimeout(fn(), TIMEOUT_MS, label);
     } catch (err) {
       lastErr = err;
-      if (attempt === MAX_RETRIES - 1 || !isRetryable(err)) break;
+      const retryable = isRetryable(err);
+      // Every attempt — failed or otherwise — drops a breadcrumb so the
+      // captured exception below has its full retry history attached.
+      addBreadcrumb("gemini.retry", `attempt ${attempt + 1}/${MAX_RETRIES} failed`, {
+        label,
+        attempt: attempt + 1,
+        retryable,
+        error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+      });
+      if (attempt === MAX_RETRIES - 1 || !retryable) break;
       await sleep(backoffDelay(attempt));
     }
   }
+  // Terminal failure — capture with rich context so we can spot patterns
+  // (which label, which model, did we exhaust retries vs. fail fast).
+  captureFallback("gemini.call.exhausted", lastErr, {
+    label,
+    model: MODEL,
+    timeoutMs: TIMEOUT_MS,
+    maxRetries: MAX_RETRIES,
+    finalAttempts: MAX_RETRIES,
+  });
   throw lastErr;
 }
 

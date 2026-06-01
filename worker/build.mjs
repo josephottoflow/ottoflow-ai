@@ -41,10 +41,24 @@ await build({
   // Inherits tsconfig "paths" → resolves @/* at build time so the bundle
   // has no path-alias requirements at runtime.
   tsconfig: resolve(projectRoot, "tsconfig.json"),
-  // Keep the bundle self-contained. If any dep starts misbehaving when
-  // bundled (e.g. requires absolute file paths), externalize it here and
-  // ship its node_modules entry alongside.
-  external: [],
+  // Externalize Sentry + OpenTelemetry. @sentry/node@10 depends on the
+  // OpenTelemetry instrumentation registry, which loads instrumentations
+  // dynamically via require() — esbuild can't statically bundle that.
+  // node_modules is present at runtime on Railway (nixpacks runs
+  // `npm ci --include=dev`), so a require('@sentry/node') from the
+  // bundle resolves cleanly.
+  external: [
+    "@sentry/node",
+    "@sentry/core",
+    "@sentry/utils",
+    "@opentelemetry/api",
+    "@opentelemetry/core",
+    "@opentelemetry/instrumentation",
+    "@opentelemetry/resources",
+    "@opentelemetry/sdk-trace-base",
+    "@opentelemetry/sdk-trace-node",
+    "@opentelemetry/semantic-conventions",
+  ],
   // BullMQ's Lua scripts and JSON imports are handled by esbuild's
   // default loaders.
   loader: {

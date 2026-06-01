@@ -28,6 +28,12 @@ loadEnv({ path: ".env" });
 // ─── Step 2: validate worker env BEFORE importing anything that reads env ────
 import { workerEnv } from "@/lib/worker-env";
 
+// ─── Step 2.5: init Sentry + bridge captureFallback() shim → @sentry/node ────
+// Import after env validation (so a missing SENTRY_DSN doesn't trip env check)
+// but BEFORE BullMQ / processors, so any boot-time crash from those modules
+// is still captured. No-op when SENTRY_DSN is unset.
+import { Sentry, flushSentry } from "./observability";
+
 // ─── Step 3: real imports (these may read process.env at module load) ────────
 import { Worker, type Job } from "bullmq";
 import {
@@ -111,6 +117,19 @@ brandResearchWorker.on("failed", (job, err) => {
     attemptsMade: job?.attemptsMade,
     error: err?.message,
   });
+  // Forward to Sentry with structured tags so we can group by
+  // brand/job and see attempt-count distributions.
+  Sentry.withScope((scope) => {
+    scope.setTag("queue", QUEUE_NAMES.brandResearch);
+    if (job?.id) scope.setTag("job.id", String(job.id));
+    if (job?.data?.brandId) scope.setTag("brand.id", String(job.data.brandId));
+    scope.setContext("job", {
+      id: job?.id,
+      brandId: job?.data?.brandId,
+      attemptsMade: job?.attemptsMade,
+    });
+    Sentry.captureException(err ?? new Error("job.failed with no error"));
+  });
 });
 
 brandResearchWorker.on("stalled", (jobId) => {
@@ -178,6 +197,9 @@ async function shutdown(signal: string): Promise<never> {
   }
 
   await disconnectRedis().catch(() => {});
+  // Flush any queued Sentry events before exit — otherwise the SDK loses
+  // events captured in the last few seconds of the process.
+  await flushSentry(2_000);
   process.exit(0);
 }
 
@@ -189,12 +211,17 @@ process.on("unhandledRejection", (reason) => {
   logError("worker", "unhandledRejection", {
     reason: reason instanceof Error ? reason.message : String(reason),
   });
+  Sentry.captureException(
+    reason instanceof Error ? reason : new Error(`unhandledRejection: ${String(reason)}`)
+  );
 });
 
 process.on("uncaughtException", (err) => {
   logError("worker", "uncaughtException", { error: err.message });
-  // Exit so the orchestrator restarts us into a clean state.
-  process.exit(1);
+  Sentry.captureException(err);
+  // Best-effort flush so the crash report makes it to Sentry before we exit.
+  // Hard cap at 2s — we'd rather lose a report than hang restart on Railway.
+  void flushSentry(2_000).finally(() => process.exit(1));
 });
 
 log("worker", "started", {

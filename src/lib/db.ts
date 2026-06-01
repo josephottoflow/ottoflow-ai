@@ -21,6 +21,7 @@
 import "server-only";
 import { auth } from "@clerk/nextjs/server";
 import { createServerSupabaseClient } from "./supabase-server";
+import { captureFallback } from "./observability";
 
 /**
  * Guard rail: wrap a DB query so any THROWN exception (not just supabase's
@@ -30,15 +31,15 @@ import { createServerSupabaseClient } from "./supabase-server";
  *   - Network failure mid-fetch
  *   - JSON parse failure on response body
  * Without this, any one of these crashes the whole server-rendered page.
+ *
+ * Every fallback is reported via captureFallback so we can spot DB layer
+ * problems even though the page kept rendering.
  */
 async function safe<T>(label: string, fn: () => Promise<T>, fallback: T): Promise<T> {
   try {
     return await fn();
   } catch (err) {
-    console.error(
-      `[db] ${label} threw:`,
-      err instanceof Error ? `${err.name}: ${err.message}` : String(err)
-    );
+    captureFallback(`db.${label}.threw`, err);
     return fallback;
   }
 }

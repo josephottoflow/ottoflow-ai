@@ -2,6 +2,7 @@ import "server-only";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { auth } from "@clerk/nextjs/server";
 import { serverEnv } from "./env";
+import { captureFallback } from "./observability";
 
 /**
  * Per-request Supabase client authenticated with the current Clerk session.
@@ -49,19 +50,21 @@ function isHeaderSafe(value: string): boolean {
 function safeToken(token: string | null | undefined): string | null {
   if (!token || typeof token !== "string") return null;
   if (!VALID_JWT.test(token)) {
-    console.error(
-      `[supabase-server] Clerk getToken() returned a non-JWT value ` +
-        `(${token.length} chars, starts with: ${JSON.stringify(token.slice(0, 30))}). ` +
-        `Falling back to anon access. User likely needs to sign out + sign in ` +
-        `again with a fresh email; if persistent, delete the Clerk user.`
+    captureFallback(
+      "supabase-server.token.shape_invalid",
+      new Error("Clerk getToken() returned a non-JWT value"),
+      {
+        length: token.length,
+        preview: token.slice(0, 30),
+      }
     );
     return null;
   }
   // Belt-and-suspenders: even valid-looking JWTs get one more check.
   if (!isHeaderSafe(token)) {
-    console.error(
-      `[supabase-server] JWT passed regex but failed header-value safety check ` +
-        `(contains CR/LF/control chars or out-of-bounds length). Falling back to anon.`
+    captureFallback(
+      "supabase-server.token.header_unsafe",
+      new Error("JWT passed regex but failed header-value safety check")
     );
     return null;
   }
@@ -80,8 +83,9 @@ function tryCreateClient(token: string | null): SupabaseClient {
   if (token) {
     const authValue = `Bearer ${token}`;
     if (!isHeaderSafe(authValue)) {
-      console.error(
-        "[supabase-server] Authorization header would be malformed; falling back to anon."
+      captureFallback(
+        "supabase-server.auth_header.unsafe",
+        new Error("Authorization header would be malformed; falling back to anon")
       );
       return makeAnonClient();
     }
@@ -93,10 +97,7 @@ function tryCreateClient(token: string | null): SupabaseClient {
       auth: { persistSession: false, autoRefreshToken: false },
     });
   } catch (err) {
-    console.error(
-      "[supabase-server] createClient threw:",
-      err instanceof Error ? `${err.name}: ${err.message}` : err
-    );
+    captureFallback("supabase-server.createClient.threw", err);
     return makeAnonClient();
   }
 }
@@ -108,10 +109,7 @@ export async function createServerSupabaseClient(): Promise<SupabaseClient> {
     const raw = await getToken();
     token = safeToken(raw);
   } catch (err) {
-    console.error(
-      "[supabase-server] auth().getToken() threw:",
-      err instanceof Error ? `${err.name}: ${err.message}` : err
-    );
+    captureFallback("supabase-server.clerk_getToken.threw", err);
     // Fall through with token=null → anon client.
   }
 
