@@ -47,6 +47,14 @@ import {
   generateVideoStoryboard,
   generateHeroFrame,
 } from "@/lib/gemini";
+import {
+  synthesizeNarration,
+  ElevenLabsNotConfiguredError,
+} from "@/lib/elevenlabs";
+import {
+  findTrackByVibe,
+  JamendoNotConfiguredError,
+} from "@/lib/jamendo";
 
 export const runtime = "nodejs";
 // Vercel hobby plan default is 10s — bump for the multi-call pipeline.
@@ -237,16 +245,33 @@ export async function POST(req: NextRequest) {
 
         // ─── Stage 3: Voice ─────────────────────────────────────────────────
         log("info", "Started: Voice");
-        log(
-          "warn",
-          "Voice synthesis (ElevenLabs) — stub: TTS hook not wired in MVP",
-        );
-        // Tiny delay so the UI's stage transition reads naturally
-        await new Promise((r) => setTimeout(r, 800));
-        log(
-          "success",
-          `Voice stub complete (direction: "${script.voiceDirection}")`,
-        );
+        status("Synthesizing narration", 42);
+
+        // Concatenate hook + body + cta for the full narration. Each is
+        // already short and natural-sounding from the script generator.
+        const fullNarration =
+          `${script.hook} ${script.body} ${script.cta}`.trim();
+        let voiceAudioDataUrl: string | null = null;
+        try {
+          const voice = await synthesizeNarration({ text: fullNarration });
+          voiceAudioDataUrl = voice.audioDataUrl;
+          log(
+            "success",
+            `Voice ready — ${Math.round(voice.byteLength / 1024)}KB MP3 (${voice.voiceId}, model ${voice.modelId}, direction "${script.voiceDirection}")`,
+          );
+        } catch (err) {
+          if (err instanceof ElevenLabsNotConfiguredError) {
+            log(
+              "warn",
+              "Voice skipped: ELEVENLABS_API_KEY not configured (stub direction logged)",
+            );
+          } else {
+            log(
+              "warn",
+              `Voice failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        }
         status("Voice ready", 50);
 
         // ─── Stage 4: Clips ─────────────────────────────────────────────────
@@ -285,12 +310,38 @@ export async function POST(req: NextRequest) {
 
         // ─── Stage 5: Music ─────────────────────────────────────────────────
         log("info", "Started: Music");
-        log(
-          "warn",
-          `Music selection (Suno-style) — stub: ${musicVibe} vibe queued`,
-        );
-        await new Promise((r) => setTimeout(r, 600));
-        log("success", "Music stub complete");
+        status("Finding track", 76);
+
+        let musicTrackUrl: string | null = null;
+        let musicTrackName: string | null = null;
+        try {
+          const track = await findTrackByVibe({
+            vibe: musicVibe,
+            targetSeconds,
+          });
+          if (track) {
+            musicTrackUrl = track.audio;
+            musicTrackName = `${track.name} — ${track.artist_name}`;
+            log(
+              "success",
+              `Music ready — "${track.name}" by ${track.artist_name} (${track.duration}s, Jamendo CC)`,
+            );
+          } else {
+            log("warn", `Music skipped: no Jamendo tracks matched vibe "${musicVibe}"`);
+          }
+        } catch (err) {
+          if (err instanceof JamendoNotConfiguredError) {
+            log(
+              "warn",
+              `Music skipped: JAMENDO_CLIENT_ID not configured (vibe was "${musicVibe}")`,
+            );
+          } else {
+            log(
+              "warn",
+              `Music failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        }
         status("Music ready", 84);
 
         // ─── Stage 6: Render ────────────────────────────────────────────────
@@ -327,6 +378,12 @@ export async function POST(req: NextRequest) {
           type: "done",
           videoUrl,
           jobId,
+          // Extra payload — UI doesn't render these yet but they're available
+          // to wire into a "Hear narration" / "Preview track" CTA in a
+          // follow-up pass without another roundtrip.
+          audioUrl: voiceAudioDataUrl ?? undefined,
+          musicUrl: musicTrackUrl ?? undefined,
+          musicTrack: musicTrackName ?? undefined,
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

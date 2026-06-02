@@ -264,6 +264,11 @@ export interface SSEEvent {
   videoUrl?: string;
   jobId?: string;
   error?: string;
+  // Audio narration + music track URLs, attached to the `done` event so
+  // the page can render "Hear narration" + "Preview music" CTAs.
+  audioUrl?: string;
+  musicUrl?: string;
+  musicTrack?: string;
 }
 
 export interface KPISummary {

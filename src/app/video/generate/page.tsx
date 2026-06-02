@@ -117,6 +117,10 @@ export default function VideoGeneratePage() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [showLogs, setShowLogs] = useState(false);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  // Narration audio (ElevenLabs MP3, data URL) + Jamendo music track
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [musicUrl, setMusicUrl] = useState<string | null>(null);
+  const [musicTrack, setMusicTrack] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -151,6 +155,9 @@ export default function VideoGeneratePage() {
     setProgress(0);
     setStatusLabel("Initializing pipeline…");
     setVideoUrl(null);
+    setAudioUrl(null);
+    setMusicUrl(null);
+    setMusicTrack(null);
     setJobId(null);
     setError(null);
     setLogs([]);
@@ -221,6 +228,9 @@ export default function VideoGeneratePage() {
             setProgress(100);
             setStatusLabel("Complete!");
             if (event.videoUrl) setVideoUrl(event.videoUrl);
+            if (event.audioUrl) setAudioUrl(event.audioUrl);
+            if (event.musicUrl) setMusicUrl(event.musicUrl);
+            if (event.musicTrack) setMusicTrack(event.musicTrack);
             if (event.jobId) setJobId(event.jobId);
             setRunning(false);
           }
@@ -573,8 +583,33 @@ export default function VideoGeneratePage() {
                 src={videoUrl}
                 controls
                 autoPlay
+                muted
+                playsInline
                 className="w-full aspect-video bg-black"
               />
+              {(audioUrl || musicUrl) && (
+                <div className="px-4 py-3 border-t border-white/5 space-y-2.5">
+                  {audioUrl && (
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider text-white/40 font-semibold mb-1.5 flex items-center gap-1.5">
+                        <Mic size={10} className="text-cyan-400" /> Narration (ElevenLabs)
+                      </p>
+                      <audio src={audioUrl} controls className="w-full h-8" />
+                    </div>
+                  )}
+                  {musicUrl && (
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider text-white/40 font-semibold mb-1.5 flex items-center gap-1.5">
+                        <Music size={10} className="text-emerald-400" /> Music track
+                        {musicTrack && (
+                          <span className="text-white/60 normal-case font-normal ml-1">· {musicTrack}</span>
+                        )}
+                      </p>
+                      <audio src={musicUrl} controls className="w-full h-8" />
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="p-4 flex gap-2">
                 <a href={videoUrl} download>
                   <Button variant="gradient-cyan" size="sm" className="gap-1.5">
