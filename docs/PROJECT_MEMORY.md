@@ -1,4 +1,25 @@
-# Ottoflow AI — Project Memory (Updated 2026-06-03)
+# Ottoflow AI — Project Memory (Updated 2026-06-03, Brand→Topic→Video w/ overlays SHIPPED)
+
+---
+
+## TL;DR — Latest milestone (this session)
+
+The Video Pipeline now runs **Brand → Topic → Script → Voice → Music → Stock Clip → Keyword Overlay → Merge** end-to-end. Verified live:
+
+- Brand `OTTOFLOW.AI · REAL ESTATE` picker on `/video/generate`
+- 40 Gemini-generated topics with category filtering + search
+- Live topic preview pane (hook + core angle from brand_topics row)
+- Brand-voice-aware script generation (positioning + tone injected into prompt)
+- Keyword overlay extraction (`extractImportantWords()` → 8 overlays per ~28s)
+- FFmpeg `drawtext` renderer baking overlays into MP4 with **scale pop + fade**
+  (e.g. "REAL ESTATE" visible at 0:05 in the merged file)
+- Supabase Storage upload of merged MP4 (4.4s total worker time)
+- `/video/history` listing past runs with Download + Regenerate
+
+Live merged sample: `supabase.co/storage/v1/object/public/merged-videos/{userId}/ca64cb96…c0c0.mp4`
+
+---
+
 
 ---
 
