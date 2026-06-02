@@ -145,24 +145,35 @@ export async function processVideoMerge(
       }
 
       // Build filter_complex:
-      //   - narration: pass through, label "narr"
-      //   - music: drop volume (-12 dB default), label "mus"
-      //   - amix narration+music → label "mix"
-      //   - Or if only one input → its label IS the final mix
+      //   - narration: pass-through (full volume), label "narr"
+      //   - music:     ducked via linear gain (~0.25 == -12 dB), label "mus"
+      //   - amix narration+music → label "mix" (default duration=longest)
+      //   - Or if only one input → its label IS the final audio
+      //
+      // IMPORTANT: weights= parameter has special parsing inside amix and
+      // cannot contain a literal space when passed via -filter_complex.
+      // We rely on the explicit volume filters above for balance instead.
       const parts: string[] = [];
       const mixedLabels: string[] = [];
+      // Translate the dB-domain ducking knob to linear gain: gain = 10^(dB/20).
+      // duckingDb=-12 → 0.251; -6 → 0.501; 0 → 1.0
+      const musicLinearGain = Math.pow(10, duckingDb / 20);
       if (hasNarration) {
         parts.push(`[${narrIdx}:a]volume=1.0[narr]`);
         mixedLabels.push("[narr]");
       }
       if (hasMusic) {
-        // volume filter in dB: volume=-12dB
-        parts.push(`[${musicIdx}:a]volume=${duckingDb}dB[mus]`);
+        parts.push(
+          `[${musicIdx}:a]volume=${musicLinearGain.toFixed(3)}[mus]`,
+        );
         mixedLabels.push("[mus]");
       }
       if (mixedLabels.length === 2) {
+        // No `weights=` — its space-separated syntax fights -filter_complex.
+        // Default duration='longest' is fine; -shortest at the encoder caps
+        // total length to the video stream.
         parts.push(
-          `${mixedLabels.join("")}amix=inputs=2:duration=longest:weights=1 0.7[mix]`,
+          `${mixedLabels.join("")}amix=inputs=2:duration=longest[mix]`,
         );
       }
       const finalAudioLabel =
