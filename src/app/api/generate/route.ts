@@ -68,11 +68,16 @@ const Schema = z.object({
 const RATE_LIMIT = { limit: 20, windowSeconds: 60 * 60 } as const; // 20/hr
 const ROUTE = "POST:/api/generate";
 
-// Public sample MP4 used as the placeholder render output. Stable Google
-// CDN, ~700KB, 60s, well-known. Swap for a real Veo render once we wire
-// generateVideos(). The page's <video> will autoplay this on `done`.
+// Public sample MP4 used as the placeholder render output. test-videos.co.uk
+// hosts permissive sample clips with CORS open. ~1MB / 10s Big Buck Bunny
+// excerpt at 360p — small enough to load instantly. Verified 200 on probe.
+//
+// The Google `gtv-videos-bucket` sample URLs I tried first all return 403
+// (Google locked them down post-2024). Don't reach for them again.
+//
+// Swap for a real Veo / Higgsfield render once the SDK is upgraded.
 const PLACEHOLDER_VIDEO_URL =
-  "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4";
+  "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function sseFrame(payload: Record<string, unknown>): Uint8Array {

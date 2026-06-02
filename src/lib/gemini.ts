@@ -804,9 +804,15 @@ export async function generateHeroFrame(input: {
 }): Promise<string> {
   const imagePrompt = `${input.style} style, ${input.prompt}, cinematic composition, professional commercial photography, high detail`;
 
+  // Model name caveat: the Gemini v1beta API has shuffled Imagen names a
+  // few times. `imagen-3.0-generate-002` returned 404 in production for our
+  // tier (smoke test 2026-06-02). `imagen-3.0-fast-generate-001` is the
+  // lighter-weight variant typically enabled on AI Studio keys. If your
+  // key 404s on both, Imagen isn't enabled — the route falls back
+  // gracefully (route.ts catches and skips the hero frame).
   const resp = await callGemini("generateHeroFrame", () =>
     ai().models.generateImages({
-      model: "imagen-3.0-generate-002",
+      model: "imagen-3.0-fast-generate-001",
       prompt: imagePrompt,
       config: {
         numberOfImages: 1,
