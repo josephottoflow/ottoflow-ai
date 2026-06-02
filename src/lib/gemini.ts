@@ -640,3 +640,187 @@ generic marketing speak.
       "You are a senior content strategist who writes scroll-stopping posts. You match brand voice precisely and never use cliches. Be concrete, specific, and human.",
   });
 }
+
+// ─── Video Generation Helpers ────────────────────────────────────────────────
+//
+// Video pipeline produces a narration script and a structured storyboard.
+// Both use Gemini Flash for the "brain" — fast, JSON-mode-friendly, and
+// already proven by the brand-research + content-generation pipelines.
+//
+// The actual video render is currently a placeholder URL (see
+// /api/generate/route.ts) — the @google/genai SDK v0.3 we have installed
+// only exposes generateImages, not generateVideos. When we upgrade the SDK
+// or wire a direct REST call to Veo, swap the placeholder for the real call.
+
+export interface VideoScript {
+  hook: string;              // first 3-5 seconds, scroll-stopper
+  body: string;              // main narration, plain text
+  cta: string;               // closing call-to-action line
+  estimatedDurationSec: number;
+  voiceDirection: string;    // tone hint for TTS (e.g. "energetic, fast-paced")
+}
+
+const videoScriptSchema: Schema = {
+  type: Type.OBJECT,
+  required: ["hook", "body", "cta", "estimatedDurationSec", "voiceDirection"],
+  properties: {
+    hook: { type: Type.STRING },
+    body: { type: Type.STRING },
+    cta: { type: Type.STRING },
+    estimatedDurationSec: { type: Type.INTEGER },
+    voiceDirection: { type: Type.STRING },
+  },
+} as Schema;
+
+export async function generateVideoScript(input: {
+  prompt: string;
+  style: string;
+  musicVibe: string;
+  targetSeconds: number;
+}): Promise<VideoScript> {
+  const prompt = `
+Write a tight, scroll-stopping narration for a ${input.targetSeconds}-second
+short-form ad video based on this brief.
+
+BRIEF: ${input.prompt}
+STYLE: ${input.style}
+MUSIC VIBE: ${input.musicVibe}
+
+REQUIREMENTS:
+- hook: the first 3-5 seconds — a question, bold claim, or pattern interrupt.
+  No "Hey guys" or "Did you know" cliches.
+- body: the main message. 60-90 words. Specific, concrete. Should fit the
+  remaining time after the hook.
+- cta: a single closing line that drives action. ~10-15 words.
+- estimatedDurationSec: your honest estimate of total spoken duration
+- voiceDirection: a short hint for TTS — energy, pace, gender-neutral tone
+
+Total spoken duration should land within 2 seconds of ${input.targetSeconds}.
+Write for the ear, not the page — short sentences, strong verbs.
+`.trim();
+
+  return generateStructured<VideoScript>({
+    prompt,
+    schema: videoScriptSchema,
+    label: "generateVideoScript",
+    systemInstruction:
+      "You are a senior short-form ad copywriter. You write for TikTok, Reels, and Shorts. Every word earns its place. No filler, no cliches.",
+  });
+}
+
+export interface StoryboardScene {
+  index: number;             // 1-based
+  durationSec: number;
+  shotType: string;          // "close-up", "wide", "POV", "product hero", etc.
+  cameraMove: string;        // "static", "slow push-in", "orbit", etc.
+  description: string;       // one sentence visual description
+  onScreenText?: string;     // overlay copy (kicker, stat, brand tag)
+  voiceLine?: string;        // chunk of the narration this scene plays under
+}
+
+export interface Storyboard {
+  scenes: StoryboardScene[];
+  totalDurationSec: number;
+  aestheticNotes: string;    // color palette, lighting, pacing notes
+}
+
+const storyboardSchema: Schema = {
+  type: Type.OBJECT,
+  required: ["scenes", "totalDurationSec", "aestheticNotes"],
+  properties: {
+    totalDurationSec: { type: Type.INTEGER },
+    aestheticNotes: { type: Type.STRING },
+    scenes: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        required: ["index", "durationSec", "shotType", "cameraMove", "description"],
+        properties: {
+          index: { type: Type.INTEGER },
+          durationSec: { type: Type.INTEGER },
+          shotType: { type: Type.STRING },
+          cameraMove: { type: Type.STRING },
+          description: { type: Type.STRING },
+          onScreenText: { type: Type.STRING },
+          voiceLine: { type: Type.STRING },
+        },
+      },
+    },
+  },
+} as Schema;
+
+export async function generateVideoStoryboard(input: {
+  prompt: string;
+  style: string;
+  sceneCount: number;
+  script: VideoScript;
+}): Promise<Storyboard> {
+  const prompt = `
+Build a ${input.sceneCount}-scene shot list for this short-form ad video.
+
+ORIGINAL BRIEF: ${input.prompt}
+STYLE: ${input.style}
+TARGET DURATION: ${input.script.estimatedDurationSec} seconds
+
+NARRATION HOOK:  ${input.script.hook}
+NARRATION BODY:  ${input.script.body}
+NARRATION CTA:   ${input.script.cta}
+
+REQUIREMENTS:
+- Exactly ${input.sceneCount} scenes. Index them 1..${input.sceneCount}.
+- Distribute total duration across scenes; respect the hook getting more
+  weight (3-5s minimum).
+- Each scene specifies: shotType (close-up / wide / POV / product hero /
+  text card / etc.), cameraMove (static / slow push-in / orbit / handheld
+  / dolly / whip pan / etc.), description (one concrete visual sentence),
+  optional onScreenText (overlay copy), optional voiceLine (which slice
+  of the narration plays under it).
+- aestheticNotes: 2-3 sentences on lighting, palette, pacing, references.
+
+Be specific. "Product on a desk" is filler. "Walnut desk, golden hour
+backlight from the left, hand reaching in from frame-right" is a shot.
+`.trim();
+
+  return generateStructured<Storyboard>({
+    prompt,
+    schema: storyboardSchema,
+    label: "generateVideoStoryboard",
+    systemInstruction:
+      "You are a commercial director with a strong eye for short-form video. You write shot lists that DPs can execute. Be specific and visual.",
+  });
+}
+
+/**
+ * Generate a single hero/poster image for the video using Imagen 3.
+ * Returns the image as a base64 data URL so the client can render it
+ * without a separate storage roundtrip.
+ *
+ * Throws if Imagen 3 isn't enabled on the API key. Caller should treat
+ * this as best-effort and continue without it on failure.
+ */
+export async function generateHeroFrame(input: {
+  prompt: string;
+  style: string;
+}): Promise<string> {
+  const imagePrompt = `${input.style} style, ${input.prompt}, cinematic composition, professional commercial photography, high detail`;
+
+  const resp = await callGemini("generateHeroFrame", () =>
+    ai().models.generateImages({
+      model: "imagen-3.0-generate-002",
+      prompt: imagePrompt,
+      config: {
+        numberOfImages: 1,
+        aspectRatio: "9:16",
+        outputMimeType: "image/jpeg",
+      },
+    }),
+  );
+
+  // SDK shape: { generatedImages: [{ image: { imageBytes: string } }] }
+  const first = resp.generatedImages?.[0];
+  const bytes = first?.image?.imageBytes;
+  if (!bytes) {
+    throw new Error("Imagen returned no image bytes");
+  }
+  return `data:image/jpeg;base64,${bytes}`;
+}
