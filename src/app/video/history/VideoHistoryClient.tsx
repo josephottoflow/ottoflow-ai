@@ -320,6 +320,12 @@ function HistoryRow({
               &ldquo;{script.hook}&rdquo;
             </p>
           )}
+          <Link
+            href={`/video/${job.id}`}
+            className="text-[10px] text-cyan-400 hover:underline mb-2 inline-block"
+          >
+            View generation details →
+          </Link>
           {job.merge_error && (
             <p className="text-[11px] text-rose-300/80 flex items-center gap-1.5 mb-2">
               <AlertCircle size={11} />
