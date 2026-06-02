@@ -265,18 +265,24 @@ export async function processVideoMerge(
         const norm = await runFfmpeg([
           "-y",
           "-i", src,
-          // Scale + pad to 1080x1920 preserving aspect ratio (letterbox if needed).
-          // setsar=1 prevents ffmpeg from complaining about pixel aspect
-          // mismatches at the concat boundary.
+          // Scale + pad to 720x1280 preserving aspect ratio. Drops from
+          // 1080x1920 to match the source resolution (Pexels portrait HD
+          // is 720x1280, Luma 720p, Runway 720x1280) which means we avoid
+          // a full-resolution-doubling re-encode that was OOM-killing
+          // libx264 on Railway. setsar=1 prevents concat SAR mismatch.
           "-vf",
-          "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=30",
+          "scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=30",
           // Cap at scene's target duration so a long source clip doesn't
           // bleed into the next scene's window.
           "-t", String(targetDur),
           "-an",                  // strip audio from individual scenes
           "-c:v", "libx264",
-          "-preset", "veryfast",
-          "-crf", "23",
+          // Ultrafast preset + mbtree disabled minimizes libx264 memory
+          // footprint. We trade ~10% size for getting under Railway's
+          // worker RAM cap.
+          "-preset", "ultrafast",
+          "-x264-params", "no-mbtree=1:rc-lookahead=10",
+          "-crf", "26",
           "-pix_fmt", "yuv420p",
           dest,
         ]);
