@@ -143,6 +143,23 @@ export interface VideoMergeScene {
   provider?: string;         // for diagnostic logging
 }
 
+/**
+ * Phase D — scene-generation deferred from /api/generate SSE to the
+ * worker. When `sceneSpecs` is present, the worker iterates these
+ * specs, calls registry.generateScene() per scene, persists each to
+ * scene_generations, then proceeds with concat + overlay + audio merge
+ * just like the legacy `scenes` array.
+ *
+ * Moving this out of the SSE handler eliminates the Vercel function
+ * timeout exposure on Runway-heavy runs (audit C1/M2).
+ */
+export interface VideoMergeSceneSpec {
+  index: number;                 // 1-based, matches storyboard.scenes[].index
+  prompt: string;
+  shotType: string | null;
+  durationSec: number;
+}
+
 export interface VideoMergeJobData {
   renderJobId: string;
   userId: string;
@@ -164,6 +181,13 @@ export interface VideoMergeJobData {
    * `videoUrl` single-clip path if scenes is empty or absent.
    */
   scenes?: VideoMergeScene[];
+  /**
+   * Phase D — when present, the worker generates these scenes via
+   * registry.generateScene() BEFORE the concat pass. Mutually exclusive
+   * with `scenes` (use one or the other). Generation results are
+   * persisted to scene_generations as they complete.
+   */
+  sceneSpecs?: VideoMergeSceneSpec[];
 }
 
 export interface JobPayloads {

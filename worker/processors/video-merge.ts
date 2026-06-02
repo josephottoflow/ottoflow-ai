@@ -34,7 +34,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase";
-import type { VideoMergeJobData, VideoMergeOverlay } from "@/lib/queue";
+import type { VideoMergeJobData, VideoMergeOverlay, VideoMergeScene } from "@/lib/queue";
+import { generateScene as registryGenerateScene } from "@/lib/video-providers/registry";
 
 type Reporter = (step: string, progress: number) => void;
 
@@ -195,9 +196,95 @@ export async function processVideoMerge(
   report: Reporter,
 ): Promise<{ ok: true; mergedUrl: string }> {
   const admin = createAdminClient();
-  const { renderJobId, userId, videoUrl, audioDataUrl, musicUrl, overlays, scenes } = data;
+  const { renderJobId, userId, videoUrl, audioDataUrl, musicUrl, overlays, sceneSpecs } = data;
+  let { scenes } = data;
   const duckingDb = data.musicDuckingDb ?? -12;
   const hasOverlays = !!overlays && overlays.length > 0;
+  const needsSceneGeneration = !!sceneSpecs && sceneSpecs.length > 1 && (!scenes || scenes.length === 0);
+
+  // ─── Phase D · Worker-side scene generation ─────────────────────────────────
+  // When the route handed us specs (storyboard scenes that haven't been
+  // turned into clips yet), we run the provider chain HERE in the worker
+  // instead of in the SSE handler. This eliminates the 300s Vercel
+  // function timeout exposure that put C1 in the audit report.
+  //
+  // Concurrency cap of 3 keeps us under Runway/Luma rate limits. Each
+  // scene's row gets inserted as it completes so the /video/[jobId]
+  // detail page can show live progress via Realtime.
+  if (needsSceneGeneration) {
+    report("merging", 5);
+    const completed: VideoMergeScene[] = [];
+    const CONCURRENCY = 3;
+    const specs = [...sceneSpecs!].sort((a, b) => a.index - b.index);
+    let cursor = 0;
+    const worker = async () => {
+      while (true) {
+        const i = cursor++;
+        if (i >= specs.length) return;
+        const spec = specs[i];
+        const startedAt = Date.now();
+        let row: Record<string, unknown>;
+        try {
+          const result = await registryGenerateScene({
+            prompt: spec.prompt,
+            durationSec: spec.durationSec,
+            aspectRatio: "9:16",
+          });
+          const generationTimeMs = Date.now() - startedAt;
+          completed.push({
+            index: spec.index,
+            url: result.url,
+            durationSec: result.durationSec,
+            provider: result.provider,
+          });
+          row = {
+            render_job_id: renderJobId,
+            scene_number: spec.index,
+            prompt: spec.prompt,
+            shot_type: spec.shotType,
+            provider: result.provider,
+            clip_url: result.url,
+            duration_sec: result.durationSec,
+            width: result.width,
+            height: result.height,
+            generation_time_ms: generationTimeMs,
+            cost_usd: result.costUsd ?? null,
+            fallback_reason: null,
+            attribution: result.attribution ?? null,
+            metadata: result.metadata ?? null,
+          };
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          row = {
+            render_job_id: renderJobId,
+            scene_number: spec.index,
+            prompt: spec.prompt,
+            shot_type: spec.shotType,
+            provider: "failed",
+            clip_url: null,
+            duration_sec: null,
+            width: null,
+            height: null,
+            generation_time_ms: Date.now() - startedAt,
+            cost_usd: null,
+            fallback_reason: message.slice(0, 500),
+            attribution: null,
+            metadata: null,
+          };
+        }
+        // Per-scene insert so Realtime fires incrementally rather than
+        // landing all rows at once at the end.
+        await admin.from("scene_generations").insert(row);
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(CONCURRENCY, specs.length) }, () => worker()),
+    );
+    // Sort + assign for the rest of the pipeline below. Skip failed scenes.
+    completed.sort((a, b) => a.index - b.index);
+    scenes = completed;
+  }
+
   const hasScenes = !!scenes && scenes.length > 1;
 
   // Working directory under /tmp — Railway gives ample disk for this.

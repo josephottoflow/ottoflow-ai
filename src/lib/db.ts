@@ -380,3 +380,169 @@ export async function getAnalyticsData(days = 14): Promise<ChartPoint[]> {
     return points;
   }, []);
 }
+
+// ─── Provider analytics (Beta-readiness, Phase C) ────────────────────────────
+//
+// Aggregates over scene_generations so we can monitor provider health,
+// generation latency, and AI spend. RLS scopes everything to the user
+// via render_jobs.user_id traversal (see migration 007). Numbers are
+// per-user — Sentry covers fleet-wide signal.
+
+export interface ProviderAnalyticsRow {
+  provider: string;
+  attempts: number;
+  successes: number;
+  successRatePct: number;       // 0-100
+  avgGenMs: number | null;
+  p50GenMs: number | null;
+  p95GenMs: number | null;
+  totalCostUsd: number;
+  fallbackCount: number;        // scenes that ended up at this provider after a failure
+}
+
+export interface AIBurnDayPoint {
+  date: string;                 // formatted like ChartPoint
+  costUsd: number;
+  sceneCount: number;
+}
+
+/** Percentile from an unsorted number array. p in [0, 100]. */
+function percentile(values: number[], p: number): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = Math.min(
+    sorted.length - 1,
+    Math.max(0, Math.floor((p / 100) * sorted.length)),
+  );
+  return sorted[idx];
+}
+
+/**
+ * Per-provider performance metrics for the last N days.
+ *
+ * Joins via the RLS-aware client. fallback_count counts scenes where
+ * `fallback_reason IS NOT NULL` — useful for catching providers that
+ * chain-fall to backup providers.
+ */
+export async function getProviderAnalytics(
+  days = 14,
+): Promise<ProviderAnalyticsRow[]> {
+  return safe(
+    "getProviderAnalytics",
+    async () => {
+      const sb = await createServerSupabaseClient();
+      const since = new Date(Date.now() - days * 86_400_000);
+      since.setUTCHours(0, 0, 0, 0);
+      const { data } = await sb
+        .from("scene_generations")
+        .select("provider, clip_url, generation_time_ms, cost_usd, fallback_reason, created_at")
+        .gte("created_at", since.toISOString());
+
+      const rows = (data ?? []) as Array<{
+        provider: string;
+        clip_url: string | null;
+        generation_time_ms: number | null;
+        cost_usd: number | null;
+        fallback_reason: string | null;
+      }>;
+
+      const buckets = new Map<string, {
+        attempts: number;
+        successes: number;
+        times: number[];
+        cost: number;
+        fallbackCount: number;
+      }>();
+
+      for (const r of rows) {
+        const key = r.provider;
+        let b = buckets.get(key);
+        if (!b) {
+          b = { attempts: 0, successes: 0, times: [], cost: 0, fallbackCount: 0 };
+          buckets.set(key, b);
+        }
+        b.attempts += 1;
+        if (r.clip_url) b.successes += 1;
+        if (r.generation_time_ms != null) b.times.push(r.generation_time_ms);
+        if (r.cost_usd != null) b.cost += r.cost_usd;
+        if (r.fallback_reason) b.fallbackCount += 1;
+      }
+
+      const out: ProviderAnalyticsRow[] = [];
+      for (const [provider, b] of buckets.entries()) {
+        const avg =
+          b.times.length > 0
+            ? Math.round(b.times.reduce((a, x) => a + x, 0) / b.times.length)
+            : null;
+        out.push({
+          provider,
+          attempts: b.attempts,
+          successes: b.successes,
+          successRatePct: b.attempts > 0 ? Math.round((b.successes / b.attempts) * 1000) / 10 : 0,
+          avgGenMs: avg,
+          p50GenMs: percentile(b.times, 50),
+          p95GenMs: percentile(b.times, 95),
+          totalCostUsd: Math.round(b.cost * 100) / 100,
+          fallbackCount: b.fallbackCount,
+        });
+      }
+      // Order: most-used providers first
+      out.sort((a, b) => b.attempts - a.attempts);
+      return out;
+    },
+    [],
+  );
+}
+
+/**
+ * Daily AI spend for the last N days. Sums scene_generations.cost_usd
+ * per UTC day. Pexels rows have cost=0 so they don't inflate the line.
+ */
+export async function getAIBurnSeries(
+  days = 14,
+): Promise<AIBurnDayPoint[]> {
+  return safe(
+    "getAIBurnSeries",
+    async () => {
+      const sb = await createServerSupabaseClient();
+      const since = new Date(Date.now() - days * 86_400_000);
+      since.setUTCHours(0, 0, 0, 0);
+      const { data } = await sb
+        .from("scene_generations")
+        .select("cost_usd, created_at")
+        .gte("created_at", since.toISOString());
+
+      const rows = (data ?? []) as Array<{
+        cost_usd: number | null;
+        created_at: string;
+      }>;
+
+      const cost = new Map<string, number>();
+      const count = new Map<string, number>();
+      for (const r of rows) {
+        const k = r.created_at.slice(0, 10);
+        cost.set(k, (cost.get(k) ?? 0) + (r.cost_usd ?? 0));
+        count.set(k, (count.get(k) ?? 0) + 1);
+      }
+
+      const fmt = new Intl.DateTimeFormat("en-US", {
+        month: "short",
+        day: "numeric",
+        timeZone: "UTC",
+      });
+      const out: AIBurnDayPoint[] = [];
+      for (let i = days - 1; i >= 0; i--) {
+        const d = new Date(Date.now() - i * 86_400_000);
+        d.setUTCHours(0, 0, 0, 0);
+        const k = d.toISOString().slice(0, 10);
+        out.push({
+          date: fmt.format(d),
+          costUsd: Math.round((cost.get(k) ?? 0) * 100) / 100,
+          sceneCount: count.get(k) ?? 0,
+        });
+      }
+      return out;
+    },
+    [],
+  );
+}

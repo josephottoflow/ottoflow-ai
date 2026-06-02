@@ -43,7 +43,8 @@ import { createAdminClient } from "@/lib/supabase";
 import { rateLimit } from "@/lib/rate-limit";
 import { captureFallback } from "@/lib/observability";
 import { videoMergeQueue } from "@/lib/queue";
-import { generateScene } from "@/lib/video-providers/registry";
+// `generateScene` no longer imported here — Phase D moves the provider
+// calls to the worker. See worker/processors/video-merge.ts.
 import {
   generateVideoScript,
   generateVideoStoryboard,
@@ -540,183 +541,63 @@ export async function POST(req: NextRequest) {
           })
           .eq("id", jobId);
 
-        // ─── Stage 6: Per-scene generation via provider chain ──────────────
-        // Iterate the storyboard's scenes calling registry.generateScene()
-        // in parallel (concurrency-capped at 3 to keep us under Runway /
-        // Luma rate limits + bounded memory in the Vercel function).
+        // ─── Stage 6 · Defer scene generation to the worker (audit C1/M2) ─
         //
-        // Each result is persisted to scene_generations so /video/[jobId]
-        // can show per-scene provenance + provider success rate.
+        // Previously this stage ran registry.generateScene() inline for each
+        // storyboard scene. Two problems:
+        //   1. Vercel function maxDuration=300s. Runway can take 60s per
+        //      scene → 4 scenes serially blow the budget. Concurrency 3
+        //      kept us within budget but with zero slack for retries.
+        //   2. Memory pressure: scene clips + Gemini responses + narration
+        //      data URL all sat in the same Node Function memory.
         //
-        // Fallback model: PexelsFallbackProvider is always last in the
-        // chain, so even if every AI provider is unconfigured we still
-        // produce a watchable clip per scene.
+        // Audit fix: hand the specs to the worker. SSE returns done after
+        // the cheap Gemini stages (~30s total). Worker generates scenes
+        // via the same registry chain, with zero timeout cap. Page Realtime
+        // already subscribes to scene_generations rows for live updates.
         log("info", "Started: Render");
-        status("Rendering scenes", 86);
+        status("Queueing scene generation", 88);
         await admin
           .from("render_jobs")
-          .update({ progress: 86 })
+          .update({ progress: 88 })
           .eq("id", jobId);
 
-        // Concurrency cap: 3 scene calls at once. Storyboards are usually
-        // 3-6 scenes so this means we wait through ~2 batches.
-        const sceneRequests = storyboard.scenes.map((scene) => ({
+        // Build the scene spec list — the worker will turn each into a
+        // scene_generations row + composited clip.
+        const sceneSpecs = storyboard.scenes.map((scene) => ({
           index: scene.index,
           prompt: scene.description,
           shotType: scene.shotType,
           durationSec: Math.max(3, Math.min(10, scene.durationSec)),
         }));
 
-        type SceneRow = {
-          render_job_id: string;
-          scene_number: number;
-          prompt: string;
-          shot_type: string | null;
-          provider: string;
-          clip_url: string | null;
-          duration_sec: number | null;
-          width: number | null;
-          height: number | null;
-          generation_time_ms: number | null;
-          cost_usd: number | null;
-          fallback_reason: string | null;
-          attribution: string | null;
-          metadata: Record<string, unknown> | null;
-        };
-
-        const sceneClipResults: {
-          index: number;
-          url: string;
-          durationSec: number;
-          provider: string;
-        }[] = [];
-        const sceneRowsForInsert: SceneRow[] = [];
-
-        // Lightweight semaphore — caps in-flight at 3 without pulling p-limit.
-        const CONCURRENCY = 3;
-        let cursor = 0;
-        async function runOne(): Promise<void> {
-          // Each worker pulls the next scene index until none remain.
-          while (true) {
-            const i = cursor++;
-            if (i >= sceneRequests.length) return;
-            const scene = sceneRequests[i];
-            const startedAt = Date.now();
-            try {
-              const result = await generateScene({
-                prompt: scene.prompt,
-                durationSec: scene.durationSec,
-                aspectRatio: "9:16",
-              });
-              const generationTimeMs = Date.now() - startedAt;
-              sceneClipResults.push({
-                index: scene.index,
-                url: result.url,
-                durationSec: result.durationSec,
-                provider: result.provider,
-              });
-              sceneRowsForInsert.push({
-                render_job_id: jobId,
-                scene_number: scene.index,
-                prompt: scene.prompt,
-                shot_type: scene.shotType ?? null,
-                provider: result.provider,
-                clip_url: result.url,
-                duration_sec: result.durationSec,
-                width: result.width,
-                height: result.height,
-                generation_time_ms: generationTimeMs,
-                cost_usd: result.costUsd ?? null,
-                fallback_reason: null,
-                attribution: result.attribution ?? null,
-                metadata: result.metadata ?? null,
-              });
-              log(
-                "success",
-                `Scene ${scene.index}/${sceneRequests.length} via ${result.provider} (${result.width}×${result.height}, ${result.durationSec}s, ${generationTimeMs}ms)`,
-              );
-            } catch (err) {
-              const message = err instanceof Error ? err.message : String(err);
-              const generationTimeMs = Date.now() - startedAt;
-              sceneRowsForInsert.push({
-                render_job_id: jobId,
-                scene_number: scene.index,
-                prompt: scene.prompt,
-                shot_type: scene.shotType ?? null,
-                provider: "failed",
-                clip_url: null,
-                duration_sec: null,
-                width: null,
-                height: null,
-                generation_time_ms: generationTimeMs,
-                cost_usd: null,
-                fallback_reason: message.slice(0, 500),
-                attribution: null,
-                metadata: null,
-              });
-              log(
-                "warn",
-                `Scene ${scene.index} all providers exhausted: ${message.slice(0, 200)}`,
-              );
-            }
-          }
-        }
-        await Promise.all(
-          Array.from({ length: Math.min(CONCURRENCY, sceneRequests.length) }, () => runOne()),
-        );
-
-        // Persist scene_generations rows (best-effort — failure logs warn
-        // but doesn't fail the run).
-        if (sceneRowsForInsert.length > 0) {
-          const { error: sceneInsertErr } = await admin
-            .from("scene_generations")
-            .insert(sceneRowsForInsert);
-          if (sceneInsertErr) {
-            captureFallback("video.scene.insert_failed", sceneInsertErr, {
-              jobId,
-              count: sceneRowsForInsert.length,
-            });
-          }
-        }
-
-        // Sort by scene_number for the concat step. Drop scenes that failed
-        // entirely (no clip_url) — concat needs every entry usable.
-        sceneClipResults.sort((a, b) => a.index - b.index);
-
-        // ─── Legacy fallback: if scenes path produced nothing usable, fall
-        // back to the single-clip Pexels search so the pipeline still
-        // produces a video. Records the reason so we can debug.
+        // Pre-fetch a single Pexels clip as a fallback `videoUrl` for the
+        // merge payload. Worker uses this if scene generation produces
+        // nothing usable (provider chain exhausted on every scene).
         let videoUrl = PLACEHOLDER_VIDEO_URL;
         let videoAttribution: string | null = null;
-        if (sceneClipResults.length > 0) {
-          videoUrl = sceneClipResults[0].url;
-          videoAttribution =
-            sceneRowsForInsert.find((r) => r.clip_url === videoUrl)?.attribution ?? null;
-          log(
-            "success",
-            `Scenes ready — ${sceneClipResults.length}/${sceneRequests.length} clips composited`,
-          );
-        } else {
-          log("warn", "All scene generations failed — falling back to single Pexels clip");
-          try {
-            const clip = await findStockVideoByPrompt({
-              prompt: effectivePrompt,
-              hook: script.hook,
-              targetSeconds,
-            });
-            if (clip) {
-              videoUrl = clip.url;
-              videoAttribution = `${clip.photographer} via Pexels`;
-            }
-          } catch (err) {
-            if (err instanceof PexelsNotConfiguredError) {
-              log("warn", "Pexels fallback also failed: PEXELS_API_KEY not configured");
-            } else {
-              log("warn", `Pexels fallback failed: ${err instanceof Error ? err.message : String(err)}`);
-            }
+        try {
+          const clip = await findStockVideoByPrompt({
+            prompt: effectivePrompt,
+            hook: script.hook,
+            targetSeconds,
+          });
+          if (clip) {
+            videoUrl = clip.url;
+            videoAttribution = `${clip.photographer} via Pexels`;
+          }
+        } catch (err) {
+          if (!(err instanceof PexelsNotConfiguredError)) {
+            log(
+              "warn",
+              `Single-clip fallback prefetch failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
-        log("success", "Render complete");
+        log(
+          "success",
+          `Render queued — ${sceneSpecs.length} scenes will be generated by the worker`,
+        );
 
         const durationMs = Date.now() - startMs;
         await admin
@@ -780,13 +661,15 @@ export async function POST(req: NextRequest) {
                     end: k.end,
                   }))
                 : undefined,
-              scenes:
-                sceneClipResults.length > 1
-                  ? sceneClipResults.map((s) => ({
+              // Phase D — hand storyboard specs to the worker. The worker
+              // calls registry.generateScene() for each and persists rows.
+              sceneSpecs:
+                sceneSpecs.length > 1
+                  ? sceneSpecs.map((s) => ({
                       index: s.index,
-                      url: s.url,
+                      prompt: s.prompt,
+                      shotType: s.shotType ?? null,
                       durationSec: s.durationSec,
-                      provider: s.provider,
                     }))
                   : undefined,
             },

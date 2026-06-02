@@ -32,7 +32,21 @@ export default withSentryConfig(nextConfig, {
   tunnelRoute: "/monitoring",
   // Strip Sentry SDK logger statements from production bundles (~few KB).
   disableLogger: true,
+  // ─── Source-map upload hardening ──────────────────────────────────────────
+  // Without these, only the framework chunks are uploaded and the entire
+  // /video/* + worker bundles stay minified in Sentry stack traces.
+  //
+  // widenClientFileUpload: include EVERY client chunk, not just app/_app/_document.
+  // Trade: longer build (~30s extra) for sane stack traces in prod errors.
+  widenClientFileUpload: true,
+  // hideSourceMaps: keep generated .map files server-side only (uploaded to
+  // Sentry, not exposed publicly via the static asset CDN). Prevents leaking
+  // unminified app code to anyone who knows about /_next/static/chunks/*.map.
+  sourcemaps: {
+    deleteSourcemapsAfterUpload: true,
+  },
   // Don't fail the build if Sentry can't reach its servers during upload.
+  // We don't want a Sentry hiccup to break a customer-facing deploy.
   errorHandler: (err) => {
     // eslint-disable-next-line no-console
     console.warn("[sentry] source-map upload failed (non-fatal):", err.message);
