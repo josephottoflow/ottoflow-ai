@@ -285,14 +285,22 @@ export async function POST(req: NextRequest) {
   const jobId = jobRow.id as string;
 
   // Mark the topic as used (atomic increment via SQL fn so concurrent
-  // renders from the same topic don't race). Fire-and-forget.
+  // renders from the same topic don't race). Fire-and-forget — wrap in
+  // an async IIFE because Supabase's .rpc() returns a thenable that
+  // exposes .then() but not .catch().
   if (topicIdForJob) {
-    admin
-      .rpc("increment_brand_topic_use" as never, { p_topic_id: topicIdForJob } as never)
-      .then(() => undefined)
-      .catch((e) =>
-        captureFallback("brand_topic.use_increment_failed", e, { topicId: topicIdForJob }),
-      );
+    void (async () => {
+      try {
+        await admin.rpc(
+          "increment_brand_topic_use" as never,
+          { p_topic_id: topicIdForJob } as never,
+        );
+      } catch (e) {
+        captureFallback("brand_topic.use_increment_failed", e, {
+          topicId: topicIdForJob,
+        });
+      }
+    })();
   }
 
   // ─── SSE stream ────────────────────────────────────────────────────────────
