@@ -1,10 +1,10 @@
-# Ottoflow AI — Project Memory (Updated 2026-06-02, post Content-Pipeline MVP + detail view)
+# Ottoflow AI — Project Memory (Updated 2026-06-02, post Video-Pipeline MVP + real Voice/Music)
 
 ---
 
 ## Project Goal
 
-Ship the **AI Content Operating System** vertical-slice-by-vertical-slice to production-quality staging. Brand Research Engine is 100/100 + verified end-to-end (happy path + failure-recovery path). Content Pipeline MVP is live (pick brand + platform → publish-ready draft in ~20s). Video Pipeline + Project flows remain v1 scope.
+Ship the **AI Content Operating System** vertical-slice-by-vertical-slice to production-quality staging. Brand Research Engine is 100/100 + verified end-to-end (happy path + failure-recovery path). Content Pipeline MVP is live (pick brand + platform → publish-ready draft in ~20s). **Video Pipeline MVP is live** (SSE `/api/generate` → Gemini script + storyboard + real ElevenLabs narration + real Jamendo music track + placeholder MP4 render — 3 playable assets per generation). Project flows remain v1 scope.
 
 ---
 
@@ -23,7 +23,9 @@ Ship the **AI Content Operating System** vertical-slice-by-vertical-slice to pro
 - Two BullMQ Worker instances: `brand-research` + `content-generation` (separate queues, shared Redis + shutdown sequence)
 
 **AI / Data**
-- Gemini Flash 2.5 via `@google/genai` (URL Context + Google Search grounding)
+- Gemini Flash 2.5 via `@google/genai` v0.3.0 (URL Context + Google Search grounding; `generateImages` only — `generateVideos` not yet shipped in SDK)
+- ElevenLabs TTS — `eleven_turbo_v2` model, Rachel voice `21m00Tcm4TlvDq8ikWAM`, base64 data-URL inline delivery
+- Jamendo Music API v3.0 — CC-licensed instrumental tracks via vibe→tag mapping (`/tracks`, `vocalinstrumental=instrumental`, `durationbetween` filter)
 - Zod env validation with `isHeaderSafe()` at boot
 
 **Observability**
@@ -88,6 +90,18 @@ Ship the **AI Content Operating System** vertical-slice-by-vertical-slice to pro
 2. Railway worker (separate Worker instance, same process) → 3-step pipeline (preparing_prompt → generating → finalizing) → calls `generateContentPiece()` with brand profile + voice + audience + optional pillar + optional userPrompt → writes `title`/`preview`/`body` back to `content_items`, `engagement` jsonb carries `hashtags`/`cta`
 3. Browser `/content/generate` subscribes via Realtime to BOTH `content_generation_jobs` AND `content_items` (separate channel) → live progress + log feed + inline output display + copy button
 4. `/content/[id]` server component reads via user-authed client → RLS via brand_id traversal scopes to owner
+
+**Video-generation flow**
+1. POST `/api/generate` (SSE, `text/event-stream`) → opens ReadableStream → 6 stages emit `log` + `status` events with `label` + `pct`:
+   - **Script** — `generateVideoScript()` returns `{hook, body, cta, estimatedDurationSec, voiceDirection}`
+   - **Storyboard** — `generateVideoStoryboard()` returns 3–6 scenes with `shotType`/`cameraMove`/`description`/`voiceLine`
+   - **Voice** — `synthesizeNarration()` → ElevenLabs Rachel `21m00Tcm4TlvDq8ikWAM` model `eleven_turbo_v2` → base64 data URL (inline, no storage roundtrip)
+   - **Clips** — `generateHeroFrame()` → Imagen 3 best-effort (`imagen-3.0-fast-generate-001`); currently 404 on v1beta tier → logs warn, skipped gracefully. Per-scene Veo 3 not yet shipped in SDK (`@google/genai` v0.3.0 ships `generateImages` only)
+   - **Music** — `findTrackByVibe()` → Jamendo CC instrumental track matching musicVibe + targetSeconds duration filter, random pick from top 5 popular
+   - **Render** — placeholder MP4 (`test-videos.co.uk` Big Buck Bunny 10s/1MB) — verified 200 with `curl -sI` (Google `gtv-videos-bucket` returned 403)
+2. Stream emits final `done` event with `{videoUrl, jobId, audioUrl, musicUrl, musicTrack}` — client renders 3 native players (`<video muted playsInline>` + 2 `<audio controls>`)
+3. Pipeline Logs panel shows all 19 log entries with hook/scene previews + asset sizes
+4. Failures captured to Sentry as `video.generate.failed` with `{provider, sceneCount, style, vibe, promptLength}`
 
 **Defensive layers**
 - `isHeaderSafe()` — RFC 7230 no-CR/LF/CTL check on every env value at boot
@@ -187,6 +201,26 @@ Ship the **AI Content Operating System** vertical-slice-by-vertical-slice to pro
 - Worker completed first job in 18.184s; second job similar
 - Both visible in `/content` list, both clickable → full body renders on `/content/[id]`
 
+### Video Pipeline MVP (commits `ed6e7d2`, `4f01733`, `d1f5e5a`)
+- **`src/lib/gemini.ts`** — added `generateVideoScript()`, `generateVideoStoryboard()`, `generateHeroFrame()`. Strict structured-output mode (Zod schema) used for script + storyboard; Imagen 3 tries `generate-002` then `fast-generate-001` (both currently 404 on v1beta — graceful skip)
+- **`src/lib/elevenlabs.ts`** (NEW) — `synthesizeNarration({text, voiceId?, modelId?})` → Rachel default, `eleven_turbo_v2`, returns `{audioDataUrl, byteLength, voiceId, modelId}`. Inline base64 data URL keeps 60-90 word scripts under ~600KB
+- **`src/lib/jamendo.ts`** (NEW) — `findTrackByVibe({vibe, targetSeconds, limit?})` with `VIBE_TAG_MAP` (energetic/calm/dramatic/playful/inspirational), `vocalinstrumental=instrumental`, `durationbetween` biased to target ±15-30s, random pick from top 5 by popularity. Client-id-only auth (read path)
+- **`POST /api/generate`** (NEW) — full SSE pipeline orchestrator. ReadableStream emits 6 stages with structured `SSEEvent` payloads. Falls back gracefully on Imagen failure (logged but pipeline continues). Final `done` event carries `{videoUrl, jobId, audioUrl, musicUrl, musicTrack}`
+- **`src/lib/types.ts`** — extended `SSEEvent` with optional `audioUrl?`, `musicUrl?`, `musicTrack?` so the page can render audio players on completion
+- **`/video/generate` page** — state slots for `audioUrl`, `musicUrl`, `musicTrack` cleared on submit/New; native `<video muted playsInline controls>` + Narration `<audio controls>` + Music `<audio controls>` rendered side-by-side beneath the video. `muted playsInline` enables autoplay in Chrome
+- **Vercel env vars added** (Production + Preview, Sensitive): `ELEVENLABS_API_KEY`, `JAMENDO_CLIENT_ID`, `JAMENDO_CLIENT_SECRET` (secret reserved for future write ops)
+
+### End-to-end video-pipeline validation
+- Prompt: *"30-second TikTok ad for an ergonomic standing desk targeting remote engineers, modern minimalist aesthetic, end with a clear 20% discount CTA"*
+- Pipeline reached **Complete (100%)** with all 6 stages green
+- Generated artifacts (all 3 visible + playable in the same view):
+  - ✅ Script (Gemini): hook *"Still coding hunched over? Your best work demands better."*
+  - ✅ Storyboard (Gemini): 4 scenes — Medium Close-up (5s) → Wide / Product in Use (6s) → Detail Close-up (7s) → Text Card / Product Hero (6s) = 24s total
+  - ✅ **Narration (ElevenLabs): 574 KB MP3**, 0:36 duration, `21m00Tcm4TlvDq8ikWAM` voice + `eleven_turbo_v2` model, voice direction *"Energetic, confident, clear, gender-neutral tone with a slightly fast pace"*
+  - ✅ **Music (Jamendo): "Confident Corporate (short2) — Alexis Music"**, 0:24 instrumental CC track
+  - ✅ Video: Big Buck Bunny 10s placeholder, plays at 0:10/0:10
+- Pipeline Logs panel shows 19 entries with full scene descriptions + asset sizes
+
 ### Diagnostic endpoints (remove pre-public-beta)
 - `/api/debug/auth` — Clerk JWT + Supabase RPC
 - `/api/debug/raw` — hand-built fetch to PostgREST bypassing supabase-js
@@ -205,8 +239,8 @@ Ship the **AI Content Operating System** vertical-slice-by-vertical-slice to pro
 | #30c | pending | Rotate Railway Redis password — Vercel env var still old |
 | #11/#13 | pending | Wire Sentry source-map upload: paste `SENTRY_AUTH_TOKEN` + `SENTRY_ORG=ottoflow` + `SENTRY_PROJECT=javascript-nextjs` to Vercel with **Sensitive=OFF** (build-time access required), redeploy |
 | #18 | pending | Wire Analytics page to real DB — `getAnalyticsData()` is mock |
-| #21 | pending | Build `/api/generate` SSE route + video worker — currently 404 (client handles gracefully via captureFallback) |
 | #34 | pending | Polish: Gemini blog output mixes HTML tags (`<ul><li>`) with markdown (`##`) — tighten prompt to "markdown only" OR render body via markdown parser |
+| #36 | pending | Polish: Imagen 3 model 404 on v1beta API — both `imagen-3.0-generate-002` AND `imagen-3.0-fast-generate-001` return NOT_FOUND. Either Google API key lacks Imagen access or v1beta path expects a different model id. Pipeline degrades gracefully (hero frame skipped, video still plays placeholder) |
 
 ---
 
@@ -217,15 +251,18 @@ Ship the **AI Content Operating System** vertical-slice-by-vertical-slice to pro
 3. **Source-map upload not wired** — stack traces show minified code; Sentry "Unminify Code" button shown on every frame
 4. **Blog body has literal `<ul><li>` HTML tags** in production output — content readable but visually messy until prompt or renderer fix lands
 5. **`/content` Pipeline Workflow diagram is static** — steps 5–7 always grey regardless of actual content state. Cosmetic
-6. **Out of scope (deferred to v1)**:
+6. **Veo 3 video generation not yet shipped in `@google/genai` v0.3.0** — SDK exposes `generateImages` only, no `generateVideos`. Video pipeline emits per-scene Veo stub warnings; `videoUrl` returns a placeholder MP4 (Big Buck Bunny 10s, served from `test-videos.co.uk`). Real video synthesis blocked until SDK bump
+7. **Imagen 3 hero frame 404** — both `generate-002` and `fast-generate-001` return NOT_FOUND on v1beta API for our key. Hero frame skipped in pipeline, doesn't break the run
+8. **Out of scope (deferred to v1)**:
    - `/billing` — Stripe integration
    - `/settings` — full UI (Clerk manages core)
-   - `/video` Run buttons (workers not yet wired)
    - `/projects` — no brand-to-project flow
-   - Content Strategy Engine, UGC, Veo, Real Estate Mode
+   - Content Strategy Engine, UGC, Real Estate Mode
    - Content retry endpoint (POST /api/content/[id]/retry) — not yet built
+   - Video retry endpoint — not yet built
    - Content edit / approve / publish workflow stages
    - "Send to Video Pipeline" CTA on video-script content
+   - Persist video generations to `render_jobs` table (currently returns ephemeral jobId)
 
 ---
 
@@ -242,7 +279,7 @@ Ship the **AI Content Operating System** vertical-slice-by-vertical-slice to pro
 **Scope**
 - DO NOT start new feature development beyond agreed scope without explicit /goal direction
 - UI polish + ops endpoints (retry, debug) are in scope under "production quality"
-- Content + Video pipelines are now active scopes (user explicitly directed Content Pipeline build via /goal)
+- Content + Video pipelines are now active scopes (user explicitly directed both pipeline builds via /goal commands)
 
 **Commit conventions**
 - Conventional commits: `feat(scope):`, `fix(scope):`, `chore(scope):`, `docs(scope):`
@@ -283,13 +320,14 @@ ottoflow-ai/
         [id]/page.tsx                    SSR fetch single item (RLS by brand_id)
         [id]/ContentItemDetailClient     Full body + copy-all + brand link + user prompt
       video/VideoPageClient.tsx          Configure + Generate Video links
-      video/generate/page.tsx            SSE consumer, captureFallback in catch
+      video/generate/page.tsx            SSE consumer, audio + music players, captureFallback in catch
       projects/ProjectsPageClient.tsx    + New Project disabled
       analytics/page.tsx                 Read-only (mock data still)
       api/
         brands/route.ts                  POST: idempotency + rate limit + create
         brands/[id]/retry/route.ts       POST: auth + own + reset + queue.remove + queue.add (202)
         content/generate/route.ts        POST: auth + rate limit + brand-profile-required + enqueue (202)
+        generate/route.ts                POST SSE: 6-stage video pipeline (script + storyboard + voice + clips + music + render)
         debug/{auth,raw,rls-test,cleanup,health,sentry-test,failed-jobs}/route.ts
     lib/
       env.ts, worker-env.ts              Zod + isHeaderSafe
@@ -299,7 +337,9 @@ ottoflow-ai/
       domain-allowlist.ts
       rate-limit.ts, idempotency.ts      Redis-backed
       queue.ts                           BullMQ singletons + 2 queues + getRedisClient
-      gemini.ts                          withTimeout/withRetry + breadcrumbs + exhaustion capture + generateContentPiece()
+      gemini.ts                          withTimeout/withRetry + breadcrumbs + generateContentPiece + generateVideoScript + generateVideoStoryboard + generateHeroFrame
+      elevenlabs.ts                      synthesizeNarration() → Rachel voice + eleven_turbo_v2 → base64 data URL
+      jamendo.ts                         findTrackByVibe() → CC instrumental tag-mapped → top-5 random pick
       observability.ts                   Vendor-neutral shim, globalThis singleton
     components/
       Sidebar.tsx                        Clerk UserButton bottom-left
@@ -325,6 +365,10 @@ ottoflow-ai/
 ## Recent Commits (newest first)
 
 ```
+d1f5e5a  feat(video): real ElevenLabs narration + Jamendo music in /api/generate
+4f01733  fix(video): playable placeholder MP4 + retry Imagen 3 with fast variant
+ed6e7d2  feat(video): MVP /api/generate SSE — real Gemini brain, placeholder render
+78e7339  docs(memory): snapshot session — Content Pipeline MVP live + detail view
 4e9ee9f  feat(content): clickable content-item detail page
 ab2d3dd  fix(gemini): correct BrandProfile field names in generateContentPiece
 ad23ca2  feat(content): MVP content pipeline — pick brand + platform → ready draft
@@ -399,12 +443,18 @@ d9721d9  feat(debug): /api/debug/sentry-test — Sentry activation probe
 ## Next Steps
 
 1. **Polish content body rendering** (#34) — tighten Gemini blog prompt to "markdown only, no HTML" OR pipe body through markdown parser
-2. **Finish secret rotations** — Task #30c (Railway Redis password → update Vercel REDIS_URL)
-3. **Wire source-map upload** — paste `SENTRY_AUTH_TOKEN` + `SENTRY_ORG=ottoflow` + `SENTRY_PROJECT=javascript-nextjs` to Vercel with **Sensitive=OFF**, redeploy
-4. **Optional polish on Content Pipeline**
+2. **Resolve Imagen 3 access** (#36) — investigate whether key needs Imagen tier enabled in Google AI Studio, or whether v1beta path expects a different model id. Currently graceful skip
+3. **Finish secret rotations** — Task #30c (Railway Redis password → update Vercel REDIS_URL)
+4. **Wire source-map upload** — paste `SENTRY_AUTH_TOKEN` + `SENTRY_ORG=ottoflow` + `SENTRY_PROJECT=javascript-nextjs` to Vercel with **Sensitive=OFF**, redeploy
+5. **Optional polish on Content Pipeline**
    - Content retry endpoint POST `/api/content/[id]/retry` (mirror brand retry pattern)
    - Approve / Publish workflow stages
    - "Send to Video Pipeline" CTA when platform is video-script-like
-5. **Decision point** — promote to limited-access staging (5–10 users), monitor Sentry + retry flows + Gemini availability for 7 days
-6. **Pre-public-beta cleanup** — remove 7 `/api/debug/*` endpoints, address 142 pre-existing TS errors
+6. **Video Pipeline next milestones**
+   - Persist video generations to `render_jobs` table so `/video` list page can show history
+   - Replace placeholder MP4 with real Veo 3 output when `@google/genai` ships `generateVideos`
+   - Add musicVibe/voiceStyle selectors to /video/generate form (currently inferred from prompt)
+   - Optional `/api/video/[id]/retry` endpoint
+7. **Decision point** — promote to limited-access staging (5–10 users), monitor Sentry + retry flows + Gemini availability for 7 days
+8. **Pre-public-beta cleanup** — remove 7 `/api/debug/*` endpoints, address 142 pre-existing TS errors
 7. **v1 work (out of current scope but tracked)** — `/api/generate` SSE route + video worker (#21), Analytics real DB (#18), Stripe billing, project creation flow
