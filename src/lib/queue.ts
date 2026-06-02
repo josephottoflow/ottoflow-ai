@@ -90,6 +90,7 @@ export async function disconnectRedis(): Promise<void> {
 // ─── Queue names (string-typed for safety across processes) ───────────────────
 export const QUEUE_NAMES = {
   brandResearch: "brand-research",
+  contentGeneration: "content-generation",
 } as const;
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
 
@@ -103,8 +104,20 @@ export interface BrandResearchJobData {
   industry: string;
 }
 
+export interface ContentGenerationJobData {
+  brandId: string;
+  contentItemId: string;
+  contentJobId: string;
+  // Required user-facing input
+  platform: "linkedin" | "facebook" | "instagram" | "twitter" | "blog" | "email";
+  // Optional steering
+  userPrompt?: string;
+  pillarId?: string;
+}
+
 export interface JobPayloads {
   "brand-research": BrandResearchJobData;
+  "content-generation": ContentGenerationJobData;
 }
 
 // ─── Queue accessors ──────────────────────────────────────────────────────────
@@ -132,3 +145,4 @@ export function getQueue<N extends QueueName>(name: N): Queue<JobPayloads[N]> {
 
 // Convenience
 export const brandResearchQueue = () => getQueue(QUEUE_NAMES.brandResearch);
+export const contentGenerationQueue = () => getQueue(QUEUE_NAMES.contentGeneration);

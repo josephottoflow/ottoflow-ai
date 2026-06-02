@@ -42,9 +42,11 @@ import {
   disconnectRedis,
   QUEUE_NAMES,
   type BrandResearchJobData,
+  type ContentGenerationJobData,
 } from "@/lib/queue";
 import { createAdminClient } from "@/lib/supabase";
 import { processBrandResearch } from "./processors/brand-research";
+import { processContentGeneration } from "./processors/content-generation";
 import { recoverStuckJobsAtBoot, markJobFailedFromStall } from "./recovery";
 
 // ─── Logging ─────────────────────────────────────────────────────────────────
@@ -150,6 +152,75 @@ brandResearchWorker.on("error", (err) => {
   logError("brand-research", "worker.error", { error: err.message });
 });
 
+// ─── Step 6b: Content Generation worker ──────────────────────────────────────
+// Separate BullMQ Worker instance (separate queue name) so brand research and
+// content generation can scale independently and one stuck queue doesn't
+// stall the other. Same Redis connection + same shutdown sequence.
+const contentGenerationWorker = new Worker<ContentGenerationJobData>(
+  QUEUE_NAMES.contentGeneration,
+  async (job: Job<ContentGenerationJobData>) => {
+    log("content-generation", "job.start", {
+      jobId: job.id,
+      brandId: job.data.brandId,
+      platform: job.data.platform,
+    });
+    const result = await processContentGeneration(job.data, (step, progress) => {
+      job.updateProgress(progress).catch(() => {});
+      log("content-generation", "step", { jobId: job.id, step, progress });
+    });
+    log("content-generation", "job.done", {
+      jobId: job.id,
+      brandId: job.data.brandId,
+    });
+    return result;
+  },
+  {
+    connection: getRedis(),
+    concurrency: workerEnv.WORKER_CONCURRENCY,
+  },
+);
+
+contentGenerationWorker.on("active", (job) => {
+  log("content-generation", "job.active", {
+    jobId: job.id,
+    brandId: job.data.brandId,
+  });
+});
+
+contentGenerationWorker.on("completed", (job) => {
+  log("content-generation", "job.completed", {
+    jobId: job.id,
+    brandId: job.data?.brandId,
+    durationMs:
+      job.finishedOn && job.processedOn ? job.finishedOn - job.processedOn : null,
+  });
+});
+
+contentGenerationWorker.on("failed", (job, err) => {
+  logError("content-generation", "job.failed", {
+    jobId: job?.id,
+    brandId: job?.data?.brandId,
+    attemptsMade: job?.attemptsMade,
+    error: err?.message,
+  });
+  Sentry.withScope((scope) => {
+    scope.setTag("queue", QUEUE_NAMES.contentGeneration);
+    if (job?.id) scope.setTag("job.id", String(job.id));
+    if (job?.data?.brandId) scope.setTag("brand.id", String(job.data.brandId));
+    scope.setContext("job", {
+      id: job?.id,
+      brandId: job?.data?.brandId,
+      platform: job?.data?.platform,
+      attemptsMade: job?.attemptsMade,
+    });
+    Sentry.captureException(err ?? new Error("content job.failed with no error"));
+  });
+});
+
+contentGenerationWorker.on("error", (err) => {
+  logError("content-generation", "worker.error", { error: err.message });
+});
+
 // ─── Step 7: Graceful shutdown with hard cap ─────────────────────────────────
 // Railway sends SIGTERM during a deploy and waits for a grace period before
 // SIGKILL. We try a graceful close (lets active jobs finish) but cap at a
@@ -171,8 +242,13 @@ async function shutdown(signal: string): Promise<never> {
     timeoutMs: GRACEFUL_SHUTDOWN_TIMEOUT_MS,
   });
 
-  // Race graceful close against a hard deadline.
-  const graceful = brandResearchWorker.close();
+  // Race graceful close against a hard deadline. Close both workers in
+  // parallel — they share the same Redis connection so a slow brand-research
+  // shouldn't block content-generation from finishing.
+  const graceful = Promise.all([
+    brandResearchWorker.close(),
+    contentGenerationWorker.close(),
+  ]);
   const deadline = new Promise<"timeout">((resolve) =>
     setTimeout(() => resolve("timeout"), GRACEFUL_SHUTDOWN_TIMEOUT_MS)
   );

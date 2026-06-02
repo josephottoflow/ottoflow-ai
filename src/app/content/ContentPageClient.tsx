@@ -92,11 +92,12 @@ export function ContentPageClient({ items, kpis }: Props) {
               Configure
             </Button>
           </Link>
-          <Button variant="gradient" size="sm" className="gap-1.5" disabled title="Content worker coming with v1">
-            <Sparkles size={14} />
-            Run Pipeline
-            <Badge variant="info" className="text-[9px] ml-1">Soon</Badge>
-          </Button>
+          <Link href="/content/generate">
+            <Button variant="gradient" size="sm" className="gap-1.5">
+              <Sparkles size={14} />
+              Generate Content
+            </Button>
+          </Link>
         </div>
       </div>
 
@@ -193,11 +194,12 @@ export function ContentPageClient({ items, kpis }: Props) {
               ))}
             </div>
 
-            <Button variant="gradient" className="w-full mt-4 gap-2" size="sm" disabled title="Pipeline progression requires the content worker (v1)">
-              <Play size={13} />
-              Continue Pipeline
-              <Badge variant="info" className="text-[9px] ml-1">Soon</Badge>
-            </Button>
+            <Link href="/content/generate" className="block mt-4">
+              <Button variant="gradient" className="w-full gap-2" size="sm">
+                <Play size={13} />
+                Generate next piece
+              </Button>
+            </Link>
           </div>
 
           {/* Platform breakdown */}
@@ -252,9 +254,22 @@ export function ContentPageClient({ items, kpis }: Props) {
           </div>
 
           {filtered.length === 0 ? (
-            <div className="py-16 text-center">
-              <p className="text-white/30 text-sm">No content items yet.</p>
-              <p className="text-white/20 text-xs mt-1">Run the pipeline to generate content.</p>
+            <div className="py-12 text-center">
+              <div
+                className="w-10 h-10 rounded-xl flex items-center justify-center mx-auto mb-3"
+                style={{ background: "rgba(124,58,237,0.12)" }}
+              >
+                <Sparkles size={16} className="text-violet-400" />
+              </div>
+              <p className="text-white/60 text-sm font-medium">No content yet</p>
+              <p className="text-white/30 text-xs mt-1 max-w-xs mx-auto">
+                Pick a brand and platform, get a publish-ready draft in ~20 seconds.
+              </p>
+              <Link href="/content/generate" className="inline-block mt-4">
+                <Button variant="gradient" size="sm" className="gap-1.5">
+                  <Sparkles size={13} /> Generate your first piece
+                </Button>
+              </Link>
             </div>
           ) : (
             <div className="space-y-3">

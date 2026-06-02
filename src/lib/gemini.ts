@@ -513,3 +513,124 @@ generic "Industry Trends" filler.
     })),
   };
 }
+
+// ─── Content Generation ──────────────────────────────────────────────────────
+
+/**
+ * Generate a single piece of content for a brand on a specific platform.
+ *
+ * The model receives:
+ *   - The brand profile (positioning, voice, audience) — anchors tone
+ *   - Optional content pillar — anchors topic
+ *   - Optional user prompt — overrides topic / steering hint
+ *
+ * Returns title + preview (one-liner) + body. Body length is platform-aware:
+ *   linkedin / facebook: 1500-2200 chars (~250-350 words)
+ *   instagram / twitter:  600-900 chars
+ *   blog:               2500-4000 chars (~500-700 words)
+ *   email:              1200-1800 chars
+ *
+ * The whole call is bounded by withTimeout + withRetry via generateStructured.
+ */
+export interface GeneratedContent {
+  title: string;
+  preview: string;   // one-line hook / subhead
+  body: string;      // full content
+  hashtags?: string[]; // social platforms only
+  cta?: string;      // suggested call-to-action
+}
+
+const PLATFORM_GUIDANCE: Record<string, string> = {
+  linkedin:
+    "LinkedIn post for professionals. 1500-2200 chars (~250-350 words). Open with a strong hook. Use short paragraphs (1-3 sentences each). Include 1-2 line breaks between paragraphs. End with a clear CTA. Add 3-5 relevant hashtags.",
+  facebook:
+    "Facebook post. 1200-1800 chars. Conversational, story-driven. Light emoji use OK. End with a question or CTA. 2-4 hashtags.",
+  instagram:
+    "Instagram caption. 600-900 chars. Strong visual hook in first line (since most users see only this in feed). Use line breaks generously. 8-15 hashtags listed at the end.",
+  twitter:
+    "X/Twitter post. 240-280 chars max — DO NOT exceed. Punchy hook. 1-2 hashtags. No emoji walls.",
+  blog:
+    "Blog article. 2500-4000 chars (~500-700 words). Use h2/h3 markdown headings (## and ###). Open with the problem, deliver value mid-piece, close with a CTA. Lists and short paragraphs preferred. No filler.",
+  email:
+    "Email body. 1200-1800 chars. Personal tone. Subject-line worthy first line. Single clear CTA at the end. Short paragraphs. No 'Dear Sir' nonsense.",
+};
+
+const contentSchema: Schema = {
+  type: Type.OBJECT,
+  required: ["title", "preview", "body"],
+  properties: {
+    title: { type: Type.STRING },
+    preview: { type: Type.STRING },
+    body: { type: Type.STRING },
+    hashtags: { type: Type.ARRAY, items: { type: Type.STRING } },
+    cta: { type: Type.STRING },
+  },
+} as Schema;
+
+export async function generateContentPiece(input: {
+  brand: {
+    name: string;
+    website?: string | null;
+    industry?: string | null;
+    profile: BrandProfile;
+  };
+  platform: string;
+  userPrompt?: string | null;
+  pillar?: { name: string; description?: string | null; example_topics?: string[] } | null;
+}): Promise<GeneratedContent> {
+  const guidance = PLATFORM_GUIDANCE[input.platform] ?? PLATFORM_GUIDANCE.blog;
+  const p = input.brand.profile;
+
+  // Voice context — falls back gracefully if the brand profile is partial.
+  const voiceTone = p.brand_voice?.tone?.join(", ") || "Professional, clear, modern";
+  const voiceDo = p.brand_voice?.do_words?.slice(0, 8).join(", ") || "";
+  const voiceDont = p.brand_voice?.dont_words?.slice(0, 6).join(", ") || "";
+  const positioning = p.positioning || `${input.brand.name} in ${input.brand.industry || "its space"}`;
+  const audience =
+    p.audience_icp?.demographics?.slice(0, 4).join(", ") ||
+    p.audience_icp?.icp_roles?.slice(0, 4).join(", ") ||
+    "the brand's target customers";
+
+  const pillarBlock = input.pillar
+    ? `\nPRIMARY CONTENT PILLAR: ${input.pillar.name}\n${input.pillar.description ?? ""}\nExample topics: ${(input.pillar.example_topics ?? []).slice(0, 4).join(" · ")}`
+    : "";
+
+  const promptBlock = input.userPrompt?.trim()
+    ? `\nUSER REQUEST: ${input.userPrompt.trim()}\n(Use this as the topic; everything else above is context.)`
+    : "";
+
+  const prompt = `
+Write a single piece of marketing content for the brand below.
+
+BRAND: ${input.brand.name}
+POSITIONING: ${positioning}
+VOICE TONE: ${voiceTone}
+${voiceDo ? `VOICE — DO: ${voiceDo}` : ""}
+${voiceDont ? `VOICE — DON'T: ${voiceDont}` : ""}
+AUDIENCE: ${audience}
+${pillarBlock}${promptBlock}
+
+PLATFORM: ${input.platform}
+PLATFORM GUIDANCE:
+${guidance}
+
+REQUIREMENTS:
+- title: a punchy, scroll-stopping headline (max 90 chars)
+- preview: a one-line subhead / hook that summarizes the value (max 160 chars)
+- body: the full content following the platform guidance above
+- hashtags: 0 if blog/email, else 3-15 platform-appropriate hashtags as plain strings without the # symbol
+- cta: a single-sentence call to action that fits the platform
+
+Do not include the brand name in every sentence. Be specific. Don't hallucinate
+features that aren't in the brand profile. Write in the brand's voice, not
+generic marketing speak.
+`.trim();
+
+  return generateStructured<GeneratedContent>({
+    prompt,
+    schema: contentSchema,
+    label: "generateContentPiece",
+    systemInstruction:
+      "You are a senior content strategist who writes scroll-stopping posts. You match brand voice precisely and never use cliches. Be concrete, specific, and human.",
+  });
+}
