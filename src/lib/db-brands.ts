@@ -15,6 +15,7 @@ import { captureFallback } from "./observability";
 import type {
   DbBrand,
   DbBrandResearchJob,
+  DbBrandTopic,
   DbCompetitor,
   DbKeyword,
   DbContentPillar,
@@ -112,6 +113,32 @@ export async function getBrandPillars(brandId: string): Promise<DbContentPillar[
       .select("*")
       .eq("brand_id", brandId)
       .order("priority", { ascending: true });
+    return data ?? [];
+  }, []);
+}
+
+/**
+ * Brand topics — Gemini-generated content ideas attached to a brand.
+ * Defaults to draft status so we don't surface archived/used topics in the
+ * default pickers; pass `status: "all"` for the management view.
+ */
+export async function getBrandTopics(
+  brandId: string,
+  opts: { status?: "draft" | "used" | "archived" | "all" } = {},
+): Promise<DbBrandTopic[]> {
+  return safe("getBrandTopics", async () => {
+    const sb = await createServerSupabaseClient();
+    let q = sb
+      .from("brand_topics")
+      .select("*")
+      .eq("brand_id", brandId)
+      .order("created_at", { ascending: false });
+    if (opts.status && opts.status !== "all") {
+      q = q.eq("status", opts.status);
+    } else if (!opts.status) {
+      q = q.eq("status", "draft");
+    }
+    const { data } = await q;
     return data ?? [];
   }, []);
 }

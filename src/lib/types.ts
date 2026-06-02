@@ -209,6 +209,55 @@ export interface DbContentPillar {
   created_at: string;
 }
 
+// ─── Brand Topics (Phase 1) ──────────────────────────────────────────────────
+// Gemini-generated content topic ideas attached to a researched brand.
+// Surface them on /brands/[id] and in the Video Pipeline topic picker so
+// users can drive video generation from authentic, on-brand angles instead
+// of free-form prompts.
+
+export type BrandTopicCategory =
+  | "educational"
+  | "storytelling"
+  | "ugc"
+  | "product-demo"
+  | "listicle"
+  | "problem-solution"
+  | "founder-story";
+
+export type BrandTopicStatus = "draft" | "used" | "archived";
+
+export interface DbBrandTopic {
+  id: string;
+  brand_id: string;
+  title: string;
+  description: string | null;
+  category: BrandTopicCategory | null;
+  source: "ai-generated" | "manual" | "seo-keyword";
+  status: BrandTopicStatus;
+  seed_keyword: string | null;
+  hook_angle: string | null;
+  created_at: string;
+  used_at: string | null;
+  use_count: number;
+}
+
+// ─── Video keyword overlay (Phase 3) ─────────────────────────────────────────
+// Output of extractImportantWords() — the high-impact words/phrases pulled
+// from the script with millisecond-precision timing so the FFmpeg overlay
+// renderer (Phase 4) can drop them on-screen viral-style.
+
+export interface KeywordOverlay {
+  text: string;        // ALL CAPS, 1-3 words
+  start: number;       // seconds from video start
+  end: number;         // seconds from video start
+  emphasis?: "normal" | "punch" | "highlight"; // visual treatment hint
+}
+
+export interface KeywordOverlayBundle {
+  keywords: KeywordOverlay[];
+  estimatedNarrationSec: number;
+}
+
 // ─── Supabase Database definition ────────────────────────────────────────────
 // Each table must include `Relationships: []` (or a proper relationship array)
 // to satisfy postgrest-js's `GenericTable` constraint — without it the type
@@ -234,6 +283,7 @@ export interface Database {
       competitors:         TableDef<DbCompetitor>;
       keywords:            TableDef<DbKeyword>;
       content_pillars:     TableDef<DbContentPillar>;
+      brand_topics:        TableDef<DbBrandTopic>;
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;

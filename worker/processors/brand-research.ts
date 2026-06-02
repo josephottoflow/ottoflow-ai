@@ -15,6 +15,7 @@ import {
   extractBrandProfile,
   findCompetitors,
   generateSEOBundle,
+  generateBrandTopics,
 } from "@/lib/gemini";
 import type { BrandResearchJobData } from "@/lib/queue";
 import type { ResearchLogEntry } from "@/lib/types";
@@ -29,9 +30,10 @@ interface StepDef {
 
 const STEPS: Record<string, StepDef> = {
   fetching_site:       { key: "fetching_site",       label: "Fetching website",            progressAt: 10 },
-  extracting_profile:  { key: "extracting_profile",  label: "Extracting brand profile",    progressAt: 45 },
-  finding_competitors: { key: "finding_competitors", label: "Researching competitors",     progressAt: 70 },
-  generating_seo:      { key: "generating_seo",      label: "Generating SEO + pillars",    progressAt: 90 },
+  extracting_profile:  { key: "extracting_profile",  label: "Extracting brand profile",    progressAt: 40 },
+  finding_competitors: { key: "finding_competitors", label: "Researching competitors",     progressAt: 60 },
+  generating_seo:      { key: "generating_seo",      label: "Generating SEO + pillars",    progressAt: 78 },
+  generating_topics:   { key: "generating_topics",   label: "Generating content topics",   progressAt: 92 },
   finalizing:          { key: "finalizing",          label: "Saving results",              progressAt: 100 },
 };
 
@@ -152,6 +154,59 @@ export async function processBrandResearch(
     }
 
     await finishStep(STEPS.generating_seo, `Generated ${keywords.length} keywords + ${pillars.length} pillars`);
+
+    // ─── Step 5: Brand Topics (best-effort) ─────────────────────────────────
+    // Generates 30-50 on-brand video topic ideas that the Video Pipeline can
+    // drive from. Best-effort — if Gemini fails here, the brand is STILL
+    // marked ready; user can hit POST /api/brands/[id]/topics/generate to
+    // retry. We don't want a topic-generation hiccup to invalidate a 60s
+    // research run.
+    await startStep(STEPS.generating_topics);
+    try {
+      const topicBundle = await generateBrandTopics({
+        brand: {
+          name: data.name,
+          industry: data.industry,
+          profile,
+        },
+        seedKeywords: profile.seed_keywords,
+        competitorNames: competitors.map((c) => c.name),
+        pillarHints: pillars.map((p) => ({
+          name: p.name,
+          example_topics: p.example_topics ?? [],
+        })),
+        targetCount: 40,
+      });
+
+      if (topicBundle.topics.length > 0) {
+        await admin.from("brand_topics").insert(
+          topicBundle.topics.map((t) => ({
+            brand_id: brandId,
+            title: t.title,
+            description: t.description,
+            category: t.category,
+            seed_keyword: t.seed_keyword,
+            hook_angle: t.hook_angle,
+            source: "ai-generated",
+            status: "draft",
+          })),
+        );
+      }
+      await finishStep(
+        STEPS.generating_topics,
+        `Generated ${topicBundle.topics.length} brand topics`,
+        { count: topicBundle.topics.length },
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      // Log the failure but DON'T throw — brand stays usable without topics.
+      await appendLog({
+        ts: new Date().toISOString(),
+        level: "warn",
+        step: STEPS.generating_topics.key,
+        message: `Topics skipped: ${message}`,
+      });
+    }
 
     // ─── Finalize ───────────────────────────────────────────────────────────
     await startStep(STEPS.finalizing);

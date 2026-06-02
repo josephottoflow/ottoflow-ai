@@ -1,0 +1,53 @@
+/**
+ * Pexels stock-video provider — fallback when AI generation isn't
+ * available or fails. Wraps the existing findStockVideoByPrompt() so the
+ * Video Pipeline can consume Pexels via the same VideoProvider interface
+ * as Runway / Higgsfield / Veo.
+ *
+ * Always last in the chain — we never want to return a 500 just because
+ * Runway's API hiccuped. A topic-relevant stock clip is strictly better
+ * than failing.
+ */
+import { findStockVideoByPrompt, PexelsNotConfiguredError } from "@/lib/pexels";
+import type { SceneRequest, SceneResult, VideoProvider } from "./types";
+
+export class PexelsFallbackProvider implements VideoProvider {
+  name = "pexels";
+
+  isConfigured(): boolean {
+    return !!process.env.PEXELS_API_KEY;
+  }
+
+  async generateScene(request: SceneRequest): Promise<SceneResult> {
+    try {
+      const clip = await findStockVideoByPrompt({
+        prompt: request.prompt,
+        targetSeconds: request.durationSec,
+      });
+      if (!clip) {
+        throw new Error(
+          `No Pexels match for keywords extracted from: "${request.prompt.slice(0, 80)}…"`,
+        );
+      }
+      return {
+        url: clip.url,
+        durationSec: clip.durationSec,
+        width: clip.width,
+        height: clip.height,
+        provider: this.name,
+        costUsd: 0,
+        attribution: `${clip.photographer} via Pexels`,
+        metadata: {
+          query: clip.query,
+          orientation: clip.orientation,
+          pexelsPageUrl: clip.pexelsPageUrl,
+        },
+      };
+    } catch (err) {
+      if (err instanceof PexelsNotConfiguredError) {
+        throw new Error("PEXELS_API_KEY not configured");
+      }
+      throw err;
+    }
+  }
+}

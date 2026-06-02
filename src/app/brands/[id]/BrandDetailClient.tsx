@@ -26,6 +26,7 @@ import { useSupabase } from "@/components/SupabaseProvider";
 import type {
   DbBrand,
   DbBrandResearchJob,
+  DbBrandTopic,
   DbCompetitor,
   DbKeyword,
   DbContentPillar,
@@ -40,6 +41,7 @@ interface Props {
   initialCompetitors: DbCompetitor[];
   initialKeywords: DbKeyword[];
   initialPillars: DbContentPillar[];
+  initialTopics: DbBrandTopic[];
 }
 
 const STEP_LABEL: Record<string, string> = {
@@ -48,6 +50,7 @@ const STEP_LABEL: Record<string, string> = {
   extracting_profile: "Extracting brand profile",
   finding_competitors: "Researching competitors",
   generating_seo: "Generating SEO + content pillars",
+  generating_topics: "Generating content topics",
   finalizing: "Saving results",
 };
 
@@ -57,6 +60,7 @@ export function BrandDetailClient({
   initialCompetitors,
   initialKeywords,
   initialPillars,
+  initialTopics,
 }: Props) {
   const router = useRouter();
   const supabase = useSupabase();
@@ -65,6 +69,9 @@ export function BrandDetailClient({
   const [competitors, setCompetitors] = useState(initialCompetitors);
   const [keywords, setKeywords] = useState(initialKeywords);
   const [pillars, setPillars] = useState(initialPillars);
+  const [topics, setTopics] = useState(initialTopics);
+  const [topicsRegenerating, setTopicsRegenerating] = useState(false);
+  const [topicsError, setTopicsError] = useState<string | null>(null);
 
   // ─── Realtime subscriptions ─────────────────────────────────────────────────
   // Gated on `supabase` being ready (SupabaseProvider injects the Clerk JWT
@@ -112,7 +119,7 @@ export function BrandDetailClient({
     let cancelled = false;
 
     (async () => {
-      const [comps, kws, plr] = await Promise.all([
+      const [comps, kws, plr, tpcs] = await Promise.all([
         supabase.from("competitors").select("*").eq("brand_id", brand.id),
         supabase
           .from("keywords")
@@ -124,11 +131,18 @@ export function BrandDetailClient({
           .select("*")
           .eq("brand_id", brand.id)
           .order("priority", { ascending: true }),
+        supabase
+          .from("brand_topics")
+          .select("*")
+          .eq("brand_id", brand.id)
+          .eq("status", "draft")
+          .order("created_at", { ascending: false }),
       ]);
       if (cancelled) return;
       if (comps.data) setCompetitors(comps.data as DbCompetitor[]);
       if (kws.data) setKeywords(kws.data as DbKeyword[]);
       if (plr.data) setPillars(plr.data as DbContentPillar[]);
+      if (tpcs.data) setTopics(tpcs.data as DbBrandTopic[]);
       // Refresh server component data for navigation back/forward
       router.refresh();
     })();
@@ -225,6 +239,52 @@ export function BrandDetailClient({
           {competitors.length > 0 && <CompetitorsSection competitors={competitors} />}
           {keywords.length > 0 && <KeywordsSection keywords={keywords} />}
           {pillars.length > 0 && <PillarsSection pillars={pillars} />}
+          {brand.profile && (
+            <TopicsSection
+              brandId={brand.id}
+              topics={topics}
+              isRegenerating={topicsRegenerating}
+              regenerateError={topicsError}
+              onRegenerate={async () => {
+                setTopicsRegenerating(true);
+                setTopicsError(null);
+                try {
+                  const res = await fetch(
+                    `/api/brands/${brand.id}/topics/generate`,
+                    {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ replaceExisting: true }),
+                    },
+                  );
+                  if (!res.ok) {
+                    const body = await res.json().catch(() => ({}));
+                    throw new Error(
+                      body.error ?? `Server returned ${res.status}`,
+                    );
+                  }
+                  if (supabase) {
+                    const { data } = await supabase
+                      .from("brand_topics")
+                      .select("*")
+                      .eq("brand_id", brand.id)
+                      .eq("status", "draft")
+                      .order("created_at", { ascending: false });
+                    if (data) setTopics(data as DbBrandTopic[]);
+                  }
+                } catch (err) {
+                  const msg =
+                    err instanceof Error ? err.message : String(err);
+                  setTopicsError(msg);
+                  captureFallback("brand.topics.client_regenerate_failed", err, {
+                    brandId: brand.id,
+                  });
+                } finally {
+                  setTopicsRegenerating(false);
+                }
+              }}
+            />
+          )}
         </div>
       )}
     </div>
@@ -582,6 +642,138 @@ function PillarsSection({ pillars }: { pillars: DbContentPillar[] }) {
             {p.description && <p className="text-xs text-white/60 leading-relaxed mb-2">{p.description}</p>}
             <PillRow label="Formats" items={p.content_types} />
             <PillRow label="Topics" items={p.example_topics} muted />
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+const CATEGORY_LABEL: Record<string, string> = {
+  educational: "Educational",
+  storytelling: "Storytelling",
+  ugc: "UGC",
+  "product-demo": "Product Demo",
+  listicle: "Listicle",
+  "problem-solution": "Problem / Solution",
+  "founder-story": "Founder Story",
+};
+
+const CATEGORY_BADGE_VARIANT: Record<
+  string,
+  "info" | "purple" | "success" | "warning" | "destructive"
+> = {
+  educational: "info",
+  storytelling: "purple",
+  ugc: "success",
+  "product-demo": "warning",
+  listicle: "info",
+  "problem-solution": "destructive",
+  "founder-story": "purple",
+};
+
+function TopicsSection({
+  brandId,
+  topics,
+  isRegenerating,
+  regenerateError,
+  onRegenerate,
+}: {
+  brandId: string;
+  topics: DbBrandTopic[];
+  isRegenerating: boolean;
+  regenerateError: string | null;
+  onRegenerate: () => void;
+}) {
+  // Group by category for legibility — sparse categories render the empty state
+  // with the section header so users see what's missing.
+  const byCategory = topics.reduce<Record<string, DbBrandTopic[]>>((acc, t) => {
+    const key = t.category ?? "uncategorized";
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(t);
+    return acc;
+  }, {});
+
+  return (
+    <section className="glass rounded-2xl p-6">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Sparkles size={14} className="text-fuchsia-400" />
+          <h2 className="text-sm font-bold text-white">Content Topics</h2>
+          <span className="text-[10px] text-white/40 font-medium">({topics.length})</span>
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          className="gap-1.5 h-7 text-[11px]"
+          onClick={onRegenerate}
+          disabled={isRegenerating}
+        >
+          {isRegenerating ? (
+            <Loader2 size={12} className="animate-spin" />
+          ) : (
+            <RefreshCw size={12} />
+          )}
+          {topics.length === 0
+            ? "Generate topics"
+            : isRegenerating
+              ? "Regenerating…"
+              : "Regenerate"}
+        </Button>
+      </div>
+
+      {regenerateError && (
+        <div className="mb-3 rounded-md px-3 py-2 text-[11px] text-rose-300/90 border border-rose-500/20 bg-rose-500/5">
+          {regenerateError}
+        </div>
+      )}
+
+      {topics.length === 0 && !isRegenerating && (
+        <p className="text-[12px] text-white/40">
+          No topics generated yet. Click <strong>Generate topics</strong> above
+          to produce 40+ on-brand video ideas powered by the brand profile.
+        </p>
+      )}
+
+      <div className="space-y-4">
+        {Object.entries(byCategory).map(([cat, list]) => (
+          <div key={cat}>
+            <div className="flex items-center gap-2 mb-2">
+              <Badge
+                variant={CATEGORY_BADGE_VARIANT[cat] ?? "purple"}
+                className="text-[10px] uppercase"
+              >
+                {CATEGORY_LABEL[cat] ?? cat}
+              </Badge>
+              <span className="text-[10px] text-white/40">{list.length}</span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {list.map((t) => (
+                <Link
+                  key={t.id}
+                  href={`/video/generate?brandId=${brandId}&topicId=${t.id}`}
+                  className="block rounded-lg p-3 transition group hover:bg-white/[0.04]"
+                  style={{
+                    background: "rgba(255,255,255,0.02)",
+                    border: "1px solid rgba(255,255,255,0.04)",
+                  }}
+                >
+                  <p className="text-[13px] font-semibold text-white leading-snug group-hover:text-fuchsia-200">
+                    {t.title}
+                  </p>
+                  {t.hook_angle && (
+                    <p className="text-[11px] text-white/55 mt-1 leading-relaxed italic">
+                      &ldquo;{t.hook_angle}&rdquo;
+                    </p>
+                  )}
+                  {t.description && (
+                    <p className="text-[11px] text-white/45 mt-1 leading-relaxed line-clamp-2">
+                      {t.description}
+                    </p>
+                  )}
+                </Link>
+              ))}
+            </div>
           </div>
         ))}
       </div>

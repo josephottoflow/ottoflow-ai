@@ -10,9 +10,11 @@ import type {
   BrandProfile,
   BrandProfileService,
   BrandProfilePersona,
+  BrandTopicCategory,
   DbCompetitor,
   DbKeyword,
   DbContentPillar,
+  KeywordOverlayBundle,
 } from "./types";
 
 const MODEL = process.env.GEMINI_MODEL ?? "gemini-2.5-flash";
@@ -893,5 +895,244 @@ REQUIREMENTS:
     label: "generateVideoSEO",
     systemInstruction:
       "You are a TikTok/IG growth specialist who writes upload copy that beats the algorithm. You know which hashtags compound and which dilute reach. Tight, native, on-platform tone — never corporate.",
+  });
+}
+
+// ─── Brand Topics (Phase 1) ──────────────────────────────────────────────────
+//
+// Reads the full brand profile + competitors + keywords + pillars context
+// and emits a batch of authentic, on-brand content topics the user can
+// drive video generation from. Each topic is tagged with a category and
+// carries a one-line hook angle so the downstream script generator can use
+// it as a starting point.
+
+export interface GeneratedBrandTopic {
+  title: string;          // <= 70 chars, scroll-stopping
+  description: string;    // 1-2 sentence pitch of what the video would cover
+  category: BrandTopicCategory;
+  seed_keyword: string;   // primary SEO seed this topic addresses
+  hook_angle: string;     // one-line opening hook for the script generator
+}
+
+export interface GeneratedBrandTopicBundle {
+  topics: GeneratedBrandTopic[];
+}
+
+const brandTopicCategoryEnum: Schema = {
+  type: Type.STRING,
+  enum: [
+    "educational",
+    "storytelling",
+    "ugc",
+    "product-demo",
+    "listicle",
+    "problem-solution",
+    "founder-story",
+  ],
+} as Schema;
+
+const generatedBrandTopicSchema: Schema = {
+  type: Type.OBJECT,
+  required: ["title", "description", "category", "seed_keyword", "hook_angle"],
+  properties: {
+    title: { type: Type.STRING },
+    description: { type: Type.STRING },
+    category: brandTopicCategoryEnum,
+    seed_keyword: { type: Type.STRING },
+    hook_angle: { type: Type.STRING },
+  },
+} as Schema;
+
+const generatedBrandTopicBundleSchema: Schema = {
+  type: Type.OBJECT,
+  required: ["topics"],
+  properties: {
+    topics: { type: Type.ARRAY, items: generatedBrandTopicSchema },
+  },
+} as Schema;
+
+export async function generateBrandTopics(input: {
+  brand: {
+    name: string;
+    industry: string | null;
+    profile: BrandProfile;
+  };
+  seedKeywords?: string[];           // from keywords table if available
+  competitorNames?: string[];        // from competitors table
+  pillarHints?: { name: string; example_topics: string[] }[];
+  targetCount?: number;              // default 40 — produces a usable batch
+}): Promise<GeneratedBrandTopicBundle> {
+  const targetCount = input.targetCount ?? 40;
+  const { brand } = input;
+  const profile = brand.profile;
+
+  const personasBlock = profile.personas
+    .slice(0, 3)
+    .map((p) => `- ${p.name} (${p.role}): pains=${p.pain_points.join(", ")}`)
+    .join("\n");
+
+  const pillarBlock = (input.pillarHints ?? [])
+    .slice(0, 6)
+    .map(
+      (p) =>
+        `- ${p.name}${p.example_topics.length ? ` (e.g. ${p.example_topics.slice(0, 3).join(" / ")})` : ""}`,
+    )
+    .join("\n");
+
+  const prompt = `
+Generate exactly ${targetCount} short-form video content topics for this brand.
+Mix categories so the brand has a diverse content slate — aim for at least
+4 topics per category across all 7 categories.
+
+BRAND: ${brand.name}
+INDUSTRY: ${brand.industry ?? "unspecified"}
+POSITIONING: ${profile.positioning_statement}
+SUMMARY: ${profile.summary}
+
+VALUE PROPS:
+${profile.value_propositions.map((v) => `- ${v}`).join("\n")}
+
+AUDIENCE:
+- Demographics: ${profile.audience.demographics.join(", ")}
+- Psychographics: ${profile.audience.psychographics.join(", ")}
+
+ICP:
+- Roles: ${profile.icp.roles.join(", ")}
+- Pain points: ${profile.icp.pain_points.join(", ")}
+
+PERSONAS:
+${personasBlock}
+
+${input.seedKeywords?.length ? `SEED KEYWORDS: ${input.seedKeywords.slice(0, 15).join(", ")}` : ""}
+${input.competitorNames?.length ? `COMPETITORS: ${input.competitorNames.slice(0, 10).join(", ")}` : ""}
+${pillarBlock ? `CONTENT PILLARS:\n${pillarBlock}` : ""}
+
+PER-TOPIC REQUIREMENTS:
+- title: max 70 chars. A title a creator would actually use on TikTok / Reels.
+  No "Top 10..." cliches unless category is listicle. Scroll-stopping verbs.
+- description: 1-2 sentences describing what the video covers. Not marketing
+  copy — internal note for the script generator.
+- category: one of: educational | storytelling | ugc | product-demo | listicle
+  | problem-solution | founder-story
+- seed_keyword: a single 1-3 word SEO seed this topic addresses
+- hook_angle: one short sentence (under 20 words) — the opening hook the
+  narration should start with. Use bold claim / question / pattern interrupt.
+
+DO NOT:
+- Repeat topic ideas
+- Mention competitor brand names by name (unless founder-story category)
+- Write generic "5 Tips for X" titles
+- Use the brand name in every title — vary it
+
+Generate ${targetCount} distinct topics now.
+`.trim();
+
+  return generateStructured<GeneratedBrandTopicBundle>({
+    prompt,
+    schema: generatedBrandTopicBundleSchema,
+    label: "generateBrandTopics",
+    systemInstruction:
+      "You are a short-form content strategist who has written for top creator brands. You think in topic clusters, not isolated videos. Every topic you generate is authentic to the brand, distinct from the others, and would score above-average on engagement.",
+  });
+}
+
+// ─── Important Word Extraction (Phase 3) ─────────────────────────────────────
+//
+// Pulls the punchiest 1-3 word phrases out of a narration script and assigns
+// approximate timing so the FFmpeg overlay renderer can drop them on-screen
+// at the right millisecond. Timing is APPROXIMATE — Gemini estimates word
+// position from text length. For production-grade timing accuracy, swap in
+// ElevenLabs' alignment API or whisper.cpp forced alignment later.
+//
+// Output style: 6-12 keyword overlays per 30s of narration. NOT full
+// captions. Think viral TikTok style: 1 punchy word every 2-4 seconds.
+
+const keywordOverlaySchema: Schema = {
+  type: Type.OBJECT,
+  required: ["text", "start", "end"],
+  properties: {
+    text: { type: Type.STRING },
+    start: { type: Type.NUMBER },
+    end: { type: Type.NUMBER },
+    emphasis: {
+      type: Type.STRING,
+      enum: ["normal", "punch", "highlight"],
+    },
+  },
+} as Schema;
+
+const keywordOverlayBundleSchema: Schema = {
+  type: Type.OBJECT,
+  required: ["keywords", "estimatedNarrationSec"],
+  properties: {
+    keywords: { type: Type.ARRAY, items: keywordOverlaySchema },
+    estimatedNarrationSec: { type: Type.NUMBER },
+  },
+} as Schema;
+
+export async function extractImportantWords(input: {
+  narration: string;
+  estimatedNarrationSec: number;
+  density?: "sparse" | "balanced" | "dense"; // overlays per second budget
+}): Promise<KeywordOverlayBundle> {
+  const density = input.density ?? "balanced";
+  // Density target (per 30s narration):
+  //   sparse:   4 overlays  (one every 7.5s)
+  //   balanced: 8 overlays  (one every 3.75s)
+  //   dense:    14 overlays (one every 2.1s)
+  const densityHint = {
+    sparse: "4-5 keyword overlays per 30 seconds",
+    balanced: "7-10 keyword overlays per 30 seconds",
+    dense: "12-15 keyword overlays per 30 seconds",
+  }[density];
+
+  const prompt = `
+You are designing on-screen keyword overlays for a short-form video, in the
+viral TikTok / Reels style where ONLY the highest-impact words/phrases appear
+on screen — NOT full captions.
+
+NARRATION:
+"""
+${input.narration}
+"""
+
+TOTAL NARRATION DURATION: ${input.estimatedNarrationSec} seconds
+
+YOUR JOB:
+Pull out the words/phrases that should appear as bold on-screen text overlays.
+Density target: ${densityHint}.
+
+PER-OVERLAY REQUIREMENTS:
+- text: 1-3 words, ALL CAPS. Pick punchy nouns + verbs. NEVER pick filler
+  ("the", "a", "of", "you", "is").
+- start: seconds from video start, the moment this word is spoken
+- end: seconds from video start, when this overlay should disappear.
+  Each overlay should be on-screen for 0.6 - 1.4 seconds.
+- emphasis: 'punch' for the most important words (hook, big claims, CTA)
+  | 'highlight' for callouts (numbers, brand names)
+  | 'normal' for supporting punctuation words
+
+TIMING ESTIMATION:
+- Average speaking pace: ~3 words/second
+- Distribute overlays across the full duration evenly (no clustering)
+- Hook words land in the first 3 seconds
+- CTA words land in the last 5 seconds
+- Numbers, brand names, and emotional verbs always get an overlay
+
+DO NOT:
+- Caption the entire script (this is overlay-only, not captions)
+- Use lowercase
+- Include punctuation in the text field
+- Overlap timings (each overlay's start must be >= previous overlay's end)
+
+Generate the keyword overlay list now.
+`.trim();
+
+  return generateStructured<KeywordOverlayBundle>({
+    prompt,
+    schema: keywordOverlayBundleSchema,
+    label: "extractImportantWords",
+    systemInstruction:
+      "You are a video editor who has cut clips for top creator brands. You know which words ON SCREEN make viewers stop scrolling. You never overload the frame.",
   });
 }

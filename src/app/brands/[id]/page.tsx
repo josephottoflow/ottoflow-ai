@@ -5,6 +5,7 @@ import {
   getBrandCompetitors,
   getBrandKeywords,
   getBrandPillars,
+  getBrandTopics,
 } from "@/lib/db-brands";
 import { BrandDetailClient } from "./BrandDetailClient";
 
@@ -20,11 +21,12 @@ export default async function BrandDetailPage({
   const brand = await getBrand(id);
   if (!brand) notFound();
 
-  const [job, competitors, keywords, pillars] = await Promise.all([
+  const [job, competitors, keywords, pillars, topics] = await Promise.all([
     getLatestResearchJob(id),
     getBrandCompetitors(id),
     getBrandKeywords(id),
     getBrandPillars(id),
+    getBrandTopics(id),
   ]);
 
   return (
@@ -34,6 +36,7 @@ export default async function BrandDetailPage({
       initialCompetitors={competitors}
       initialKeywords={keywords}
       initialPillars={pillars}
+      initialTopics={topics}
     />
   );
 }
