@@ -46,6 +46,7 @@ import {
   generateVideoScript,
   generateVideoStoryboard,
   generateHeroFrame,
+  generateVideoSEO,
 } from "@/lib/gemini";
 import {
   synthesizeNarration,
@@ -345,7 +346,33 @@ export async function POST(req: NextRequest) {
             );
           }
         }
-        status("Music ready", 84);
+        status("Music ready", 80);
+
+        // ─── Stage 7: SEO copy ──────────────────────────────────────────────
+        // Generate upload-ready post copy (title, description, hashtags) so
+        // the user can paste it straight into TikTok/IG. Best-effort: any
+        // failure logs warn and the pipeline still completes — the rest of
+        // the assets are independent.
+        log("info", "Started: SEO");
+        status("Writing post copy", 84);
+        let seo: { title: string; description: string; hashtags: string[] } | null = null;
+        try {
+          const seoResult = await generateVideoSEO({
+            prompt: input.prompt,
+            script,
+          });
+          seo = seoResult;
+          log(
+            "success",
+            `SEO ready — title "${seoResult.title.slice(0, 50)}${seoResult.title.length > 50 ? "…" : ""}", ${seoResult.hashtags.length} hashtags`,
+          );
+        } catch (err) {
+          log(
+            "warn",
+            `SEO skipped: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+        status("SEO ready", 88);
 
         // ─── Stage 6: Render ────────────────────────────────────────────────
         log("info", "Started: Render");
@@ -412,12 +439,13 @@ export async function POST(req: NextRequest) {
           type: "done",
           videoUrl,
           jobId,
-          // Extra payload for the page to render audio + music players
-          // + a Pexels attribution line under the video.
+          // Extra payload for the page to render audio + music players,
+          // Pexels attribution, and upload-ready SEO copy.
           audioUrl: voiceAudioDataUrl ?? undefined,
           musicUrl: musicTrackUrl ?? undefined,
           musicTrack: musicTrackName ?? undefined,
           videoAttribution: videoAttribution ?? undefined,
+          seo: seo ?? undefined,
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

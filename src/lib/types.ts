@@ -273,6 +273,14 @@ export interface SSEEvent {
   // Pexels"). Pexels free tier requires displaying credit wherever their
   // footage is used.
   videoAttribution?: string;
+  // Upload-ready post copy (title + description + hashtags) generated
+  // alongside the video so users can paste it straight into the
+  // platform upload flow.
+  seo?: {
+    title: string;
+    description: string;
+    hashtags: string[];
+  };
 }
 
 export interface KPISummary {

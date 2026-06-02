@@ -830,3 +830,68 @@ export async function generateHeroFrame(input: {
   }
   return `data:image/jpeg;base64,${bytes}`;
 }
+
+// ─── Video SEO copy ──────────────────────────────────────────────────────────
+//
+// Post copy generator for the Video Pipeline — produces a TikTok/Instagram-
+// optimized title, description, and hashtag pack from the generated script.
+// Users copy this directly into their upload flow on the platform of choice.
+
+export interface VideoSEO {
+  title: string;          // <= 80 chars — first line that grabs the algorithm
+  description: string;    // 150-250 chars — full caption with hook + CTA
+  hashtags: string[];     // 8-15 tags, no '#' prefix, mix of broad + niche
+}
+
+const videoSEOSchema: Schema = {
+  type: Type.OBJECT,
+  required: ["title", "description", "hashtags"],
+  properties: {
+    title: { type: Type.STRING },
+    description: { type: Type.STRING },
+    hashtags: {
+      type: Type.ARRAY,
+      items: { type: Type.STRING },
+    },
+  },
+} as Schema;
+
+export async function generateVideoSEO(input: {
+  prompt: string;
+  script: VideoScript;
+}): Promise<VideoSEO> {
+  const prompt = `
+Write the upload-ready post copy for a short-form video ad based on this
+brief and narration.
+
+BRIEF: ${input.prompt}
+SCRIPT HOOK: ${input.script.hook}
+SCRIPT BODY: ${input.script.body}
+SCRIPT CTA: ${input.script.cta}
+
+REQUIREMENTS:
+- title: a single line, MAX 80 chars. The first thing TikTok/IG shows.
+  Mirror the hook but tighter. Question or bold claim. NO emoji-spam, ONE
+  tasteful emoji at most, often none.
+- description: 150-250 chars. Opens with a scroll-stopper, mentions the
+  product or category, ends with the CTA. Sound like a creator, not a
+  brand. Plain text only (no markdown, no HTML).
+- hashtags: 8-15 hashtags as plain strings WITHOUT the '#' prefix.
+  Mix of:
+    * 2-3 BROAD (high-volume, e.g. "tiktokmademebuyit", "viral")
+    * 3-5 CATEGORY (mid-volume, niche-specific, e.g. "coffeelover",
+      "espresso", "morningroutine")
+    * 2-4 PRODUCT/INTENT (specific to this product, e.g.
+      "subscriptionbox", "specialtycoffee", "baristalife")
+    * 1-2 PLATFORM (e.g. "fyp", "foryoupage")
+  No spaces inside a tag. No leading punctuation. Lowercase preferred.
+`.trim();
+
+  return generateStructured<VideoSEO>({
+    prompt,
+    schema: videoSEOSchema,
+    label: "generateVideoSEO",
+    systemInstruction:
+      "You are a TikTok/IG growth specialist who writes upload copy that beats the algorithm. You know which hashtags compound and which dilute reach. Tight, native, on-platform tone — never corporate.",
+  });
+}
