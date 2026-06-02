@@ -121,6 +121,9 @@ export default function VideoGeneratePage() {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [musicUrl, setMusicUrl] = useState<string | null>(null);
   const [musicTrack, setMusicTrack] = useState<string | null>(null);
+  // Stock-footage attribution (e.g. "Photographer Name via Pexels").
+  // Shown beneath the video to satisfy Pexels' attribution requirement.
+  const [videoAttribution, setVideoAttribution] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -158,6 +161,7 @@ export default function VideoGeneratePage() {
     setAudioUrl(null);
     setMusicUrl(null);
     setMusicTrack(null);
+    setVideoAttribution(null);
     setJobId(null);
     setError(null);
     setLogs([]);
@@ -231,6 +235,8 @@ export default function VideoGeneratePage() {
             if (event.audioUrl) setAudioUrl(event.audioUrl);
             if (event.musicUrl) setMusicUrl(event.musicUrl);
             if (event.musicTrack) setMusicTrack(event.musicTrack);
+            if (event.videoAttribution)
+              setVideoAttribution(event.videoAttribution);
             if (event.jobId) setJobId(event.jobId);
             setRunning(false);
           }
@@ -587,6 +593,16 @@ export default function VideoGeneratePage() {
                 playsInline
                 className="w-full aspect-video bg-black"
               />
+              {videoAttribution && (
+                <div className="px-4 py-2 border-t border-white/5">
+                  <p className="text-[10px] uppercase tracking-wider text-white/40 font-semibold">
+                    Stock footage ·{" "}
+                    <span className="text-white/60 normal-case font-normal">
+                      {videoAttribution}
+                    </span>
+                  </p>
+                </div>
+              )}
               {(audioUrl || musicUrl) && (
                 <div className="px-4 py-3 border-t border-white/5 space-y-2.5">
                   {audioUrl && (
@@ -632,6 +648,10 @@ export default function VideoGeneratePage() {
                   className="gap-1.5 text-white/40 ml-auto"
                   onClick={() => {
                     setVideoUrl(null);
+                    setAudioUrl(null);
+                    setMusicUrl(null);
+                    setMusicTrack(null);
+                    setVideoAttribution(null);
                     setProgress(0);
                     setStatusLabel("");
                     setPrompt("");

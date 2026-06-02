@@ -55,6 +55,10 @@ import {
   findTrackByVibe,
   JamendoNotConfiguredError,
 } from "@/lib/jamendo";
+import {
+  findStockVideoByPrompt,
+  PexelsNotConfiguredError,
+} from "@/lib/pexels";
 
 export const runtime = "nodejs";
 // Vercel hobby plan default is 10s — bump for the multi-call pipeline.
@@ -76,14 +80,13 @@ const Schema = z.object({
 const RATE_LIMIT = { limit: 20, windowSeconds: 60 * 60 } as const; // 20/hr
 const ROUTE = "POST:/api/generate";
 
-// Public sample MP4 used as the placeholder render output. test-videos.co.uk
-// hosts permissive sample clips with CORS open. ~1MB / 10s Big Buck Bunny
-// excerpt at 360p — small enough to load instantly. Verified 200 on probe.
+// Last-resort fallback MP4 if Pexels search returns nothing AND
+// PEXELS_API_KEY isn't configured. Big Buck Bunny — visibly unrelated, so
+// users notice + we can debug. Real flow now always tries Pexels first
+// for a topic-relevant stock clip (see Stage 6 below).
 //
-// The Google `gtv-videos-bucket` sample URLs I tried first all return 403
-// (Google locked them down post-2024). Don't reach for them again.
-//
-// Swap for a real Veo / Higgsfield render once the SDK is upgraded.
+// test-videos.co.uk serves with CORS open + 200; Google's
+// `gtv-videos-bucket` sample URLs all 403 — don't reach for them again.
 const PLACEHOLDER_VIDEO_URL =
   "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4";
 
@@ -352,13 +355,44 @@ export async function POST(req: NextRequest) {
           .update({ progress: 90 })
           .eq("id", jobId);
 
-        await new Promise((r) => setTimeout(r, 500));
-
-        const videoUrl = PLACEHOLDER_VIDEO_URL;
-        log(
-          "warn",
-          `Final render — placeholder MP4 served (real Veo render lands with SDK upgrade)`,
-        );
+        // Pexels stock-video search keyed off the prompt + script hook —
+        // returns a topic-relevant MP4 so the final video actually matches
+        // what the user asked for (vs. a generic placeholder). This is the
+        // production path until Veo lands in @google/genai.
+        let videoUrl = PLACEHOLDER_VIDEO_URL;
+        let videoAttribution: string | null = null;
+        try {
+          const clip = await findStockVideoByPrompt({
+            prompt: input.prompt,
+            hook: script.hook,
+            targetSeconds,
+          });
+          if (clip) {
+            videoUrl = clip.url;
+            videoAttribution = `${clip.photographer} via Pexels`;
+            log(
+              "success",
+              `Stock clip matched — query "${clip.query}" (${clip.orientation}, ${clip.width}×${clip.height}, ${clip.durationSec}s) by ${clip.photographer}`,
+            );
+          } else {
+            log(
+              "warn",
+              `No Pexels match for prompt keywords — falling back to placeholder`,
+            );
+          }
+        } catch (err) {
+          if (err instanceof PexelsNotConfiguredError) {
+            log(
+              "warn",
+              `Stock clip skipped: PEXELS_API_KEY not configured — falling back to placeholder`,
+            );
+          } else {
+            log(
+              "warn",
+              `Stock clip failed: ${err instanceof Error ? err.message : String(err)} — falling back to placeholder`,
+            );
+          }
+        }
         log("success", "Render complete");
 
         const durationMs = Date.now() - startMs;
@@ -378,12 +412,12 @@ export async function POST(req: NextRequest) {
           type: "done",
           videoUrl,
           jobId,
-          // Extra payload — UI doesn't render these yet but they're available
-          // to wire into a "Hear narration" / "Preview track" CTA in a
-          // follow-up pass without another roundtrip.
+          // Extra payload for the page to render audio + music players
+          // + a Pexels attribution line under the video.
           audioUrl: voiceAudioDataUrl ?? undefined,
           musicUrl: musicTrackUrl ?? undefined,
           musicTrack: musicTrackName ?? undefined,
+          videoAttribution: videoAttribution ?? undefined,
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

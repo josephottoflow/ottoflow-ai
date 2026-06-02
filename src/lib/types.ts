@@ -269,6 +269,10 @@ export interface SSEEvent {
   audioUrl?: string;
   musicUrl?: string;
   musicTrack?: string;
+  // Attribution for the rendered video (e.g. "Photographer Name via
+  // Pexels"). Pexels free tier requires displaying credit wherever their
+  // footage is used.
+  videoAttribution?: string;
 }
 
 export interface KPISummary {
