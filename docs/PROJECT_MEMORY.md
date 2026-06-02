@@ -1,10 +1,10 @@
-# Ottoflow AI — Project Memory (Updated 2026-06-02, post Video-Pipeline MVP + real Voice/Music)
+# Ottoflow AI — Project Memory (Updated 2026-06-03, post topic-relevant Pexels stock-clip fix)
 
 ---
 
 ## Project Goal
 
-Ship the **AI Content Operating System** vertical-slice-by-vertical-slice to production-quality staging. Brand Research Engine is 100/100 + verified end-to-end (happy path + failure-recovery path). Content Pipeline MVP is live (pick brand + platform → publish-ready draft in ~20s). **Video Pipeline MVP is live** (SSE `/api/generate` → Gemini script + storyboard + real ElevenLabs narration + real Jamendo music track + placeholder MP4 render — 3 playable assets per generation). Project flows remain v1 scope.
+Ship the **AI Content Operating System** vertical-slice-by-vertical-slice to production-quality staging. Brand Research Engine is 100/100 + verified end-to-end (happy path + failure-recovery path). Content Pipeline MVP is live (pick brand + platform → publish-ready draft in ~20s). **Video Pipeline MVP is live with topic-relevant visuals** (SSE `/api/generate` → Gemini script + storyboard + real ElevenLabs narration + real Jamendo music + **Pexels stock clip matched to prompt + script hook**, with photographer attribution). Project flows remain v1 scope.
 
 ---
 
@@ -26,6 +26,7 @@ Ship the **AI Content Operating System** vertical-slice-by-vertical-slice to pro
 - Gemini Flash 2.5 via `@google/genai` v0.3.0 (URL Context + Google Search grounding; `generateImages` only — `generateVideos` not yet shipped in SDK)
 - ElevenLabs TTS — `eleven_turbo_v2` model, Rachel voice `21m00Tcm4TlvDq8ikWAM`, base64 data-URL inline delivery
 - Jamendo Music API v3.0 — CC-licensed instrumental tracks via vibe→tag mapping (`/tracks`, `vocalinstrumental=instrumental`, `durationbetween` filter)
+- Pexels Video Search API — keyword/domain-mapped stock MP4 lookup keyed off prompt + script hook (12 domain overrides, 9:16 portrait-first with landscape fallback, HD filter)
 - Zod env validation with `isHeaderSafe()` at boot
 
 **Observability**
@@ -98,8 +99,8 @@ Ship the **AI Content Operating System** vertical-slice-by-vertical-slice to pro
    - **Voice** — `synthesizeNarration()` → ElevenLabs Rachel `21m00Tcm4TlvDq8ikWAM` model `eleven_turbo_v2` → base64 data URL (inline, no storage roundtrip)
    - **Clips** — `generateHeroFrame()` → Imagen 3 best-effort (`imagen-3.0-fast-generate-001`); currently 404 on v1beta tier → logs warn, skipped gracefully. Per-scene Veo 3 not yet shipped in SDK (`@google/genai` v0.3.0 ships `generateImages` only)
    - **Music** — `findTrackByVibe()` → Jamendo CC instrumental track matching musicVibe + targetSeconds duration filter, random pick from top 5 popular
-   - **Render** — placeholder MP4 (`test-videos.co.uk` Big Buck Bunny 10s/1MB) — verified 200 with `curl -sI` (Google `gtv-videos-bucket` returned 403)
-2. Stream emits final `done` event with `{videoUrl, jobId, audioUrl, musicUrl, musicTrack}` — client renders 3 native players (`<video muted playsInline>` + 2 `<audio controls>`)
+   - **Render** — `findStockVideoByPrompt()` → Pexels Video Search keyed off prompt + script.hook. 12 domain overrides (coffee, standing desk, fitness, tech, finance, food, fashion, travel, home, startup, marketing, skincare); falls back to keyword extraction (stop-words filtered, longest 3 content tokens) + hook keywords. Two-pass orientation (portrait first, landscape fallback). Filters: 5-90s duration + MP4 present + height ≥ 360. Best-file picker prefers portrait + HD up to 1080. Falls back to Big Buck Bunny placeholder ONLY if Pexels miss or `PEXELS_API_KEY` unset (logs warn)
+2. Stream emits final `done` event with `{videoUrl, jobId, audioUrl, musicUrl, musicTrack, videoAttribution}` — client renders 3 native players (`<video muted playsInline>` + 2 `<audio controls>`) + Pexels photographer credit line beneath the video (TOS requirement)
 3. Pipeline Logs panel shows all 19 log entries with hook/scene previews + asset sizes
 4. Failures captured to Sentry as `video.generate.failed` with `{provider, sceneCount, style, vibe, promptLength}`
 
@@ -221,6 +222,18 @@ Ship the **AI Content Operating System** vertical-slice-by-vertical-slice to pro
   - ✅ Video: Big Buck Bunny 10s placeholder, plays at 0:10/0:10
 - Pipeline Logs panel shows 19 entries with full scene descriptions + asset sizes
 
+### Pexels topic-relevant stock-clip fix (commit `0c851fa`)
+- **Problem identified:** `/api/generate` Stage 6 hardcoded Big Buck Bunny URL regardless of prompt — user reported "output video is not relevant to the topic"
+- **Fix:** Built `src/lib/pexels.ts` with `findStockVideoByPrompt()` — 12 domain overrides + keyword extractor + two-pass orientation, returns one HD MP4 URL per call. `/api/generate` Stage 6 now calls it before falling back to the placeholder
+- **Live verification with coffee subscription prompt** *("30-second TikTok ad for an artisan espresso coffee subscription targeting morning commuters, cinematic close-ups of barista pouring latte art, with a 15% off launch discount CTA")*:
+  - Pexels match log captured exactly: `Stock clip matched — query "coffee pour cinematic closeup" (portrait, 720×1366, 38s) by Ron Lach`
+  - Video plays a Chemex pour-over scene on a coffee workspace — topic-relevant
+  - Attribution renders: `STOCK FOOTAGE · Ron Lach via Pexels` ✓
+  - Script hook: *"Your morning commute deserves better coffee."*
+  - 4 storyboard scenes all coffee-themed (tired hand holding paper cup → barista's hands → subscription box orbit → espresso with crema)
+  - Narration: 482KB MP3 (energetic, brisk pace); Music: *"An Inspired(Short3) — Alexis Music"* 50s
+- **Vercel env var added:** `PEXELS_API_KEY` (Sensitive, Production+Preview); production redeployed
+
 ### Diagnostic endpoints (remove pre-public-beta)
 - `/api/debug/auth` — Clerk JWT + Supabase RPC
 - `/api/debug/raw` — hand-built fetch to PostgREST bypassing supabase-js
@@ -340,6 +353,7 @@ ottoflow-ai/
       gemini.ts                          withTimeout/withRetry + breadcrumbs + generateContentPiece + generateVideoScript + generateVideoStoryboard + generateHeroFrame
       elevenlabs.ts                      synthesizeNarration() → Rachel voice + eleven_turbo_v2 → base64 data URL
       jamendo.ts                         findTrackByVibe() → CC instrumental tag-mapped → top-5 random pick
+      pexels.ts                          findStockVideoByPrompt() → 12 domain overrides + keyword extractor + portrait-first → single HD MP4 URL
       observability.ts                   Vendor-neutral shim, globalThis singleton
     components/
       Sidebar.tsx                        Clerk UserButton bottom-left
@@ -365,6 +379,8 @@ ottoflow-ai/
 ## Recent Commits (newest first)
 
 ```
+0c851fa  fix(video): topic-relevant stock clip via Pexels (was always Big Buck Bunny)
+3a071fe  docs(memory): snapshot session — Video Pipeline MVP live with real Voice + Music
 d1f5e5a  feat(video): real ElevenLabs narration + Jamendo music in /api/generate
 4f01733  fix(video): playable placeholder MP4 + retry Imagen 3 with fast variant
 ed6e7d2  feat(video): MVP /api/generate SSE — real Gemini brain, placeholder render
