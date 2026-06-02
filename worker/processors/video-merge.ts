@@ -39,21 +39,30 @@ import type { VideoMergeJobData } from "@/lib/queue";
 type Reporter = (step: string, progress: number) => void;
 
 interface FfmpegResult {
-  exitCode: number;
+  exitCode: number | null;
+  signal: NodeJS.Signals | null;
   stderr: string;
 }
 
-/** Run ffmpeg, capture stderr (where ffmpeg writes its progress + errors). */
+/**
+ * Run ffmpeg, capture stderr (where ffmpeg writes its progress + errors)
+ * AND the kill signal if the process was terminated. Exit code = null and
+ * signal != null means "killed by OS/Railway" (usually OOM or build-time
+ * resource cap).
+ */
 async function runFfmpeg(args: string[]): Promise<FfmpegResult> {
   return new Promise((resolve, reject) => {
     const proc = spawn("ffmpeg", args, { stdio: ["ignore", "ignore", "pipe"] });
+    // Keep the FULL stderr — ffmpeg's progress reports push the real error
+    // line out of any short trailing window, leaving the operator staring
+    // at "bitrate 0/0/0 buffer" instead of the actual cause.
     let stderr = "";
     proc.stderr.on("data", (chunk) => {
       stderr += chunk.toString();
     });
     proc.on("error", (err) => reject(err));
-    proc.on("close", (code) =>
-      resolve({ exitCode: code ?? -1, stderr }),
+    proc.on("close", (code, signal) =>
+      resolve({ exitCode: code, signal, stderr }),
     );
   });
 }
@@ -115,94 +124,81 @@ export async function processVideoMerge(
     report("merging", 35);
 
     // ─── 2. Build ffmpeg command ───────────────────────────────────────────
-    // Note: if neither narration nor music is present we just copy the input
-    // (its native audio survives) and return early.
+    //
+    // Goal: produce one MP4 with the video stream + a single audio track that
+    // mixes narration (full volume) and music (ducked). No looping — if music
+    // ends before narration/video, the rest just plays narration. Keeps the
+    // filter graph simple + bounded so ffmpeg can't hang on infinite streams.
+    //
+    // Stream copy when there's nothing to mix.
     let args: string[];
     if (!hasNarration && !hasMusic) {
+      args = ["-y", "-i", videoIn, "-c", "copy", out];
+    } else if (hasNarration && !hasMusic) {
+      // Single audio path — no filter_complex needed.
       args = [
         "-y",
         "-i", videoIn,
-        "-c", "copy",
+        "-i", narrationIn,
+        "-map", "0:v:0",
+        "-map", "1:a:0",
+        "-c:v", "copy",
+        "-c:a", "aac",
+        "-b:a", "192k",
+        "-shortest",
+        out,
+      ];
+    } else if (!hasNarration && hasMusic) {
+      const musicLinearGain = Math.pow(10, duckingDb / 20);
+      args = [
+        "-y",
+        "-i", videoIn,
+        "-i", musicIn,
+        "-filter_complex", `[1:a]volume=${musicLinearGain.toFixed(3)}[mus]`,
+        "-map", "0:v:0",
+        "-map", "[mus]",
+        "-c:v", "copy",
+        "-c:a", "aac",
+        "-b:a", "192k",
+        "-shortest",
         out,
       ];
     } else {
-      // Inputs are indexed in this order:
-      //   0 = video
-      //   1 = narration (if present)
-      //   2 = music (if present) — index slides depending on narration presence
-      args = ["-y", "-i", videoIn];
-      let narrIdx = -1;
-      let musicIdx = -1;
-      let cursor = 1;
-      if (hasNarration) {
-        args.push("-stream_loop", "0", "-i", narrationIn);
-        narrIdx = cursor++;
-      }
-      if (hasMusic) {
-        // -stream_loop -1 = infinite loop; combined with -shortest trim
-        args.push("-stream_loop", "-1", "-i", musicIn);
-        musicIdx = cursor++;
-      }
-
-      // Build filter_complex:
-      //   - narration: pass-through (full volume), label "narr"
-      //   - music:     ducked via linear gain (~0.25 == -12 dB), label "mus"
-      //   - amix narration+music → label "mix" (default duration=longest)
-      //   - Or if only one input → its label IS the final audio
-      //
-      // IMPORTANT: weights= parameter has special parsing inside amix and
-      // cannot contain a literal space when passed via -filter_complex.
-      // We rely on the explicit volume filters above for balance instead.
-      const parts: string[] = [];
-      const mixedLabels: string[] = [];
-      // Translate the dB-domain ducking knob to linear gain: gain = 10^(dB/20).
-      // duckingDb=-12 → 0.251; -6 → 0.501; 0 → 1.0
+      // Both narration + music — mix via amix.
       const musicLinearGain = Math.pow(10, duckingDb / 20);
-      if (hasNarration) {
-        parts.push(`[${narrIdx}:a]volume=1.0[narr]`);
-        mixedLabels.push("[narr]");
-      }
-      if (hasMusic) {
-        parts.push(
-          `[${musicIdx}:a]volume=${musicLinearGain.toFixed(3)}[mus]`,
-        );
-        mixedLabels.push("[mus]");
-      }
-      if (mixedLabels.length === 2) {
-        // No `weights=` — its space-separated syntax fights -filter_complex.
-        // Default duration='longest' is fine; -shortest at the encoder caps
-        // total length to the video stream.
-        parts.push(
-          `${mixedLabels.join("")}amix=inputs=2:duration=longest[mix]`,
-        );
-      }
-      const finalAudioLabel =
-        mixedLabels.length === 2 ? "[mix]" : mixedLabels[0];
-
-      args.push("-filter_complex", parts.join(";"));
-      args.push(
+      args = [
+        "-y",
+        "-i", videoIn,
+        "-i", narrationIn,
+        "-i", musicIn,
+        "-filter_complex",
+        // narration full, music ducked, then amix. duration=first follows
+        // the narration timeline — music gets cut if longer, silent past
+        // narration if shorter. -shortest at encoder still caps to video.
+        `[1:a]volume=1.0[narr];[2:a]volume=${musicLinearGain.toFixed(3)}[mus];[narr][mus]amix=inputs=2:duration=first[mix]`,
         "-map", "0:v:0",
-        "-map", finalAudioLabel,
-        // Re-encode video for compatibility (Pexels source already H.264 but
-        // re-mux to ensure clean MP4 with new audio):
-        "-c:v", "libx264",
-        "-preset", "veryfast",
-        "-crf", "23",
-        "-pix_fmt", "yuv420p",
+        "-map", "[mix]",
+        // Stream copy the video — Pexels MP4 is already H.264 + yuv420p so
+        // we skip re-encode. ~10x faster + avoids libx264 OOM risk on the
+        // worker. Audio is always re-encoded because we mixed it.
+        "-c:v", "copy",
         "-c:a", "aac",
         "-b:a", "192k",
-        "-shortest",       // trim to shortest stream (usually the video)
-        "-movflags", "+faststart",
+        "-shortest",
         out,
-      );
+      ];
     }
     report("merging", 50);
 
     // ─── 3. Run ffmpeg ─────────────────────────────────────────────────────
     const result = await runFfmpeg(args);
-    if (result.exitCode !== 0) {
+    if (result.exitCode !== 0 || result.signal !== null) {
+      // Surface BOTH the exit + signal AND the full stderr tail so we can
+      // see the real failure (vs. trailing progress lines from libavfilter
+      // that hide the actual error).
+      const tail = result.stderr.slice(-2000);
       throw new Error(
-        `ffmpeg exited ${result.exitCode}: ${result.stderr.slice(-500)}`,
+        `ffmpeg failed (code=${result.exitCode}, signal=${result.signal}): ${tail}`,
       );
     }
     report("merging", 80);
