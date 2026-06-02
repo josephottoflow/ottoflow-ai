@@ -279,9 +279,10 @@ export function ContentPageClient({ items, kpis }: Props) {
                 const status = statusConfig[item.status] ?? statusConfig.draft;
                 const engagement = item.engagement as { likes?: number; shares?: number } | null;
                 return (
-                  <div
+                  <Link
                     key={item.id}
-                    className="p-4 rounded-xl cursor-pointer transition-all hover:bg-white/[0.02]"
+                    href={`/content/${item.id}`}
+                    className="block p-4 rounded-xl transition-all hover:bg-white/[0.025] focus:outline-none focus:bg-white/[0.04]"
                     style={{ border: "1px solid rgba(255,255,255,0.05)" }}
                   >
                     <div className="flex items-start gap-3">
@@ -305,11 +306,11 @@ export function ContentPageClient({ items, kpis }: Props) {
                           )}
                         </div>
                       </div>
-                      <button className="text-white/20 hover:text-white/50 transition-colors mt-0.5">
+                      <span className="text-white/20 hover:text-white/50 transition-colors mt-0.5">
                         <ChevronRight size={14} />
-                      </button>
+                      </span>
                     </div>
-                  </div>
+                  </Link>
                 );
               })}
             </div>
