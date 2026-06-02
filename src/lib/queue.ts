@@ -121,6 +121,14 @@ export interface ContentGenerationJobData {
  * clip + ElevenLabs narration + Jamendo music into a single downloadable MP4
  * (audio baked in). Fields are URLs / data URLs the worker can fetch.
  */
+export interface VideoMergeOverlay {
+  /** ALL CAPS 1-3 word phrase to bake on-screen via drawtext. */
+  text: string;
+  /** Seconds from video start (0..videoDuration). */
+  start: number;
+  end: number;
+}
+
 export interface VideoMergeJobData {
   renderJobId: string;
   userId: string;
@@ -129,6 +137,12 @@ export interface VideoMergeJobData {
   audioDataUrl?: string;         // ElevenLabs narration as data:audio/mpeg;base64,...
   musicUrl?: string;             // Jamendo MP3 streaming URL
   musicDuckingDb?: number;       // default -12, only used if musicUrl present
+  /**
+   * Phase 4 keyword overlay list. When present, the worker re-encodes the
+   * video with FFmpeg drawtext filters (scale pop + fade in/out) instead of
+   * stream-copying — slower but visually punchy.
+   */
+  overlays?: VideoMergeOverlay[];
 }
 
 export interface JobPayloads {

@@ -48,6 +48,7 @@ import {
   generateVideoStoryboard,
   generateHeroFrame,
   generateVideoSEO,
+  extractImportantWords,
 } from "@/lib/gemini";
 import {
   synthesizeNarration,
@@ -68,16 +69,29 @@ export const runtime = "nodejs";
 // + hero frame + buffer.
 export const maxDuration = 300;
 
-const Schema = z.object({
-  prompt: z.string().min(8).max(2000),
-  provider: z.enum(["veo3", "higgsfield", "imagen3"]).optional(),
-  style: z.string().max(40).optional(),
-  sceneCount: z.number().int().min(3).max(8).optional(),
-  musicVibe: z.string().max(40).optional(),
-  renderVariant: z.string().max(40).optional(),
-  hookStyle: z.string().max(40).optional(),
-  projectId: z.string().uuid().optional(),
-});
+// Accepts either the legacy free-form prompt OR the new brand+topic shape.
+// Validation requires AT LEAST ONE of {prompt, (brandId+topicId)} to be
+// present — otherwise the route can't construct a script.
+const Schema = z
+  .object({
+    prompt: z.string().min(8).max(2000).optional(),
+    brandId: z.string().uuid().optional(),
+    topicId: z.string().uuid().optional(),
+    provider: z.enum(["veo3", "higgsfield", "imagen3"]).optional(),
+    style: z.string().max(40).optional(),
+    sceneCount: z.number().int().min(3).max(8).optional(),
+    musicVibe: z.string().max(40).optional(),
+    renderVariant: z.string().max(40).optional(),
+    hookStyle: z.string().max(40).optional(),
+    projectId: z.string().uuid().optional(),
+  })
+  .refine(
+    (v) => !!v.prompt || (!!v.brandId && !!v.topicId),
+    {
+      message:
+        "Provide either a free-form `prompt` OR both `brandId` AND `topicId`.",
+    },
+  );
 
 const RATE_LIMIT = { limit: 20, windowSeconds: 60 * 60 } as const; // 20/hr
 const ROUTE = "POST:/api/generate";
@@ -160,14 +174,98 @@ export async function POST(req: NextRequest) {
   const musicVibe = input.musicVibe ?? "energetic";
   const targetSeconds = Math.max(15, Math.min(60, sceneCount * 6));
 
-  // Pre-create render_jobs row so we have a stable jobId to thread back
-  // through SSE. Worker writes to this row as the pipeline progresses.
   const admin = createAdminClient();
+
+  // ─── Resolve prompt from brand+topic when provided ─────────────────────────
+  // The new Phase 2 flow sends { brandId, topicId } instead of a free-form
+  // prompt. We look up the topic + brand voice and synthesize a richer
+  // prompt that downstream Gemini calls condition on. The legacy `prompt`
+  // path stays intact for backwards compat.
+  let effectivePrompt: string;
+  let brandIdForJob: string | null = null;
+  let topicIdForJob: string | null = null;
+
+  if (input.brandId && input.topicId) {
+    const { data: topic, error: topicErr } = await admin
+      .from("brand_topics")
+      .select("id, brand_id, title, description, category, hook_angle, seed_keyword")
+      .eq("id", input.topicId)
+      .eq("brand_id", input.brandId)
+      .single();
+
+    if (topicErr || !topic) {
+      return new Response(
+        JSON.stringify({ error: "Topic not found for this brand" }),
+        { status: 404, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    const { data: brand, error: brandErr } = await admin
+      .from("brands")
+      .select("id, user_id, name, industry, profile")
+      .eq("id", input.brandId)
+      .single();
+
+    if (brandErr || !brand) {
+      return new Response(
+        JSON.stringify({ error: "Brand not found" }),
+        { status: 404, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    if (brand.user_id !== userId) {
+      // 404 to avoid existence leak
+      return new Response(
+        JSON.stringify({ error: "Topic not found for this brand" }),
+        { status: 404, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    // Synthesize the prompt from brand + topic. Includes brand voice cues
+    // so the script generator stays on-brand.
+    const profile = brand.profile as null | {
+      brand_voice?: { tone?: string[] };
+      positioning_statement?: string;
+    };
+    const tone = profile?.brand_voice?.tone?.join(", ") ?? "confident, energetic";
+    const positioning = profile?.positioning_statement ?? "";
+
+    effectivePrompt = [
+      `${topic.title}.`,
+      topic.hook_angle ? `Open with: "${topic.hook_angle}"` : "",
+      topic.description ?? "",
+      `Brand: ${brand.name}${brand.industry ? ` (${brand.industry})` : ""}.`,
+      positioning ? `Positioning: ${positioning}.` : "",
+      `Voice tone: ${tone}.`,
+      `Topic category: ${topic.category ?? "educational"}.`,
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    brandIdForJob = brand.id as string;
+    topicIdForJob = topic.id as string;
+  } else if (input.prompt) {
+    effectivePrompt = input.prompt;
+  } else {
+    // refine() should have caught this — defensive only
+    return new Response(
+      JSON.stringify({ error: "Missing prompt or brand+topic" }),
+      { status: 400, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  // Pre-create render_jobs row with full provenance so /video/history can
+  // surface every past generation. Worker writes back to this row as the
+  // pipeline progresses.
   const { data: jobRow, error: jobErr } = await admin
     .from("render_jobs")
     .insert({
       project_id: input.projectId ?? null,
-      name: input.prompt.slice(0, 80),
+      user_id: userId,
+      brand_id: brandIdForJob,
+      topic_id: topicIdForJob,
+      style: style,
+      prompt: effectivePrompt.slice(0, 2000),
+      name: effectivePrompt.slice(0, 80),
       status: "queued",
       progress: 0,
       template: provider,
@@ -185,6 +283,17 @@ export async function POST(req: NextRequest) {
     );
   }
   const jobId = jobRow.id as string;
+
+  // Mark the topic as used (atomic increment via SQL fn so concurrent
+  // renders from the same topic don't race). Fire-and-forget.
+  if (topicIdForJob) {
+    admin
+      .rpc("increment_brand_topic_use" as never, { p_topic_id: topicIdForJob } as never)
+      .then(() => undefined)
+      .catch((e) =>
+        captureFallback("brand_topic.use_increment_failed", e, { topicId: topicIdForJob }),
+      );
+  }
 
   // ─── SSE stream ────────────────────────────────────────────────────────────
   const stream = new ReadableStream({
@@ -215,7 +324,7 @@ export async function POST(req: NextRequest) {
           .eq("id", jobId);
 
         const script = await generateVideoScript({
-          prompt: input.prompt,
+          prompt: effectivePrompt,
           style,
           musicVibe,
           targetSeconds,
@@ -231,7 +340,7 @@ export async function POST(req: NextRequest) {
         status("Building storyboard", 22);
 
         const storyboard = await generateVideoStoryboard({
-          prompt: input.prompt,
+          prompt: effectivePrompt,
           style,
           sceneCount,
           script,
@@ -289,7 +398,7 @@ export async function POST(req: NextRequest) {
         let heroFrameDataUrl: string | null = null;
         try {
           heroFrameDataUrl = await generateHeroFrame({
-            prompt: input.prompt,
+            prompt: effectivePrompt,
             style,
           });
           log(
@@ -359,7 +468,7 @@ export async function POST(req: NextRequest) {
         let seo: { title: string; description: string; hashtags: string[] } | null = null;
         try {
           const seoResult = await generateVideoSEO({
-            prompt: input.prompt,
+            prompt: effectivePrompt,
             script,
           });
           seo = seoResult;
@@ -373,7 +482,54 @@ export async function POST(req: NextRequest) {
             `SEO skipped: ${err instanceof Error ? err.message : String(err)}`,
           );
         }
-        status("SEO ready", 88);
+        status("SEO ready", 84);
+
+        // ─── Stage 7b: Keyword overlays ─────────────────────────────────────
+        // Pull viral-style keyword overlays out of the narration script so
+        // the worker can drop them on-screen via FFmpeg drawtext. Best-effort
+        // — if Gemini fails here the video still renders cleanly (no overlays).
+        log("info", "Started: Overlays");
+        status("Extracting keyword overlays", 86);
+        let overlayBundle: {
+          keywords: { text: string; start: number; end: number; emphasis?: "normal" | "punch" | "highlight" }[];
+          estimatedNarrationSec: number;
+        } | null = null;
+        try {
+          const fullNarrationText =
+            `${script.hook} ${script.body} ${script.cta}`.trim();
+          const narrationDuration =
+            script.estimatedDurationSec ?? targetSeconds;
+          const result = await extractImportantWords({
+            narration: fullNarrationText,
+            estimatedNarrationSec: narrationDuration,
+            density: "balanced",
+          });
+          overlayBundle = result;
+          log(
+            "success",
+            `Overlays ready — ${result.keywords.length} keywords spanning ${result.estimatedNarrationSec}s`,
+          );
+        } catch (err) {
+          log(
+            "warn",
+            `Overlays skipped: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+        status("Overlays ready", 88);
+
+        // Persist all generated artifacts on render_jobs so /video/history
+        // can resurface them without re-running the pipeline.
+        await admin
+          .from("render_jobs")
+          .update({
+            script_json: script as unknown as Record<string, unknown>,
+            storyboard_json: storyboard as unknown as Record<string, unknown>,
+            seo_json: (seo ?? null) as unknown as Record<string, unknown> | null,
+            overlay_json: overlayBundle
+              ? { keywords: overlayBundle.keywords }
+              : null,
+          })
+          .eq("id", jobId);
 
         // ─── Stage 6: Render ────────────────────────────────────────────────
         log("info", "Started: Render");
@@ -391,7 +547,7 @@ export async function POST(req: NextRequest) {
         let videoAttribution: string | null = null;
         try {
           const clip = await findStockVideoByPrompt({
-            prompt: input.prompt,
+            prompt: effectivePrompt,
             hook: script.hook,
             targetSeconds,
           });
@@ -463,7 +619,12 @@ export async function POST(req: NextRequest) {
         try {
           await admin
             .from("render_jobs")
-            .update({ merge_status: "pending" })
+            .update({
+              merge_status: "pending",
+              music_url: musicTrackUrl ?? null,
+              music_track: musicTrackName ?? null,
+              video_attribution: videoAttribution ?? null,
+            })
             .eq("id", jobId);
           await videoMergeQueue().add(
             "merge",
@@ -473,6 +634,13 @@ export async function POST(req: NextRequest) {
               videoUrl,
               audioDataUrl: voiceAudioDataUrl ?? undefined,
               musicUrl: musicTrackUrl ?? undefined,
+              overlays: overlayBundle
+                ? overlayBundle.keywords.map((k) => ({
+                    text: k.text,
+                    start: k.start,
+                    end: k.end,
+                  }))
+                : undefined,
             },
             { jobId },
           );
@@ -484,7 +652,7 @@ export async function POST(req: NextRequest) {
         captureFallback("video.generate.pipeline_failed", err, {
           jobId,
           provider,
-          promptLength: input.prompt.length,
+          promptLength: effectivePrompt.length,
         });
         log("error", message);
         emit({ type: "error", error: message });

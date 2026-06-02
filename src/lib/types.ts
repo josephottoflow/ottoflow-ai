@@ -126,6 +126,24 @@ export interface DbRenderJob {
   error_message: string | null;
   prompt: string | null;
   meta: Record<string, unknown> | null;
+  // ─── migration 004 (merge) ──────────────────────────────────────────────────
+  merged_video_url?: string | null;
+  merge_status?: "pending" | "merging" | "done" | "failed" | null;
+  merge_error?: string | null;
+  // ─── migration 006 (full provenance + history) ──────────────────────────────
+  user_id?: string | null;
+  brand_id?: string | null;
+  topic_id?: string | null;
+  style?: string | null;
+  script_json?: Record<string, unknown> | null;
+  storyboard_json?: Record<string, unknown> | null;
+  seo_json?: Record<string, unknown> | null;
+  overlay_json?: { keywords: KeywordOverlay[] } | null;
+  narration_url?: string | null;
+  music_url?: string | null;
+  music_track?: string | null;
+  video_attribution?: string | null;
+  created_at?: string;
 }
 
 export interface DbActivityItem {
@@ -295,7 +313,14 @@ export interface Database {
 // ─── API / UI types ───────────────────────────────────────────────────────────
 
 export interface GenerateRequest {
-  prompt: string;
+  // Legacy free-form prompt path (still supported for backwards compat)
+  prompt?: string;
+  // Phase 2 brand-driven path. When both are present, brand+topic wins
+  // and the topic's title/hook_angle/description is used to construct
+  // the prompt internally.
+  brandId?: string;
+  topicId?: string;
+  // Style controls hook/voice/visuals — maps to BrandTopicCategory
   style?: string;
   provider?: "veo3" | "higgsfield" | "imagen3";
   sceneCount?: number;

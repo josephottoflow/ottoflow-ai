@@ -22,7 +22,11 @@ NIXPACKS_NODE_VERSION = "22"
 #   - Nix gives us the full build with libx264 + aac + filter graph support
 #   - Cleaner than vendoring a static binary per architecture
 [phases.setup]
-nixPkgs = ["nodejs_22", "ffmpeg-full"]
+# fontconfig + dejavu_fonts ship the standard sans-serif we use for the
+# Phase 4 keyword overlay renderer. The worker resolves the actual font
+# file path via `fc-match` at boot — so even if Nix moves the store path,
+# our drawtext filter still resolves a valid TTF.
+nixPkgs = ["nodejs_22", "ffmpeg-full", "fontconfig", "dejavu_fonts"]
 
 [phases.install]
 cmds = ["npm ci --include=dev"]

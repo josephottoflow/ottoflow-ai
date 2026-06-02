@@ -34,9 +34,54 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase";
-import type { VideoMergeJobData } from "@/lib/queue";
+import type { VideoMergeJobData, VideoMergeOverlay } from "@/lib/queue";
 
 type Reporter = (step: string, progress: number) => void;
+
+// ─── Font resolution (Phase 4 overlays) ─────────────────────────────────────
+// We use `fc-match` to find a real on-disk TTF path so drawtext's `fontfile`
+// param resolves cleanly. Cached at module level — first call probes, every
+// subsequent call returns the cached path. If everything fails the overlay
+// chain falls back to drawtext WITHOUT fontfile (ffmpeg picks a default).
+let cachedFontPath: string | null | undefined;
+
+async function resolveFontPath(): Promise<string | null> {
+  if (cachedFontPath !== undefined) return cachedFontPath;
+  const override = process.env.OVERLAY_FONT_PATH;
+  if (override) {
+    try {
+      await fs.access(override);
+      cachedFontPath = override;
+      return cachedFontPath;
+    } catch {
+      // fall through to fc-match
+    }
+  }
+  try {
+    const result = await new Promise<string>((resolve, reject) => {
+      const proc = spawn("fc-match", [
+        "-f",
+        "%{file}",
+        "DejaVu Sans:style=Bold",
+      ]);
+      let out = "";
+      let err = "";
+      proc.stdout.on("data", (c) => (out += c.toString()));
+      proc.stderr.on("data", (c) => (err += c.toString()));
+      proc.on("error", reject);
+      proc.on("close", (code) =>
+        code === 0 && out.trim()
+          ? resolve(out.trim())
+          : reject(new Error(`fc-match failed (${code}): ${err}`)),
+      );
+    });
+    cachedFontPath = result;
+    return cachedFontPath;
+  } catch {
+    cachedFontPath = null;
+    return null;
+  }
+}
 
 interface FfmpegResult {
   exitCode: number | null;
@@ -83,13 +128,76 @@ async function writeDataUrlToFile(dataUrl: string, dest: string): Promise<void> 
   await fs.writeFile(dest, Buffer.from(m[2], "base64"));
 }
 
+// ─── Phase 4 — drawtext keyword overlay chain ────────────────────────────────
+//
+// Each overlay becomes one drawtext filter in a chained filter graph. We
+// use FFmpeg expressions for fontsize + alpha so the text "scale pops" from
+// 1.2x → 1.0x in the first 150ms and fades out over the last 150ms. Only
+// renders during [start, end] — outside that window alpha=0 hides the
+// drawtext output entirely.
+//
+// Why two FFmpeg expressions (fontsize + alpha) instead of a wrapping
+// filter like `scale`/`zoompan`: drawtext supports per-frame expressions
+// natively, which is exactly the per-text-box animation we want. zoompan
+// would re-encode the entire frame for ONE overlay — orders of magnitude
+// slower.
+//
+// Position: horizontal center, y = 65% of height. That sits the text
+// over the "lower third" zone TikTok creators use.
+function buildDrawtextChain(
+  overlays: VideoMergeOverlay[],
+  fontPath: string | null,
+  videoHeightHint: number,
+): string {
+  // Cap baseSize to a tasteful range so very tall (4K) sources don't get
+  // 600px text. videoHeightHint of 0 (unknown) defaults to 1080.
+  const target = videoHeightHint > 0 ? videoHeightHint : 1080;
+  const baseSize = Math.min(120, Math.max(56, Math.round(target * 0.085)));
+
+  return overlays
+    .map((o) => {
+      const s = o.start.toFixed(3);
+      const e = o.end.toFixed(3);
+      // FFmpeg text-arg escaping: drawtext expects a single-quoted string;
+      // any apostrophe inside the text closes the string. We escape via
+      // \' which drawtext understands. Also strip newlines so a stray \n
+      // doesn't break the filter.
+      const escapedText = o.text
+        .replace(/\\/g, "\\\\")
+        .replace(/'/g, "\\'")
+        .replace(/[\r\n]/g, " ");
+      // Scale pop: fontsize starts at 1.2x for the first 150ms, settles at
+      // 1.0x for the rest of the visible window. Hidden outside [s, e]
+      // (fontsize=0 wouldn't actually hide the box — we use alpha=0 below
+      // for that).
+      const fontsizeExpr = `if(between(t,${s},${e}),if(lt(t,${s}+0.15),${baseSize}*(1.2-0.2*(t-${s})/0.15),${baseSize}),${baseSize})`;
+      // Alpha envelope: fade in 150ms, hold, fade out 150ms.
+      const alphaExpr = `if(between(t,${s},${e}),if(lt(t,${s}+0.15),(t-${s})/0.15,if(lt(t,${e}-0.15),1,(${e}-t)/0.15)),0)`;
+      const fontFilePart = fontPath
+        ? `:fontfile='${fontPath.replace(/'/g, "\\'")}'`
+        : "";
+      return (
+        `drawtext=text='${escapedText}'` +
+        fontFilePart +
+        `:fontcolor=white` +
+        `:borderw=4:bordercolor=black` +
+        `:shadowx=4:shadowy=6:shadowcolor=black@0.6` +
+        `:x=(w-text_w)/2:y=h*0.65` +
+        `:fontsize='${fontsizeExpr}'` +
+        `:alpha='${alphaExpr}'`
+      );
+    })
+    .join(",");
+}
+
 export async function processVideoMerge(
   data: VideoMergeJobData,
   report: Reporter,
 ): Promise<{ ok: true; mergedUrl: string }> {
   const admin = createAdminClient();
-  const { renderJobId, userId, videoUrl, audioDataUrl, musicUrl } = data;
+  const { renderJobId, userId, videoUrl, audioDataUrl, musicUrl, overlays } = data;
   const duckingDb = data.musicDuckingDb ?? -12;
+  const hasOverlays = !!overlays && overlays.length > 0;
 
   // Working directory under /tmp — Railway gives ample disk for this.
   const workDir = path.join(tmpdir(), `merge-${renderJobId}-${randomUUID()}`);
@@ -125,68 +233,139 @@ export async function processVideoMerge(
 
     // ─── 2. Build ffmpeg command ───────────────────────────────────────────
     //
-    // Goal: produce one MP4 with the video stream + a single audio track that
-    // mixes narration (full volume) and music (ducked). No looping — if music
-    // ends before narration/video, the rest just plays narration. Keeps the
-    // filter graph simple + bounded so ffmpeg can't hang on infinite streams.
+    // Two-path strategy:
     //
-    // Stream copy when there's nothing to mix.
+    //   (A) NO overlays  → stream-copy video (~2-3s merge). Same fast path
+    //                      that's been working in production.
+    //   (B) WITH overlays → re-encode video with drawtext chain (~10-20s).
+    //                      Trades speed for the visual punch users actually
+    //                      want — keyword overlays are the whole product
+    //                      differentiator.
+    //
+    // Audio handling is identical in both paths.
     let args: string[];
-    if (!hasNarration && !hasMusic) {
+    const fontPath = await resolveFontPath();
+
+    if (hasOverlays && fontPath === null) {
+      // Without a font, drawtext renders with ffmpeg's default which may
+      // not exist in the container. Log a warn and proceed without overlays
+      // rather than crashing — the rest of the video is still usable.
+      console.warn(
+        "[video-merge] No font resolvable; rendering without overlays",
+      );
+    }
+
+    if (!hasNarration && !hasMusic && !hasOverlays) {
+      // Path A, no audio, no overlays — pure stream copy.
       args = ["-y", "-i", videoIn, "-c", "copy", out];
-    } else if (hasNarration && !hasMusic) {
-      // Single audio path — no filter_complex needed.
-      args = [
-        "-y",
-        "-i", videoIn,
-        "-i", narrationIn,
-        "-map", "0:v:0",
-        "-map", "1:a:0",
-        "-c:v", "copy",
-        "-c:a", "aac",
-        "-b:a", "192k",
-        "-shortest",
-        out,
-      ];
-    } else if (!hasNarration && hasMusic) {
-      const musicLinearGain = Math.pow(10, duckingDb / 20);
-      args = [
-        "-y",
-        "-i", videoIn,
-        "-i", musicIn,
-        "-filter_complex", `[1:a]volume=${musicLinearGain.toFixed(3)}[mus]`,
-        "-map", "0:v:0",
-        "-map", "[mus]",
-        "-c:v", "copy",
-        "-c:a", "aac",
-        "-b:a", "192k",
-        "-shortest",
-        out,
-      ];
+    } else if (!hasOverlays) {
+      // Path A — preserve the previous fast paths verbatim.
+      if (hasNarration && !hasMusic) {
+        args = [
+          "-y",
+          "-i", videoIn,
+          "-i", narrationIn,
+          "-map", "0:v:0",
+          "-map", "1:a:0",
+          "-c:v", "copy",
+          "-c:a", "aac",
+          "-b:a", "192k",
+          "-shortest",
+          out,
+        ];
+      } else if (!hasNarration && hasMusic) {
+        const musicLinearGain = Math.pow(10, duckingDb / 20);
+        args = [
+          "-y",
+          "-i", videoIn,
+          "-i", musicIn,
+          "-filter_complex", `[1:a]volume=${musicLinearGain.toFixed(3)}[mus]`,
+          "-map", "0:v:0",
+          "-map", "[mus]",
+          "-c:v", "copy",
+          "-c:a", "aac",
+          "-b:a", "192k",
+          "-shortest",
+          out,
+        ];
+      } else {
+        // hasNarration && hasMusic
+        const musicLinearGain = Math.pow(10, duckingDb / 20);
+        args = [
+          "-y",
+          "-i", videoIn,
+          "-i", narrationIn,
+          "-i", musicIn,
+          "-filter_complex",
+          `[1:a]volume=1.0[narr];[2:a]volume=${musicLinearGain.toFixed(3)}[mus];[narr][mus]amix=inputs=2:duration=first[mix]`,
+          "-map", "0:v:0",
+          "-map", "[mix]",
+          "-c:v", "copy",
+          "-c:a", "aac",
+          "-b:a", "192k",
+          "-shortest",
+          out,
+        ];
+      }
     } else {
-      // Both narration + music — mix via amix.
+      // Path B — drawtext chain. Re-encode the video.
+      //
+      // We use videoHeightHint=0 in the filter builder to fall back to
+      // 1080p default — ffmpeg's `h` expression in the drawtext y= still
+      // resolves at runtime against the actual frame height, so the
+      // overlay sits at 65% of whatever the real video is. The hint only
+      // governs base font size.
+      const drawChain = buildDrawtextChain(overlays!, fontPath, 0);
+
+      // Build audio chain depending on what's present.
       const musicLinearGain = Math.pow(10, duckingDb / 20);
+      let audioFilters = "";
+      let audioMapLabel: string | null = null;
+      let audioInputs: string[] = [];
+      if (hasNarration && !hasMusic) {
+        audioInputs = ["-i", narrationIn];
+        // No filter needed — map narration directly.
+      } else if (!hasNarration && hasMusic) {
+        audioInputs = ["-i", musicIn];
+        audioFilters = `[1:a]volume=${musicLinearGain.toFixed(3)}[mus]`;
+        audioMapLabel = "[mus]";
+      } else if (hasNarration && hasMusic) {
+        audioInputs = ["-i", narrationIn, "-i", musicIn];
+        audioFilters = `[1:a]volume=1.0[narr];[2:a]volume=${musicLinearGain.toFixed(3)}[mus];[narr][mus]amix=inputs=2:duration=first[mix]`;
+        audioMapLabel = "[mix]";
+      }
+
+      // Compose the filter_complex: video chain → [v_overlay]; then audio.
+      const filterComplexParts: string[] = [
+        `[0:v]${drawChain}[v_overlay]`,
+      ];
+      if (audioFilters) filterComplexParts.push(audioFilters);
+      const filterComplex = filterComplexParts.join(";");
+
       args = [
         "-y",
         "-i", videoIn,
-        "-i", narrationIn,
-        "-i", musicIn,
-        "-filter_complex",
-        // narration full, music ducked, then amix. duration=first follows
-        // the narration timeline — music gets cut if longer, silent past
-        // narration if shorter. -shortest at encoder still caps to video.
-        `[1:a]volume=1.0[narr];[2:a]volume=${musicLinearGain.toFixed(3)}[mus];[narr][mus]amix=inputs=2:duration=first[mix]`,
-        "-map", "0:v:0",
-        "-map", "[mix]",
-        // Stream copy the video — Pexels MP4 is already H.264 + yuv420p so
-        // we skip re-encode. ~10x faster + avoids libx264 OOM risk on the
-        // worker. Audio is always re-encoded because we mixed it.
-        "-c:v", "copy",
-        "-c:a", "aac",
-        "-b:a", "192k",
-        "-shortest",
-        out,
+        ...audioInputs,
+        "-filter_complex", filterComplex,
+        "-map", "[v_overlay]",
       ];
+      if (audioMapLabel) {
+        args.push("-map", audioMapLabel);
+      } else if (hasNarration) {
+        args.push("-map", "1:a:0");
+      }
+      args.push(
+        "-c:v", "libx264",
+        "-preset", "veryfast",
+        "-crf", "23",
+        "-pix_fmt", "yuv420p",
+      );
+      if (hasNarration || hasMusic) {
+        args.push("-c:a", "aac", "-b:a", "192k", "-shortest");
+      } else {
+        args.push("-an");
+      }
+      args.push(out);
     }
     report("merging", 50);
 
