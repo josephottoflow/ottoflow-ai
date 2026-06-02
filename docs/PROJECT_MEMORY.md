@@ -1,10 +1,10 @@
-# Ottoflow AI — Project Memory (Updated 2026-06-03, post topic-relevant Pexels stock-clip fix)
+# Ottoflow AI — Project Memory (Updated 2026-06-03, full Video Pipeline shipped — merged MP4 + SEO live)
 
 ---
 
 ## Project Goal
 
-Ship the **AI Content Operating System** vertical-slice-by-vertical-slice to production-quality staging. Brand Research Engine is 100/100 + verified end-to-end (happy path + failure-recovery path). Content Pipeline MVP is live (pick brand + platform → publish-ready draft in ~20s). **Video Pipeline MVP is live with topic-relevant visuals** (SSE `/api/generate` → Gemini script + storyboard + real ElevenLabs narration + real Jamendo music + **Pexels stock clip matched to prompt + script hook**, with photographer attribution). Project flows remain v1 scope.
+Ship the **AI Content Operating System** vertical-slice-by-vertical-slice to production-quality staging. Brand Research Engine is 100/100 + verified end-to-end (happy path + failure-recovery path). Content Pipeline MVP is live (pick brand + platform → publish-ready draft in ~20s). **Video Pipeline is FULLY OPERATIONAL** — one prompt produces a topic-relevant stock-clip video, ElevenLabs narration, Jamendo music, Gemini upload-ready post copy (title + description + hashtags), AND a single downloadable MP4 with audio baked in (ffmpeg merge on Railway worker → Supabase Storage). Project flows remain v1 scope.
 
 ---
 
@@ -222,6 +222,29 @@ Ship the **AI Content Operating System** vertical-slice-by-vertical-slice to pro
   - ✅ Video: Big Buck Bunny 10s placeholder, plays at 0:10/0:10
 - Pipeline Logs panel shows 19 entries with full scene descriptions + asset sizes
 
+### Video SEO copy (commit `e3ad6b0`)
+- **New `generateVideoSEO()` in `src/lib/gemini.ts`** — takes prompt + script, returns `{title, description, hashtags[]}` via strict structured output. System instruction: "TikTok/IG growth specialist who writes upload copy that beats the algorithm"
+- **Stage 7 in `/api/generate`** — runs between Music (Stage 5) and Render (Stage 6) so the LLM call overlaps stock-clip lookup latency. Best-effort: failures log warn and the rest of the pipeline still completes
+- **`SSEEvent.seo?`** added — emitted on done event alongside `videoUrl`, `audioUrl`, `musicUrl`
+- **UI:** new "POST COPY · READY TO UPLOAD" card under the music players: Title (with one tasteful emoji), Description, hashtag chips, one-tap "Copy all" button that assembles `<title>\n\n<description>\n\n#tag1 #tag2 ...`
+- **Live verification examples (3 different prompts):**
+  - Espresso machine: *"Coffee or an experience? Elevate your mornings."* + 13 hashtags (#tiktokmademebuyit, #espressomachine, #baristalife, #fyp, etc.)
+  - Workout earbuds: *"Gym noise? GONE. Your focus? ABSOLUTE. 🎧"* + 12 hashtags (#apexbuds, #gymtok, #noisecancelling, #fyp)
+  - Cold brew: *"What if perfect mornings were delivered to your door?"* + 11 hashtags (#coldbrew, #coffeesubscription, #freesample)
+
+### Single downloadable MP4 — ffmpeg merge (commits `4994c6b`, `89d70b3`, `f21ae6d`)
+- **Architecture:** Railway BullMQ worker (third Worker instance, concurrency = WORKER_CONCURRENCY/2) runs ffmpeg merge after SSE pipeline closes. Output uploaded to Supabase Storage bucket `merged-videos` (public read, service-role write) at path `{userId}/{renderJobId}.mp4`. Page Realtime subscription watches `render_jobs.merge_status` + `merged_video_url`, swaps the `<video>` source + Download button when ready
+- **Migration `004_video_merge.sql`** — adds `merged_video_url`, `merge_status` (enum: pending/merging/done/failed), `merge_error` columns to `render_jobs`; creates the Storage bucket idempotently; adds `render_jobs` to supabase_realtime publication; public-read RLS policy
+- **`worker/processors/video-merge.ts`** — downloads inputs in parallel (Pexels MP4, ElevenLabs base64 data URL, Jamendo MP3) → ffmpeg with stream-copy video + filter_complex amix → uploads merged buffer to Storage. Captures full stderr (2000 chars) + exit code AND signal so OOM kills surface
+- **nixpacks.toml** — `[phases.setup] nixPkgs = ["nodejs_22", "ffmpeg-full"]` so Railway image includes native ffmpeg binary (cleaner than ffmpeg-static npm)
+- **`/api/generate`** — after SSE done event, flips `merge_status='pending'` + enqueues `video-merge` BullMQ job (fire-and-forget; captures `video.merge.enqueue_failed` to Sentry on enqueue throw)
+- **`/video/generate` page** — `useEffect` on `jobId` change opens a Supabase Realtime channel filtered to that row, also runs an initial fetch for the case where merge finished before subscribe. Renders pending/merging/failed states inline beneath the video. On done, swaps `<video src>` + Download href + Copy Link target
+- **Iteration log (3 attempts):**
+  - Attempt 1 (`4994c6b`): ffmpeg crashed with `weights=1 0.7` parse error in amix filter (space in arg value)
+  - Attempt 2 (`89d70b3`): dropped `weights=` + linearized volume to `10^(duckingDb/20)`; still crashed with truncated stderr hiding the real error
+  - Attempt 3 (`f21ae6d`): full stderr capture + signal capture + simpler command (stream-copy video, drop `-stream_loop -1`, drop `libx264 re-encode`, drop `+faststart`, drop `pix_fmt yuv420p`) — **succeeded in 2.843 seconds**
+- **Live verification:** craft-beer prompt → merged MP4 at `supabase.co/storage/v1/object/public/merged-videos/{userId}/9eae7c3a-4cc1-420b-a3ea-1d72bb49cd29.mp4` played in browser; Download button updated to "Download (with audio)"; green chip "Audio merged — single MP4 ready to download" appeared
+
 ### Pexels topic-relevant stock-clip fix (commit `0c851fa`)
 - **Problem identified:** `/api/generate` Stage 6 hardcoded Big Buck Bunny URL regardless of prompt — user reported "output video is not relevant to the topic"
 - **Fix:** Built `src/lib/pexels.ts` with `findStockVideoByPrompt()` — 12 domain overrides + keyword extractor + two-pass orientation, returns one HD MP4 URL per call. `/api/generate` Stage 6 now calls it before falling back to the placeholder
@@ -379,6 +402,10 @@ ottoflow-ai/
 ## Recent Commits (newest first)
 
 ```
+f21ae6d  fix(video-merge): simpler ffmpeg command + capture signal + full stderr
+89d70b3  fix(video-merge): drop amix weights= param + linearize volume
+4994c6b  feat(video): ffmpeg merge — single downloadable MP4 with audio baked in
+e3ad6b0  feat(video): generate upload-ready SEO copy (title + description + hashtags)
 0c851fa  fix(video): topic-relevant stock clip via Pexels (was always Big Buck Bunny)
 3a071fe  docs(memory): snapshot session — Video Pipeline MVP live with real Voice + Music
 d1f5e5a  feat(video): real ElevenLabs narration + Jamendo music in /api/generate
