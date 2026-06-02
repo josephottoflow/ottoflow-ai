@@ -447,7 +447,25 @@ export function VideoGenerateClient({
       }
       setRunning(false);
     }
-  }, [prompt, provider, style, sceneCount, vibe, hookStyle, renderVariant, running, advanceStage]);
+  }, [
+    prompt,
+    provider,
+    style,
+    sceneCount,
+    vibe,
+    hookStyle,
+    renderVariant,
+    running,
+    advanceStage,
+    // Phase 2 brand-driven path deps. Without these, useCallback memoizes
+    // a stale closure where selectedBrandId/Topic/Style are null even
+    // after the user picks them, so the early-return validation rejects
+    // the submission silently.
+    advancedPromptMode,
+    selectedBrandId,
+    selectedTopicId,
+    selectedStyle,
+  ]);
 
   const handleStop = () => {
     abortRef.current?.abort();
