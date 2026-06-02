@@ -26,7 +26,13 @@ ALTER TABLE render_jobs
   ADD COLUMN IF NOT EXISTS narration_url    TEXT,
   ADD COLUMN IF NOT EXISTS music_url        TEXT,
   ADD COLUMN IF NOT EXISTS music_track      TEXT,
-  ADD COLUMN IF NOT EXISTS video_attribution TEXT;
+  ADD COLUMN IF NOT EXISTS video_attribution TEXT,
+  -- Migration 001 created render_jobs with `started_at` but no `created_at`.
+  -- /video/history needs a stable creation timestamp distinct from
+  -- "when the render started" so we add it here, backfilled from started_at.
+  ADD COLUMN IF NOT EXISTS created_at       TIMESTAMPTZ NOT NULL DEFAULT now();
+
+UPDATE render_jobs SET created_at = started_at WHERE created_at IS NULL OR created_at = started_at;
 
 CREATE INDEX IF NOT EXISTS render_jobs_user_id_idx  ON render_jobs(user_id);
 CREATE INDEX IF NOT EXISTS render_jobs_brand_id_idx ON render_jobs(brand_id);
