@@ -43,10 +43,12 @@ import {
   QUEUE_NAMES,
   type BrandResearchJobData,
   type ContentGenerationJobData,
+  type VideoMergeJobData,
 } from "@/lib/queue";
 import { createAdminClient } from "@/lib/supabase";
 import { processBrandResearch } from "./processors/brand-research";
 import { processContentGeneration } from "./processors/content-generation";
+import { processVideoMerge } from "./processors/video-merge";
 import { recoverStuckJobsAtBoot, markJobFailedFromStall } from "./recovery";
 
 // ─── Logging ─────────────────────────────────────────────────────────────────
@@ -221,6 +223,80 @@ contentGenerationWorker.on("error", (err) => {
   logError("content-generation", "worker.error", { error: err.message });
 });
 
+// ─── Step 6c: Video Merge worker ─────────────────────────────────────────────
+// Third Worker instance for the post-pipeline ffmpeg merge that turns the
+// 3 separate assets (Pexels MP4 + ElevenLabs narration + Jamendo music) into
+// a single downloadable MP4 in Supabase Storage. CPU-heavy + I/O bound, so
+// runs on its own concurrency budget.
+const videoMergeWorker = new Worker<VideoMergeJobData>(
+  QUEUE_NAMES.videoMerge,
+  async (job: Job<VideoMergeJobData>) => {
+    log("video-merge", "job.start", {
+      jobId: job.id,
+      renderJobId: job.data.renderJobId,
+      hasNarration: !!job.data.audioDataUrl,
+      hasMusic: !!job.data.musicUrl,
+    });
+    const result = await processVideoMerge(job.data, (step, progress) => {
+      job.updateProgress(progress).catch(() => {});
+      log("video-merge", "step", { jobId: job.id, step, progress });
+    });
+    log("video-merge", "job.done", {
+      jobId: job.id,
+      renderJobId: job.data.renderJobId,
+      mergedUrl: result.mergedUrl,
+    });
+    return result;
+  },
+  {
+    connection: getRedis(),
+    // ffmpeg is heavy — cap merges below the general WORKER_CONCURRENCY so
+    // one runaway render doesn't starve the lighter brand/content queues.
+    concurrency: Math.max(1, Math.floor(workerEnv.WORKER_CONCURRENCY / 2)),
+  },
+);
+
+videoMergeWorker.on("active", (job) => {
+  log("video-merge", "job.active", {
+    jobId: job.id,
+    renderJobId: job.data.renderJobId,
+  });
+});
+
+videoMergeWorker.on("completed", (job) => {
+  log("video-merge", "job.completed", {
+    jobId: job.id,
+    renderJobId: job.data?.renderJobId,
+    durationMs:
+      job.finishedOn && job.processedOn ? job.finishedOn - job.processedOn : null,
+  });
+});
+
+videoMergeWorker.on("failed", (job, err) => {
+  logError("video-merge", "job.failed", {
+    jobId: job?.id,
+    renderJobId: job?.data?.renderJobId,
+    attemptsMade: job?.attemptsMade,
+    error: err?.message,
+  });
+  Sentry.withScope((scope) => {
+    scope.setTag("queue", QUEUE_NAMES.videoMerge);
+    if (job?.id) scope.setTag("job.id", String(job.id));
+    if (job?.data?.renderJobId)
+      scope.setTag("render_job.id", String(job.data.renderJobId));
+    scope.setContext("job", {
+      id: job?.id,
+      renderJobId: job?.data?.renderJobId,
+      attemptsMade: job?.attemptsMade,
+    });
+    Sentry.captureException(err ?? new Error("video-merge job.failed with no error"));
+  });
+});
+
+videoMergeWorker.on("error", (err) => {
+  logError("video-merge", "worker.error", { error: err.message });
+});
+
 // ─── Step 7: Graceful shutdown with hard cap ─────────────────────────────────
 // Railway sends SIGTERM during a deploy and waits for a grace period before
 // SIGKILL. We try a graceful close (lets active jobs finish) but cap at a
@@ -242,12 +318,13 @@ async function shutdown(signal: string): Promise<never> {
     timeoutMs: GRACEFUL_SHUTDOWN_TIMEOUT_MS,
   });
 
-  // Race graceful close against a hard deadline. Close both workers in
+  // Race graceful close against a hard deadline. Close all workers in
   // parallel — they share the same Redis connection so a slow brand-research
-  // shouldn't block content-generation from finishing.
+  // shouldn't block content-generation or video-merge from finishing.
   const graceful = Promise.all([
     brandResearchWorker.close(),
     contentGenerationWorker.close(),
+    videoMergeWorker.close(),
   ]);
   const deadline = new Promise<"timeout">((resolve) =>
     setTimeout(() => resolve("timeout"), GRACEFUL_SHUTDOWN_TIMEOUT_MS)
@@ -265,9 +342,17 @@ async function shutdown(signal: string): Promise<never> {
     });
     // Force-close: in-flight jobs are abandoned (BullMQ will re-queue via
     // stalled-job detection or attempts).
-    await brandResearchWorker.close(true).catch((err) => {
-      logError("worker", "shutdown.force_close_failed", { error: err?.message });
-    });
+    await Promise.all([
+      brandResearchWorker.close(true).catch((err) => {
+        logError("worker", "shutdown.force_close_failed", { error: err?.message, queue: "brand-research" });
+      }),
+      contentGenerationWorker.close(true).catch((err) => {
+        logError("worker", "shutdown.force_close_failed", { error: err?.message, queue: "content-generation" });
+      }),
+      videoMergeWorker.close(true).catch((err) => {
+        logError("worker", "shutdown.force_close_failed", { error: err?.message, queue: "video-merge" });
+      }),
+    ]);
   } else {
     log("worker", "shutdown.complete", { signal });
   }

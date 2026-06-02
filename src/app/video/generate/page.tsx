@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { captureFallback } from "@/lib/observability";
+import { useSupabase } from "@/components/SupabaseProvider";
 import type { SSEEvent, GenerateRequest } from "@/lib/types";
 import {
   ArrowLeft,
@@ -131,6 +132,14 @@ export default function VideoGeneratePage() {
     description: string;
     hashtags: string[];
   } | null>(null);
+  // Post-pipeline ffmpeg merge that combines the 3 separate assets into a
+  // single downloadable MP4. Lifecycle: null → "pending" → "merging" → "done" | "failed".
+  // When done, mergedVideoUrl carries the Supabase Storage URL; the page
+  // swaps the <video> source + Download button over.
+  const [mergeStatus, setMergeStatus] = useState<
+    null | "pending" | "merging" | "done" | "failed"
+  >(null);
+  const [mergedVideoUrl, setMergedVideoUrl] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -143,6 +152,63 @@ export default function VideoGeneratePage() {
       logsRef.current.scrollTop = logsRef.current.scrollHeight;
     }
   }, [logs]);
+
+  // ─── Realtime: watch render_jobs for the merged video URL ────────────────
+  // /api/generate enqueues a ffmpeg merge job on the Railway worker after
+  // the SSE pipeline closes. When the worker finishes, render_jobs.
+  // merged_video_url is set + merge_status flips to 'done'. We swap the
+  // <video> source + Download button to the merged file (audio baked in).
+  const supabase = useSupabase();
+  useEffect(() => {
+    if (!supabase || !jobId) return;
+    let cancelled = false;
+
+    // Initial fetch in case the merge already finished before we subscribed.
+    (async () => {
+      const { data } = await supabase
+        .from("render_jobs")
+        .select("merge_status, merged_video_url")
+        .eq("id", jobId)
+        .maybeSingle();
+      if (cancelled || !data) return;
+      if (data.merge_status) {
+        setMergeStatus(data.merge_status as typeof mergeStatus);
+      }
+      if (data.merged_video_url) {
+        setMergedVideoUrl(data.merged_video_url as string);
+      }
+    })();
+
+    const channel = supabase
+      .channel(`render-job-${jobId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "render_jobs",
+          filter: `id=eq.${jobId}`,
+        },
+        (payload) => {
+          const row = payload.new as {
+            merge_status?: string | null;
+            merged_video_url?: string | null;
+          };
+          if (row.merge_status) {
+            setMergeStatus(row.merge_status as typeof mergeStatus);
+          }
+          if (row.merged_video_url) {
+            setMergedVideoUrl(row.merged_video_url);
+          }
+        },
+      )
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
+  }, [supabase, jobId]);
 
   const advanceStage = useCallback((stage: PipelineStage) => {
     setStages((prev) => {
@@ -170,6 +236,8 @@ export default function VideoGeneratePage() {
     setMusicTrack(null);
     setVideoAttribution(null);
     setSeo(null);
+    setMergeStatus(null);
+    setMergedVideoUrl(null);
     setJobId(null);
     setError(null);
     setLogs([]);
@@ -283,7 +351,8 @@ export default function VideoGeneratePage() {
   };
 
   const handleCopyLink = () => {
-    if (videoUrl) navigator.clipboard.writeText(videoUrl);
+    const url = mergedVideoUrl ?? videoUrl;
+    if (url) navigator.clipboard.writeText(url);
   };
 
   return (
@@ -595,13 +664,47 @@ export default function VideoGeneratePage() {
           {videoUrl ? (
             <div className="glass rounded-2xl overflow-hidden">
               <video
-                src={videoUrl}
+                // Swap source to merged MP4 once ffmpeg merge finishes
+                src={mergedVideoUrl ?? videoUrl}
+                key={mergedVideoUrl ?? videoUrl}
                 controls
                 autoPlay
                 muted
                 playsInline
                 className="w-full aspect-video bg-black"
               />
+              {mergeStatus && mergeStatus !== "done" && (
+                <div className="px-4 py-2 border-t border-white/5 flex items-center justify-between">
+                  <p className="text-[11px] text-white/60 flex items-center gap-1.5">
+                    {mergeStatus === "failed" ? (
+                      <>
+                        <AlertCircle size={11} className="text-orange-400" />
+                        <span>
+                          Audio merge failed — playable assets still
+                          available below
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <Loader2 size={11} className="text-cyan-400 animate-spin" />
+                        <span>
+                          {mergeStatus === "pending"
+                            ? "Audio merge queued…"
+                            : "Merging audio into MP4…"}
+                        </span>
+                      </>
+                    )}
+                  </p>
+                </div>
+              )}
+              {mergeStatus === "done" && mergedVideoUrl && (
+                <div className="px-4 py-2 border-t border-white/5 flex items-center justify-between">
+                  <p className="text-[11px] text-emerald-400/90 flex items-center gap-1.5 font-medium">
+                    <CheckCircle2 size={11} />
+                    Audio merged — single MP4 ready to download
+                  </p>
+                </div>
+              )}
               {videoAttribution && (
                 <div className="px-4 py-2 border-t border-white/5">
                   <p className="text-[10px] uppercase tracking-wider text-white/40 font-semibold">
@@ -689,10 +792,10 @@ export default function VideoGeneratePage() {
                 </div>
               )}
               <div className="p-4 flex gap-2">
-                <a href={videoUrl} download>
+                <a href={mergedVideoUrl ?? videoUrl} download>
                   <Button variant="gradient-cyan" size="sm" className="gap-1.5">
                     <Download size={13} />
-                    Download
+                    {mergedVideoUrl ? "Download (with audio)" : "Download"}
                   </Button>
                 </a>
                 <Button
@@ -715,6 +818,8 @@ export default function VideoGeneratePage() {
                     setMusicTrack(null);
                     setVideoAttribution(null);
                     setSeo(null);
+                    setMergeStatus(null);
+                    setMergedVideoUrl(null);
                     setProgress(0);
                     setStatusLabel("");
                     setPrompt("");

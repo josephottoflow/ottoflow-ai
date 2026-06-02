@@ -15,6 +15,15 @@
 [variables]
 NIXPACKS_NODE_VERSION = "22"
 
+# Install native ffmpeg so the video-merge processor can spawn it via
+# child_process.spawn(). We use the system binary (not ffmpeg-static)
+# because:
+#   - Smaller bundle (no 70MB binary in node_modules)
+#   - Nix gives us the full build with libx264 + aac + filter graph support
+#   - Cleaner than vendoring a static binary per architecture
+[phases.setup]
+nixPkgs = ["nodejs_22", "ffmpeg-full"]
+
 [phases.install]
 cmds = ["npm ci --include=dev"]
 

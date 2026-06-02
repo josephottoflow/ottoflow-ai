@@ -91,6 +91,7 @@ export async function disconnectRedis(): Promise<void> {
 export const QUEUE_NAMES = {
   brandResearch: "brand-research",
   contentGeneration: "content-generation",
+  videoMerge: "video-merge",
 } as const;
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
 
@@ -115,9 +116,25 @@ export interface ContentGenerationJobData {
   pillarId?: string;
 }
 
+/**
+ * Payload for the post-pipeline ffmpeg merge that combines the Pexels stock
+ * clip + ElevenLabs narration + Jamendo music into a single downloadable MP4
+ * (audio baked in). Fields are URLs / data URLs the worker can fetch.
+ */
+export interface VideoMergeJobData {
+  renderJobId: string;
+  userId: string;
+  videoUrl: string;              // Pexels MP4 (or placeholder fallback)
+  // Optional inputs — merge gracefully skips whichever is missing:
+  audioDataUrl?: string;         // ElevenLabs narration as data:audio/mpeg;base64,...
+  musicUrl?: string;             // Jamendo MP3 streaming URL
+  musicDuckingDb?: number;       // default -12, only used if musicUrl present
+}
+
 export interface JobPayloads {
   "brand-research": BrandResearchJobData;
   "content-generation": ContentGenerationJobData;
+  "video-merge": VideoMergeJobData;
 }
 
 // ─── Queue accessors ──────────────────────────────────────────────────────────
@@ -146,3 +163,4 @@ export function getQueue<N extends QueueName>(name: N): Queue<JobPayloads[N]> {
 // Convenience
 export const brandResearchQueue = () => getQueue(QUEUE_NAMES.brandResearch);
 export const contentGenerationQueue = () => getQueue(QUEUE_NAMES.contentGeneration);
+export const videoMergeQueue = () => getQueue(QUEUE_NAMES.videoMerge);

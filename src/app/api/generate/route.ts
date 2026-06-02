@@ -42,6 +42,7 @@ import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase";
 import { rateLimit } from "@/lib/rate-limit";
 import { captureFallback } from "@/lib/observability";
+import { videoMergeQueue } from "@/lib/queue";
 import {
   generateVideoScript,
   generateVideoStoryboard,
@@ -447,6 +448,37 @@ export async function POST(req: NextRequest) {
           videoAttribution: videoAttribution ?? undefined,
           seo: seo ?? undefined,
         });
+
+        // ─── Post-pipeline: enqueue ffmpeg merge ─────────────────────────────
+        // Kick off a Railway worker job that takes our 3 separate assets
+        // (Pexels MP4 + ElevenLabs narration data URL + Jamendo MP3 URL)
+        // and produces one downloadable MP4 in Supabase Storage. The page
+        // subscribes to render_jobs.merged_video_url via Realtime and swaps
+        // the Download button when ready.
+        //
+        // Fire-and-forget: we don't await this — the SSE stream is already
+        // closing. If the enqueue itself throws (Redis down) we capture but
+        // don't surface it to the page; the merged-video is a bonus, the
+        // unmerged playable assets are already in the user's hands.
+        try {
+          await admin
+            .from("render_jobs")
+            .update({ merge_status: "pending" })
+            .eq("id", jobId);
+          await videoMergeQueue().add(
+            "merge",
+            {
+              renderJobId: jobId,
+              userId,
+              videoUrl,
+              audioDataUrl: voiceAudioDataUrl ?? undefined,
+              musicUrl: musicTrackUrl ?? undefined,
+            },
+            { jobId },
+          );
+        } catch (err) {
+          captureFallback("video.merge.enqueue_failed", err, { jobId });
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         captureFallback("video.generate.pipeline_failed", err, {
