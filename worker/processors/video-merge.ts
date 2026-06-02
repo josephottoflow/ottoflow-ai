@@ -195,9 +195,10 @@ export async function processVideoMerge(
   report: Reporter,
 ): Promise<{ ok: true; mergedUrl: string }> {
   const admin = createAdminClient();
-  const { renderJobId, userId, videoUrl, audioDataUrl, musicUrl, overlays } = data;
+  const { renderJobId, userId, videoUrl, audioDataUrl, musicUrl, overlays, scenes } = data;
   const duckingDb = data.musicDuckingDb ?? -12;
   const hasOverlays = !!overlays && overlays.length > 0;
+  const hasScenes = !!scenes && scenes.length > 1;
 
   // Working directory under /tmp — Railway gives ample disk for this.
   const workDir = path.join(tmpdir(), `merge-${renderJobId}-${randomUUID()}`);
@@ -217,7 +218,24 @@ export async function processVideoMerge(
 
   try {
     // ─── 1. Download all inputs in parallel ────────────────────────────────
-    const tasks: Promise<unknown>[] = [downloadToFile(videoUrl, videoIn)];
+    //
+    // When `scenes` is provided (≥2 entries), we ignore the legacy
+    // `videoUrl` and download each scene clip in parallel. A subsequent
+    // ffmpeg concat step (Path C below) stitches them into `videoIn` for
+    // the rest of the pipeline. Single-clip path stays unchanged.
+    const tasks: Promise<unknown>[] = [];
+    const sceneFiles: string[] = [];
+    if (hasScenes) {
+      const ordered = [...scenes!].sort((a, b) => a.index - b.index);
+      ordered.forEach((s, i) => {
+        const localPath = path.join(workDir, `scene-${String(i).padStart(3, "0")}.mp4`);
+        sceneFiles.push(localPath);
+        tasks.push(downloadToFile(s.url, localPath));
+      });
+    } else {
+      tasks.push(downloadToFile(videoUrl, videoIn));
+    }
+
     let hasNarration = false;
     let hasMusic = false;
     if (audioDataUrl) {
@@ -229,6 +247,71 @@ export async function processVideoMerge(
       hasMusic = true;
     }
     await Promise.all(tasks);
+    report("merging", 28);
+
+    // ─── 1b. Multi-scene concat into a single videoIn ─────────────────────
+    // Run BEFORE the audio merge so the audio + overlay logic below stays
+    // identical to the single-clip path. We normalize each scene to
+    // 1080x1920 @ 30fps so the concat demuxer doesn't reject mismatched
+    // streams (Runway returns 720p, Luma returns 720p, Pexels varies).
+    if (hasScenes) {
+      // Step 1b.1 — re-encode each scene to a normalized intermediate.
+      const normalizedFiles: string[] = [];
+      for (let i = 0; i < sceneFiles.length; i++) {
+        const src = sceneFiles[i];
+        const dest = path.join(workDir, `norm-${String(i).padStart(3, "0")}.mp4`);
+        normalizedFiles.push(dest);
+        const targetDur = scenes![i].durationSec;
+        const norm = await runFfmpeg([
+          "-y",
+          "-i", src,
+          // Scale + pad to 1080x1920 preserving aspect ratio (letterbox if needed).
+          // setsar=1 prevents ffmpeg from complaining about pixel aspect
+          // mismatches at the concat boundary.
+          "-vf",
+          "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=30",
+          // Cap at scene's target duration so a long source clip doesn't
+          // bleed into the next scene's window.
+          "-t", String(targetDur),
+          "-an",                  // strip audio from individual scenes
+          "-c:v", "libx264",
+          "-preset", "veryfast",
+          "-crf", "23",
+          "-pix_fmt", "yuv420p",
+          dest,
+        ]);
+        if (norm.exitCode !== 0 || norm.signal !== null) {
+          throw new Error(
+            `Scene ${i + 1} normalize failed (code=${norm.exitCode}, signal=${norm.signal}): ${norm.stderr.slice(-1000)}`,
+          );
+        }
+      }
+
+      // Step 1b.2 — concat demuxer requires a manifest file.
+      const concatManifest = path.join(workDir, "concat.txt");
+      await fs.writeFile(
+        concatManifest,
+        normalizedFiles
+          .map((p) => `file '${p.replace(/'/g, "'\\''")}'`)
+          .join("\n"),
+        "utf-8",
+      );
+      // Stream-copy the concat into videoIn — all inputs share the same
+      // codec/SAR/fps so concat is fast.
+      const cat = await runFfmpeg([
+        "-y",
+        "-f", "concat",
+        "-safe", "0",
+        "-i", concatManifest,
+        "-c", "copy",
+        videoIn,
+      ]);
+      if (cat.exitCode !== 0 || cat.signal !== null) {
+        throw new Error(
+          `Scene concat failed (code=${cat.exitCode}, signal=${cat.signal}): ${cat.stderr.slice(-1000)}`,
+        );
+      }
+    }
     report("merging", 35);
 
     // ─── 2. Build ffmpeg command ───────────────────────────────────────────

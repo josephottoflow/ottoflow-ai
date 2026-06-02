@@ -129,10 +129,24 @@ export interface VideoMergeOverlay {
   end: number;
 }
 
+/**
+ * Phase 6 multi-scene clip — one entry per storyboard scene that the
+ * /api/generate route already resolved (Runway/Luma/Pexels via the
+ * provider registry). When `scenes` is present, the merge worker
+ * concatenates them in order via the ffmpeg concat demuxer instead of
+ * using a single pre-fetched `videoUrl`.
+ */
+export interface VideoMergeScene {
+  index: number;             // 1-based, matches storyboard.scenes[].index
+  url: string;               // direct MP4 URL (Pexels / Runway / Luma CDN)
+  durationSec: number;       // target on-screen duration
+  provider?: string;         // for diagnostic logging
+}
+
 export interface VideoMergeJobData {
   renderJobId: string;
   userId: string;
-  videoUrl: string;              // Pexels MP4 (or placeholder fallback)
+  videoUrl: string;              // legacy single-clip path — fallback when no scenes
   // Optional inputs — merge gracefully skips whichever is missing:
   audioDataUrl?: string;         // ElevenLabs narration as data:audio/mpeg;base64,...
   musicUrl?: string;             // Jamendo MP3 streaming URL
@@ -143,6 +157,13 @@ export interface VideoMergeJobData {
    * stream-copying — slower but visually punchy.
    */
   overlays?: VideoMergeOverlay[];
+  /**
+   * Phase 6 multi-scene composition. When present (≥ 2 scenes), the
+   * worker concats them in scene_number order, normalizes to 1080x1920@30fps,
+   * then runs the existing overlay + audio merge pass. Falls back to the
+   * `videoUrl` single-clip path if scenes is empty or absent.
+   */
+  scenes?: VideoMergeScene[];
 }
 
 export interface JobPayloads {

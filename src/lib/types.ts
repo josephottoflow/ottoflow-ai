@@ -259,6 +259,29 @@ export interface DbBrandTopic {
   use_count: number;
 }
 
+// ─── Scene Generations (Phase 6) ─────────────────────────────────────────────
+// Per-scene provenance for the multi-scene Video Pipeline. Each render_job
+// row has N scene_generations rows (3-6, matching storyboard.scenes.length).
+
+export interface DbSceneGeneration {
+  id: string;
+  render_job_id: string;
+  scene_number: number;             // 1-based to match storyboard.scenes[].index
+  prompt: string;
+  shot_type: string | null;
+  provider: string;                 // 'runway' | 'luma' | 'pexels'
+  clip_url: string | null;          // null while still generating
+  duration_sec: number | null;
+  width: number | null;
+  height: number | null;
+  generation_time_ms: number | null;
+  cost_usd: number | null;
+  fallback_reason: string | null;   // populated when primary provider(s) errored
+  attribution: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+}
+
 // ─── Video keyword overlay (Phase 3) ─────────────────────────────────────────
 // Output of extractImportantWords() — the high-impact words/phrases pulled
 // from the script with millisecond-precision timing so the FFmpeg overlay
@@ -302,6 +325,7 @@ export interface Database {
       keywords:            TableDef<DbKeyword>;
       content_pillars:     TableDef<DbContentPillar>;
       brand_topics:        TableDef<DbBrandTopic>;
+      scene_generations:   TableDef<DbSceneGeneration>;
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;

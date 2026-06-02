@@ -10,6 +10,7 @@
 import { captureFallback } from "@/lib/observability";
 import { PexelsFallbackProvider } from "./pexels";
 import { RunwayProvider } from "./runway";
+import { LumaProvider } from "./luma";
 import {
   AllProvidersExhaustedError,
   type SceneRequest,
@@ -20,9 +21,23 @@ import {
 let chain: VideoProvider[] | null = null;
 function getChain(): VideoProvider[] {
   if (chain) return chain;
+  // Order matters. Premium quality first, cheaper fallbacks behind.
+  //
+  //   Runway gen4.5  $0.25/5s — highest cinematic quality, requires
+  //                  Pexels photo seed + RUNWAYML_API_SECRET
+  //   Luma ray-flash $0.14/5s — pure text-to-video, requires LUMA_API_KEY
+  //   Pexels         free    — stock-clip fallback, always last so we
+  //                            never return 500 just because both AI
+  //                            providers were down
+  //
+  // Higgsfield is intentionally NOT in this chain. It exposes an SSE
+  // MCP server (`.mcp.json` `mcp.higgsfield.ai`) but no documented public
+  // REST API. Adding it later requires running an MCP client inside the
+  // Railway worker — outside this phase's scope.
   chain = [
-    new RunwayProvider(),       // primary — best quality + cost
-    new PexelsFallbackProvider(), // always last — stock fallback
+    new RunwayProvider(),
+    new LumaProvider(),
+    new PexelsFallbackProvider(),
   ];
   return chain;
 }

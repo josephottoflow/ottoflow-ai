@@ -315,6 +315,82 @@ function pickBestFile(
   return scored[0]?.file ?? null;
 }
 
+// ─── Pexels Photos (used as Runway promptImage seeds) ──────────────────────
+// Runway Gen-4 is image-to-video — it needs a starter image. We pull a
+// topic-relevant Pexels photo at the same aspect ratio as the target clip.
+
+export interface PexelsPhotoLite {
+  id: number;
+  width: number;
+  height: number;
+  url: string;          // Pexels page URL (for attribution)
+  src: string;          // direct image URL
+  photographer: string;
+}
+
+interface PexelsPhotoSrc {
+  original: string;
+  large2x: string;
+  large: string;
+  medium: string;
+  portrait: string;
+  landscape: string;
+  tiny: string;
+}
+
+interface PexelsPhotoResp {
+  id: number;
+  width: number;
+  height: number;
+  url: string;
+  src: PexelsPhotoSrc;
+  photographer: string;
+}
+
+interface PexelsPhotoSearchResp {
+  photos: PexelsPhotoResp[];
+}
+
+export async function findStockPhotoByPrompt(input: {
+  prompt: string;
+  orientation?: "portrait" | "landscape";
+}): Promise<PexelsPhotoLite | null> {
+  const apiKey = process.env.PEXELS_API_KEY;
+  if (!apiKey) throw new PexelsNotConfiguredError();
+  const orientation = input.orientation ?? "portrait";
+  const queries = buildQueries(input.prompt);
+  for (const q of queries) {
+    try {
+      const url = new URL(`${PEXELS_BASE}/v1/search`);
+      url.searchParams.set("query", q);
+      url.searchParams.set("per_page", "5");
+      url.searchParams.set("orientation", orientation);
+      url.searchParams.set("size", "large");
+      const res = await fetch(url.toString(), {
+        headers: { Authorization: apiKey },
+      });
+      if (!res.ok) continue;
+      const data = (await res.json()) as PexelsPhotoSearchResp;
+      const photo = data.photos?.[0];
+      if (!photo) continue;
+      return {
+        id: photo.id,
+        width: photo.width,
+        height: photo.height,
+        url: photo.url,
+        src:
+          orientation === "portrait"
+            ? photo.src.portrait
+            : photo.src.landscape,
+        photographer: photo.photographer,
+      };
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
 interface FindOpts {
   prompt: string;
   hook?: string;
