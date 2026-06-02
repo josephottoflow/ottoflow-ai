@@ -582,13 +582,19 @@ export async function generateContentPiece(input: {
   const p = input.brand.profile;
 
   // Voice context — falls back gracefully if the brand profile is partial.
+  // Real BrandProfile field names (see src/lib/types.ts):
+  //   brand_voice.tone[] / vocabulary_dos[] / vocabulary_donts[]
+  //   positioning_statement
+  //   audience.demographics[] / icp.roles[]
   const voiceTone = p.brand_voice?.tone?.join(", ") || "Professional, clear, modern";
-  const voiceDo = p.brand_voice?.do_words?.slice(0, 8).join(", ") || "";
-  const voiceDont = p.brand_voice?.dont_words?.slice(0, 6).join(", ") || "";
-  const positioning = p.positioning || `${input.brand.name} in ${input.brand.industry || "its space"}`;
+  const voiceDo = p.brand_voice?.vocabulary_dos?.slice(0, 8).join(", ") || "";
+  const voiceDont = p.brand_voice?.vocabulary_donts?.slice(0, 6).join(", ") || "";
+  const positioning =
+    p.positioning_statement ||
+    `${input.brand.name} in ${input.brand.industry || "its space"}`;
   const audience =
-    p.audience_icp?.demographics?.slice(0, 4).join(", ") ||
-    p.audience_icp?.icp_roles?.slice(0, 4).join(", ") ||
+    p.audience?.demographics?.slice(0, 4).join(", ") ||
+    p.icp?.roles?.slice(0, 4).join(", ") ||
     "the brand's target customers";
 
   const pillarBlock = input.pillar
