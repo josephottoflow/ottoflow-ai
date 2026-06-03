@@ -197,11 +197,18 @@ export async function processVideoMerge(
   report: Reporter,
 ): Promise<{ ok: true; mergedUrl: string }> {
   const admin = createAdminClient();
-  const { renderJobId, userId, videoUrl, audioDataUrl, musicUrl, overlays, sceneSpecs } = data;
+  const { renderJobId, userId, videoUrl, audioDataUrl, musicUrl, overlays, sceneSpecs, aestheticNotes } = data;
   let { scenes } = data;
   const duckingDb = data.musicDuckingDb ?? -12;
   const hasOverlays = !!overlays && overlays.length > 0;
   const needsSceneGeneration = !!sceneSpecs && sceneSpecs.length > 1 && (!scenes || scenes.length === 0);
+  // Phase 1A (VIDEO_VARIATION_AUDIT §P1.4) — storyboard aestheticNotes prefix
+  // for every scene prompt. Cap at 400 chars to keep provider prompts focused
+  // and prevent runaway aesthetic instructions from drowning out the scene's
+  // own visual brief.
+  const aestheticPrefix = aestheticNotes
+    ? aestheticNotes.slice(0, 400).trim() + " "
+    : "";
 
   // ─── Phase D · Worker-side scene generation ─────────────────────────────────
   // When the route handed us specs (storyboard scenes that haven't been
@@ -227,7 +234,10 @@ export async function processVideoMerge(
         let row: Record<string, unknown>;
         try {
           const result = await registryGenerateScene({
-            prompt: spec.prompt,
+            // Phase 1A — prepend aestheticNotes so Runway/Luma carry the
+            // storyboard's palette + lighting + pacing direction. Falls
+            // back to the raw scene prompt when no aesthetic was generated.
+            prompt: `${aestheticPrefix}${spec.prompt}`.trim(),
             durationSec: spec.durationSec,
             aspectRatio: "9:16",
           });

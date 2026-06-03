@@ -23,6 +23,19 @@ const MAX_RETRIES = 3;
 const INITIAL_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 5_000;
 
+// ─── Variation entropy (Phase 1A — VIDEO_VARIATION_AUDIT §P1.1 + §P1.2) ─────
+// Every Gemini structured-output call gets a fresh seed + jittered temperature
+// so identical inputs no longer produce identical outputs. At temp 0.4 (the
+// previous hardcoded value) the model collapsed to "median" responses; lifting
+// to a 0.65-0.75 band with per-call seeds restores meaningful response variety
+// without compromising JSON-schema adherence.
+function entropy(): { seed: number; temperature: number } {
+  return {
+    seed: Math.floor(Math.random() * 2 ** 31),
+    temperature: 0.65 + Math.random() * 0.1, // 0.65 - 0.75
+  };
+}
+
 let client: GoogleGenAI | null = null;
 function ai(): GoogleGenAI {
   if (client) return client;
@@ -325,6 +338,7 @@ ${schemaToHint(opts.schema)}`
     ? `${baseSystem} Always respond with a single JSON object matching the schema provided in the user message. Do not include explanations or code fences.`
     : `${baseSystem} Always return strictly valid JSON matching the requested schema.`;
 
+  const { seed, temperature } = entropy();
   const resp = await callGemini(opts.label ?? "generateStructured", () =>
     ai().models.generateContent({
       model: MODEL,
@@ -335,8 +349,9 @@ ${schemaToHint(opts.schema)}`
         ...(usingTools
           ? { tools: opts.tools }
           : { responseMimeType: "application/json", responseSchema: opts.schema }),
-        // Lower temperature for structured output stability
-        temperature: 0.4,
+        // Phase 1A — temperature + seed jittered per-call (see entropy() above).
+        temperature,
+        seed,
       },
     })
   );
@@ -812,6 +827,9 @@ export async function generateHeroFrame(input: {
   // lighter-weight variant typically enabled on AI Studio keys. If your
   // key 404s on both, Imagen isn't enabled — the route falls back
   // gracefully (route.ts catches and skips the hero frame).
+  // Phase 1A — per-call seed for Imagen too. Same brand+topic now yields
+  // visibly different hero frames across runs.
+  const { seed: imagenSeed } = entropy();
   const resp = await callGemini("generateHeroFrame", () =>
     ai().models.generateImages({
       model: "imagen-3.0-fast-generate-001",
@@ -820,6 +838,7 @@ export async function generateHeroFrame(input: {
         numberOfImages: 1,
         aspectRatio: "9:16",
         outputMimeType: "image/jpeg",
+        seed: imagenSeed,
       },
     }),
   );

@@ -107,12 +107,16 @@ export class RunwayProvider implements VideoProvider {
     // ─── 1. Create image_to_video task ──────────────────────────────────────
     const duration = runwayDuration(request.durationSec);
     const ratio = runwayRatio(request.aspectRatio);
+    // Phase 1A — per-scene seed restores cross-run variation. Same scene
+    // description used twice now yields different Runway outputs.
+    const runwaySeed = Math.floor(Math.random() * 2 ** 31);
     const createBody = {
       model: "gen4.5",
       promptImage: photo.src,
       promptText: request.prompt,
       ratio,
       duration,
+      seed: runwaySeed,
     };
     const createRes = await fetch(`${RUNWAY_BASE}/v1/image_to_video`, {
       method: "POST",
@@ -159,6 +163,7 @@ export class RunwayProvider implements VideoProvider {
             taskId: created.id,
             generationTimeMs: Date.now() - startMs,
             model: "gen4.5",
+            seed: runwaySeed,
             seedPhoto: {
               id: photo.id,
               photographer: photo.photographer,

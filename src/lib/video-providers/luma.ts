@@ -71,6 +71,9 @@ export class LumaProvider implements VideoProvider {
     const startMs = Date.now();
 
     // ─── 1. Create generation ────────────────────────────────────────────────
+    // Phase 1A — per-scene seed. Without it, identical scene descriptions
+    // produced identical Luma clips across runs (R2 in VIDEO_VARIATION_AUDIT).
+    const lumaSeed = Math.floor(Math.random() * 2 ** 31);
     const createBody = {
       // ray-flash-2 is the cheapest + fastest Luma model. Use ray-2 for
       // premium quality if cost isn't the constraint.
@@ -79,6 +82,7 @@ export class LumaProvider implements VideoProvider {
       aspect_ratio: lumaAspect(request.aspectRatio),
       duration: lumaDuration(request.durationSec),
       resolution: "720p",
+      seed: lumaSeed,
     };
 
     const createRes = await fetch(`${LUMA_BASE}/generations/video`, {
@@ -135,6 +139,7 @@ export class LumaProvider implements VideoProvider {
             generationId: created.id,
             generationTimeMs: durationMs,
             model: "ray-flash-2",
+            seed: lumaSeed,
           },
         };
       }

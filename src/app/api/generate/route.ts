@@ -193,7 +193,19 @@ export async function POST(req: NextRequest) {
 
   // Defaults — page sometimes omits sceneCount/provider on first submit.
   const provider = input.provider ?? "veo3";
-  const style = input.style ?? "cinematic";
+  // Phase 1A (VIDEO_VARIATION_AUDIT §P1.6) — when the user doesn't specify
+  // a style, rotate across a curated pool instead of always defaulting to
+  // "cinematic". Users who DO pass `style` get exactly what they asked for.
+  const STYLE_POOL = [
+    "cinematic",
+    "documentary",
+    "handheld ugc",
+    "luxury commercial",
+    "founder pov",
+    "social proof",
+  ] as const;
+  const style =
+    input.style ?? STYLE_POOL[Math.floor(Math.random() * STYLE_POOL.length)];
   const sceneCount = input.sceneCount ?? 4;
   const musicVibe = input.musicVibe ?? "energetic";
   const targetSeconds = Math.max(15, Math.min(60, sceneCount * 6));
@@ -735,6 +747,11 @@ export async function POST(req: NextRequest) {
                       durationSec: s.durationSec,
                     }))
                   : undefined,
+              // Phase 1A (VIDEO_VARIATION_AUDIT §P1.4) — pass storyboard's
+              // aestheticNotes (palette / lighting / pacing) so the worker
+              // can prefix each scene prompt with it. Previously generated
+              // and stored but never consumed by any downstream stage.
+              aestheticNotes: storyboard.aestheticNotes ?? undefined,
             },
             { jobId },
           );

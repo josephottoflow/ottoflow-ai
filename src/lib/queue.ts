@@ -188,6 +188,16 @@ export interface VideoMergeJobData {
    * persisted to scene_generations as they complete.
    */
   sceneSpecs?: VideoMergeSceneSpec[];
+  /**
+   * Phase 1A (VIDEO_VARIATION_AUDIT §P1.4) — Gemini's storyboard already
+   * produces an `aestheticNotes` string (palette, lighting, pacing,
+   * references) that previously sat unused in the database. Pass it
+   * through to the worker so it can prefix each scene prompt and steer
+   * Runway/Luma toward a coherent visual style per video.
+   *
+   * Truncated to 400 chars at the worker before injection.
+   */
+  aestheticNotes?: string;
 }
 
 export interface JobPayloads {
