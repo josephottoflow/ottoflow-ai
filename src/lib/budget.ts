@@ -10,8 +10,12 @@
  * Pre-flight checks use the admin client (we want to read the budget
  * even for users who haven't initialized one). Record happens server-
  * side; service_role bypasses RLS, but we still pass user_id explicitly.
+ *
+ * NOTE — no `import "server-only"` here. The Railway worker (a plain
+ * Node process, not Next.js) calls recordAIUsage() and the server-only
+ * directive throws at the worker's runtime. The file is implicitly
+ * server-side because it uses createAdminClient (service-role secret).
  */
-import "server-only";
 import { createAdminClient } from "./supabase";
 import { captureFallback } from "./observability";
 
