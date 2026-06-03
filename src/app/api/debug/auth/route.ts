@@ -23,11 +23,17 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
+import { requireAdmin } from "@/lib/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  // B1.R8 — admin-only. 404 hides whether the endpoint exists at all.
+  const adminId = await requireAdmin();
+  if (!adminId) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
   const { userId, getToken } = await auth();
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

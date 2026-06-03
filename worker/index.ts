@@ -49,7 +49,7 @@ import { createAdminClient } from "@/lib/supabase";
 import { processBrandResearch } from "./processors/brand-research";
 import { processContentGeneration } from "./processors/content-generation";
 import { processVideoMerge } from "./processors/video-merge";
-import { recoverStuckJobsAtBoot, markJobFailedFromStall } from "./recovery";
+import { recoverStuckJobsAtBoot, markJobFailedFromStall, schedulePeriodicSweep } from "./recovery";
 
 // ─── Logging ─────────────────────────────────────────────────────────────────
 // Minimal structured logger. Upgrade to pino in Phase 5 (audit M3).
@@ -82,6 +82,14 @@ void recoverStuckJobsAtBoot(recoveryAdmin, (msg, extra) =>
     error: err instanceof Error ? err.message : String(err),
   });
 });
+
+// ─── B1.R7: Periodic sweep across all job types ─────────────────────────────
+// Every 5 min: catch brand_research, content_generation, and render_jobs
+// stuck in 'running'/'merging' state. Each tick emits a structured log
+// line consumed by the BETA_READINESS dashboards.
+const periodicSweepHandle = schedulePeriodicSweep(recoveryAdmin, (msg, extra) =>
+  log("recovery", msg.replace(/^recovery\./, ""), extra),
+);
 
 // ─── Step 6: Brand Research worker ───────────────────────────────────────────
 const brandResearchWorker = new Worker<BrandResearchJobData>(
@@ -317,6 +325,9 @@ async function shutdown(signal: string): Promise<never> {
     signal,
     timeoutMs: GRACEFUL_SHUTDOWN_TIMEOUT_MS,
   });
+
+  // Stop the periodic recovery sweep so it doesn't fire during shutdown.
+  clearInterval(periodicSweepHandle);
 
   // Race graceful close against a hard deadline. Close all workers in
   // parallel — they share the same Redis connection so a slow brand-research

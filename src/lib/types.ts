@@ -282,6 +282,33 @@ export interface DbSceneGeneration {
   created_at: string;
 }
 
+// ─── User Budgets + AI Usage Ledger (B1.R1) ─────────────────────────────────
+
+export interface DbUserBudget {
+  user_id: string;
+  monthly_hard_cap_usd: number;
+  monthly_soft_cap_usd: number;
+  current_month_used_usd: number;
+  current_month_start: string;          // YYYY-MM-DD
+  is_capped: boolean;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DbAIUsageLedgerEntry {
+  id: string;
+  user_id: string;
+  render_job_id: string | null;
+  provider: "gemini" | "elevenlabs" | "runway" | "luma" | string;
+  operation: string;
+  cost_usd: number;
+  units: number | null;
+  unit_type: "tokens" | "chars" | "seconds" | "clips" | string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+}
+
 // ─── Video keyword overlay (Phase 3) ─────────────────────────────────────────
 // Output of extractImportantWords() — the high-impact words/phrases pulled
 // from the script with millisecond-precision timing so the FFmpeg overlay
@@ -326,6 +353,8 @@ export interface Database {
       content_pillars:     TableDef<DbContentPillar>;
       brand_topics:        TableDef<DbBrandTopic>;
       scene_generations:   TableDef<DbSceneGeneration>;
+      user_budgets:        TableDef<DbUserBudget>;
+      ai_usage_ledger:     TableDef<DbAIUsageLedgerEntry>;
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;

@@ -43,6 +43,7 @@ import { createAdminClient } from "@/lib/supabase";
 import { rateLimit } from "@/lib/rate-limit";
 import { captureFallback } from "@/lib/observability";
 import { videoMergeQueue } from "@/lib/queue";
+import { getBudgetStatus, recordAIUsage, COST } from "@/lib/budget";
 // `generateScene` no longer imported here — Phase D moves the provider
 // calls to the worker. See worker/processors/video-merge.ts.
 import {
@@ -143,6 +144,27 @@ export async function POST(req: NextRequest) {
           "Content-Type": "application/json",
           "Retry-After": String(rl.retryAfterSeconds),
         },
+      },
+    );
+  }
+
+  // ─── B1.R1 · Budget check ────────────────────────────────────────────────
+  // Hard-cap blocks BEFORE we spend any Gemini tokens or kick the worker.
+  // Soft-cap continues but tags the SSE done event so the UI can warn.
+  // First-time users get a $5 default monthly cap (env-tunable).
+  const budget = await getBudgetStatus(userId);
+  if (!budget.allowed) {
+    return new Response(
+      JSON.stringify({
+        error: "Monthly AI budget exceeded",
+        usedUsd: budget.monthlyUsedUsd,
+        capUsd: budget.monthlyHardCapUsd,
+        monthStart: budget.monthlyStart,
+        reason: "hard_cap",
+      }),
+      {
+        status: 402, // Payment Required — semantically correct here
+        headers: { "Content-Type": "application/json" },
       },
     );
   }
@@ -339,6 +361,15 @@ export async function POST(req: NextRequest) {
           musicVibe,
           targetSeconds,
         });
+        // R1: record Gemini call cost. Failure here is non-fatal; the
+        // ledger is for billing audit + analytics, not request blocking.
+        void recordAIUsage({
+          userId,
+          renderJobId: jobId,
+          provider: "gemini",
+          operation: "generateVideoScript",
+          costUsd: COST.gemini.perCallUsd,
+        });
         log(
           "success",
           `Script ready — ${script.estimatedDurationSec}s, hook: "${script.hook.slice(0, 60)}${script.hook.length > 60 ? "…" : ""}"`,
@@ -354,6 +385,13 @@ export async function POST(req: NextRequest) {
           style,
           sceneCount,
           script,
+        });
+        void recordAIUsage({
+          userId,
+          renderJobId: jobId,
+          provider: "gemini",
+          operation: "generateVideoStoryboard",
+          costUsd: COST.gemini.perCallUsd,
         });
         log(
           "success",
@@ -379,6 +417,17 @@ export async function POST(req: NextRequest) {
         try {
           const voice = await synthesizeNarration({ text: fullNarration });
           voiceAudioDataUrl = voice.audioDataUrl;
+          // R1: record ElevenLabs cost based on actual character count.
+          void recordAIUsage({
+            userId,
+            renderJobId: jobId,
+            provider: "elevenlabs",
+            operation: "synthesizeNarration",
+            // $0.18 / 1k chars for turbo_v2.
+            costUsd: Math.round((fullNarration.length / 1000) * 0.18 * 100) / 100,
+            units: fullNarration.length,
+            unitType: "chars",
+          });
           log(
             "success",
             `Voice ready — ${Math.round(voice.byteLength / 1024)}KB MP3 (${voice.voiceId}, model ${voice.modelId}, direction "${script.voiceDirection}")`,
@@ -482,6 +531,13 @@ export async function POST(req: NextRequest) {
             script,
           });
           seo = seoResult;
+          void recordAIUsage({
+            userId,
+            renderJobId: jobId,
+            provider: "gemini",
+            operation: "generateVideoSEO",
+            costUsd: COST.gemini.perCallUsd,
+          });
           log(
             "success",
             `SEO ready — title "${seoResult.title.slice(0, 50)}${seoResult.title.length > 50 ? "…" : ""}", ${seoResult.hashtags.length} hashtags`,
@@ -515,6 +571,13 @@ export async function POST(req: NextRequest) {
             density: "balanced",
           });
           overlayBundle = result;
+          void recordAIUsage({
+            userId,
+            renderJobId: jobId,
+            provider: "gemini",
+            operation: "extractImportantWords",
+            costUsd: COST.gemini.perCallUsd,
+          });
           log(
             "success",
             `Overlays ready — ${result.keywords.length} keywords spanning ${result.estimatedNarrationSec}s`,

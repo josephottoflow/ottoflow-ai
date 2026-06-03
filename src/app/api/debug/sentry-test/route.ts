@@ -27,22 +27,24 @@
  * Auth-gated. Remove pre-public-beta with the other debug routes.
  */
 import { NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
 import * as Sentry from "@sentry/nextjs";
 import {
   captureFallback,
   addBreadcrumb,
   isObservabilityWired,
 } from "@/lib/observability";
+import { requireAdmin } from "@/lib/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const { userId } = await auth();
-  if (!userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // B1.R8 — admin-only. 404 hides existence.
+  const adminId = await requireAdmin();
+  if (!adminId) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
+  const userId = adminId;
 
   const firedAt = new Date().toISOString();
 

@@ -36,6 +36,7 @@ import { randomUUID } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase";
 import type { VideoMergeJobData, VideoMergeOverlay, VideoMergeScene } from "@/lib/queue";
 import { generateScene as registryGenerateScene } from "@/lib/video-providers/registry";
+import { recordAIUsage } from "@/lib/budget";
 
 type Reporter = (step: string, progress: number) => void;
 
@@ -253,6 +254,24 @@ export async function processVideoMerge(
             attribution: result.attribution ?? null,
             metadata: result.metadata ?? null,
           };
+          // R1: write a ledger entry when the provider actually charged.
+          // Pexels (free) returns costUsd=0; recordAIUsage skips those.
+          if ((result.costUsd ?? 0) > 0) {
+            void recordAIUsage({
+              userId,
+              renderJobId,
+              provider: result.provider as "runway" | "luma",
+              operation: "generateScene",
+              costUsd: result.costUsd ?? 0,
+              units: result.durationSec,
+              unitType: "seconds",
+              metadata: {
+                scene_number: spec.index,
+                width: result.width,
+                height: result.height,
+              },
+            });
+          }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           row = {
