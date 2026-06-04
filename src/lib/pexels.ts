@@ -216,11 +216,58 @@ function extractKeywords(text: string): string[] {
   return out;
 }
 
-/** Build a prioritized list of search queries from prompt + optional hook. */
-function buildQueries(prompt: string, hook?: string): string[] {
+/**
+ * Build a prioritized list of search queries from prompt + optional hook.
+ *
+ * Video Pipeline v2 P1b — when explicit brand/topic context is provided,
+ * those queries are prepended at HIGHEST priority. They reflect the user's
+ * actual brand (passed straight from /api/generate or the worker) rather
+ * than the 12 hand-tuned TOPIC_OVERRIDES regexes, which collectively cover
+ * only a tiny slice of possible industries. The override + keyword layers
+ * still run as fallbacks so legacy callers without brand context aren't
+ * affected.
+ */
+function buildQueries(
+  prompt: string,
+  hook?: string,
+  ctx?: {
+    brandIndustry?: string | null;
+    topicTitle?: string | null;
+    shotType?: string | null;
+  },
+): string[] {
   const queries: string[] = [];
 
-  // 1. Domain overrides (highest priority — they're hand-tuned)
+  // 0. Brand/topic-aware queries (v2 P1b). When the caller has structured
+  // brand context, these are tried BEFORE the regex overrides — they're
+  // strictly more relevant because they reflect the real brand instead of
+  // a pattern-matched generic category.
+  const normalizedShot = ctx?.shotType
+    ? ctx.shotType.toLowerCase().replace(/[_-]+/g, " ").trim()
+    : null;
+  if (ctx?.topicTitle) {
+    const topicKws = extractKeywords(ctx.topicTitle);
+    if (topicKws.length > 0) {
+      const core = topicKws.slice(0, 2).join(" ");
+      if (normalizedShot) {
+        queries.push(`${core} ${normalizedShot} cinematic`);
+      }
+      queries.push(`${core} cinematic closeup`);
+      if (ctx.brandIndustry) {
+        queries.push(`${core} ${ctx.brandIndustry.toLowerCase()}`);
+      }
+    }
+  }
+  if (ctx?.brandIndustry) {
+    const ind = ctx.brandIndustry.toLowerCase().trim();
+    if (ind.length > 0) {
+      const shotPart = normalizedShot ?? "closeup";
+      queries.push(`${ind} ${shotPart} cinematic`);
+      queries.push(`${ind} lifestyle modern`);
+    }
+  }
+
+  // 1. Domain overrides (hand-tuned regex hits — middle layer)
   for (const { pattern, queries: q } of TOPIC_OVERRIDES) {
     if (pattern.test(prompt)) {
       queries.push(...q);
@@ -354,11 +401,22 @@ interface PexelsPhotoSearchResp {
 export async function findStockPhotoByPrompt(input: {
   prompt: string;
   orientation?: "portrait" | "landscape";
+  // v2 P1b — parity with findStockVideoByPrompt. Currently not wired from
+  // the Runway provider (would require threading SceneRequest), but
+  // future-proofs the signature so we can pass context later without
+  // another breaking change.
+  brandIndustry?: string | null;
+  topicTitle?: string | null;
+  shotType?: string | null;
 }): Promise<PexelsPhotoLite | null> {
   const apiKey = process.env.PEXELS_API_KEY;
   if (!apiKey) throw new PexelsNotConfiguredError();
   const orientation = input.orientation ?? "portrait";
-  const queries = buildQueries(input.prompt);
+  const queries = buildQueries(input.prompt, undefined, {
+    brandIndustry: input.brandIndustry,
+    topicTitle: input.topicTitle,
+    shotType: input.shotType,
+  });
   for (const q of queries) {
     try {
       const url = new URL(`${PEXELS_BASE}/v1/search`);
@@ -395,6 +453,13 @@ interface FindOpts {
   prompt: string;
   hook?: string;
   targetSeconds?: number;
+  // Video Pipeline v2 P1b — optional structured brand/topic context for
+  // query construction. When provided, takes precedence over keyword
+  // extraction from `prompt` (which is brittle for industries outside
+  // the 12 hardcoded TOPIC_OVERRIDES regexes).
+  brandIndustry?: string | null;
+  topicTitle?: string | null;
+  shotType?: string | null;
 }
 
 /**
@@ -407,7 +472,11 @@ export async function findStockVideoByPrompt(
   const apiKey = process.env.PEXELS_API_KEY;
   if (!apiKey) throw new PexelsNotConfiguredError();
 
-  const queries = buildQueries(opts.prompt, opts.hook);
+  const queries = buildQueries(opts.prompt, opts.hook, {
+    brandIndustry: opts.brandIndustry,
+    topicTitle: opts.topicTitle,
+    shotType: opts.shotType,
+  });
   if (queries.length === 0) return null;
 
   // Try portrait first (9:16 TikTok), then landscape for each query.

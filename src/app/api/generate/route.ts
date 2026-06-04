@@ -220,6 +220,11 @@ export async function POST(req: NextRequest) {
   let effectivePrompt: string;
   let brandIdForJob: string | null = null;
   let topicIdForJob: string | null = null;
+  // Video Pipeline v2 P1 — hoist structured brand + topic into outer scope so
+  // downstream Gemini calls (storyboard) and Pexels fallback can receive them
+  // as labeled fields instead of having to re-extract them from effectivePrompt.
+  let brandForGen: { name: string; industry: string | null } | null = null;
+  let topicForGen: { title: string; category: string | null } | null = null;
 
   if (input.brandId && input.topicId) {
     const { data: topic, error: topicErr } = await admin
@@ -279,6 +284,15 @@ export async function POST(req: NextRequest) {
 
     brandIdForJob = brand.id as string;
     topicIdForJob = topic.id as string;
+    // v2 P1 — capture structured brand + topic for downstream calls.
+    brandForGen = {
+      name: brand.name as string,
+      industry: (brand.industry as string | null) ?? null,
+    };
+    topicForGen = {
+      title: topic.title as string,
+      category: (topic.category as string | null) ?? null,
+    };
   } else if (input.prompt) {
     effectivePrompt = input.prompt;
   } else {
@@ -397,6 +411,12 @@ export async function POST(req: NextRequest) {
           style,
           sceneCount,
           script,
+          // v2 P1a — structured brand + topic so scene descriptions
+          // visibly reflect the brand's industry instead of generic stock
+          // aesthetics. Both fall back to undefined for legacy free-form
+          // prompts (where no brand record exists).
+          brand: brandForGen ?? undefined,
+          topic: topicForGen ?? undefined,
         });
         void recordAIUsage({
           userId,
@@ -656,6 +676,12 @@ export async function POST(req: NextRequest) {
             prompt: effectivePrompt,
             hook: script.hook,
             targetSeconds,
+            // v2 P1b — surface brand industry + topic title at HIGHEST
+            // priority for query construction (above the 12 hardcoded
+            // TOPIC_OVERRIDES regexes, which only cover a fraction of
+            // possible industries).
+            brandIndustry: brandForGen?.industry ?? null,
+            topicTitle: topicForGen?.title ?? null,
           });
           if (clip) {
             videoUrl = clip.url;

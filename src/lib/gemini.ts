@@ -771,10 +771,32 @@ export async function generateVideoStoryboard(input: {
   style: string;
   sceneCount: number;
   script: VideoScript;
+  // Video Pipeline v2 P1a — structured brand + topic so storyboard
+  // descriptions visibly reflect the brand's space, not generic stock
+  // aesthetics. Previously industry was buried inside `prompt` as a
+  // substring; surfacing it as labeled fields gives Gemini a stronger
+  // signal. Both fields optional for backward compat with legacy callers
+  // (free-form prompt without a brand/topic record).
+  brand?: { name: string; industry?: string | null } | null;
+  topic?: { title: string; category?: string | null } | null;
 }): Promise<Storyboard> {
+  // Build brand/topic header block. Empty when neither was provided so the
+  // prompt stays clean for legacy free-form callers.
+  const brandLine = input.brand
+    ? `BRAND: ${input.brand.name}${input.brand.industry ? ` — operates in ${input.brand.industry}` : ""}`
+    : "";
+  const topicLine = input.topic
+    ? `TOPIC: ${input.topic.title}${input.topic.category ? ` (category: ${input.topic.category})` : ""}`
+    : "";
+  const industryConstraint = input.brand?.industry
+    ? `\n\nIMPORTANT: Every scene's \`description\` must visibly read as the **${input.brand.industry}** space. Generic stock-photo descriptions ("modern desk", "person on laptop", "minimalist studio") don't count — the viewer should be able to tell what industry this video is about from any single frame.`
+    : "";
+
   const prompt = `
 Build a ${input.sceneCount}-scene shot list for this short-form ad video.
 
+${brandLine}
+${topicLine}
 ORIGINAL BRIEF: ${input.prompt}
 STYLE: ${input.style}
 TARGET DURATION: ${input.script.estimatedDurationSec} seconds
@@ -795,7 +817,7 @@ REQUIREMENTS:
 - aestheticNotes: 2-3 sentences on lighting, palette, pacing, references.
 
 Be specific. "Product on a desk" is filler. "Walnut desk, golden hour
-backlight from the left, hand reaching in from frame-right" is a shot.
+backlight from the left, hand reaching in from frame-right" is a shot.${industryConstraint}
 `.trim();
 
   return generateStructured<Storyboard>({
