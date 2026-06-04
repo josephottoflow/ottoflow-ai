@@ -127,6 +127,17 @@ export interface VideoMergeOverlay {
   /** Seconds from video start (0..videoDuration). */
   start: number;
   end: number;
+  /**
+   * Video Pipeline v2 P2 — when present, marks which storyboard scene
+   * this overlay belongs to. The worker uses this in P3 to rotate
+   * position/style per scene so the video reads as edited (top-third
+   * for scene 1, center for scene 2, etc.) instead of every overlay
+   * landing at the same lower-third y-coordinate.
+   *
+   * Optional for backward compat: overlays without sceneIndex render
+   * at the legacy default position (y=h*0.65).
+   */
+  sceneIndex?: number;
 }
 
 /**

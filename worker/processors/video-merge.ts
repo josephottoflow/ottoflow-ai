@@ -144,8 +144,26 @@ async function writeDataUrlToFile(dataUrl: string, dest: string): Promise<void> 
 // would re-encode the entire frame for ONE overlay — orders of magnitude
 // slower.
 //
-// Position: horizontal center, y = 65% of height. That sits the text
-// over the "lower third" zone TikTok creators use.
+// Video Pipeline v2 P3 — position rotates per scene so the video reads
+// as edited rather than every overlay stamping at the same lower-third.
+// When `sceneIndex` is set on the overlay (P2 wired it from /api/generate),
+// the y-coordinate is picked deterministically from OVERLAY_Y_POSITIONS by
+// (sceneIndex - 1) mod 5. Overlays without sceneIndex fall back to the
+// legacy lower-third for backward compat.
+
+const OVERLAY_Y_POSITIONS = [
+  "h*0.18",       // top-third
+  "(h-text_h)/2", // true vertical center
+  "h*0.65",       // lower-third (legacy default)
+  "h*0.78",       // very low (above TikTok UI overlay zone)
+  "h*0.40",       // upper-middle
+] as const;
+
+function pickYForScene(sceneIndex: number | undefined | null): string {
+  if (sceneIndex == null || sceneIndex < 1) return "h*0.65";
+  return OVERLAY_Y_POSITIONS[(sceneIndex - 1) % OVERLAY_Y_POSITIONS.length];
+}
+
 function buildDrawtextChain(
   overlays: VideoMergeOverlay[],
   fontPath: string | null,
@@ -178,13 +196,16 @@ function buildDrawtextChain(
       const fontFilePart = fontPath
         ? `:fontfile='${fontPath.replace(/'/g, "\\'")}'`
         : "";
+      // P3 — per-scene y-position rotation. Falls back to legacy h*0.65
+      // when the overlay carries no sceneIndex (free-form prompt path).
+      const y = pickYForScene(o.sceneIndex);
       return (
         `drawtext=text='${escapedText}'` +
         fontFilePart +
         `:fontcolor=white` +
         `:borderw=4:bordercolor=black` +
         `:shadowx=4:shadowy=6:shadowcolor=black@0.6` +
-        `:x=(w-text_w)/2:y=h*0.65` +
+        `:x=(w-text_w)/2:y=${y}` +
         `:fontsize='${fontsizeExpr}'` +
         `:alpha='${alphaExpr}'`
       );

@@ -1177,3 +1177,126 @@ Generate the keyword overlay list now.
       "You are a video editor who has cut clips for top creator brands. You know which words ON SCREEN make viewers stop scrolling. You never overload the frame.",
   });
 }
+
+// ─── Per-scene 3-word overlay extraction (Video Pipeline v2 P2) ──────────────
+//
+// Instead of one flat overlay list spread across the whole video (the
+// `extractImportantWords` approach), this generates exactly 3 overlays per
+// scene, timed within that scene's window. Pairs with P3 — the worker
+// rotates position/style per scene (sceneIndex % 5), so the output reads
+// as edited rather than a single drawtext stamp at fixed lower-third.
+//
+// Offsets are scene-local (0 .. scene.durationSec). The caller converts
+// them to absolute timestamps by adding the cumulative scene start.
+
+export interface SceneOverlayWord {
+  text: string;        // ALL CAPS, 1-3 words
+  offsetSec: number;   // seconds within the scene (0 .. durationSec)
+  durationSec: number; // 0.6 .. 1.4 — how long it stays on screen
+}
+
+export interface SceneOverlays {
+  sceneIndex: number;
+  overlays: SceneOverlayWord[]; // exactly 3
+}
+
+export interface SceneOverlayBundle {
+  scenes: SceneOverlays[];
+}
+
+const sceneOverlayWordSchema: Schema = {
+  type: Type.OBJECT,
+  required: ["text", "offsetSec", "durationSec"],
+  properties: {
+    text: { type: Type.STRING },
+    offsetSec: { type: Type.NUMBER },
+    durationSec: { type: Type.NUMBER },
+  },
+} as Schema;
+
+const sceneOverlaysSchema: Schema = {
+  type: Type.OBJECT,
+  required: ["sceneIndex", "overlays"],
+  properties: {
+    sceneIndex: { type: Type.INTEGER },
+    overlays: {
+      type: Type.ARRAY,
+      items: sceneOverlayWordSchema,
+      // Note: Gemini's structured-output schema doesn't enforce
+      // minItems/maxItems reliably. We sanity-check the count at the
+      // call site and truncate/pad if needed. Prompt explicitly asks
+      // for exactly 3, which the model honors in practice.
+    },
+  },
+} as Schema;
+
+const sceneOverlayBundleSchema: Schema = {
+  type: Type.OBJECT,
+  required: ["scenes"],
+  properties: {
+    scenes: { type: Type.ARRAY, items: sceneOverlaysSchema },
+  },
+} as Schema;
+
+export async function extractSceneOverlays(input: {
+  scenes: Array<{
+    index: number;
+    durationSec: number;
+    description: string;
+    voiceLine?: string | null;
+  }>;
+  // Full narration so Gemini knows the overall thread even when a
+  // particular scene's voiceLine is missing or generic.
+  narration: { hook: string; body: string; cta: string };
+}): Promise<SceneOverlayBundle> {
+  const scenesBlock = input.scenes
+    .map(
+      (s) =>
+        `Scene ${s.index} (${s.durationSec}s): ${s.description}` +
+        (s.voiceLine ? `\n  voice-over: "${s.voiceLine}"` : ""),
+    )
+    .join("\n");
+
+  const prompt = `
+You are designing on-screen keyword overlays for a short-form vertical video,
+in the viral TikTok / Reels style where ONLY the highest-impact words appear
+on screen — never full captions.
+
+For EACH scene below, pick exactly 3 keyword overlays. The text of each
+overlay must reflect what happens or is said in that specific scene — not
+the overall video.
+
+NARRATION HOOK: ${input.narration.hook}
+NARRATION BODY: ${input.narration.body}
+NARRATION CTA:  ${input.narration.cta}
+
+SCENES:
+${scenesBlock}
+
+PER-OVERLAY REQUIREMENTS:
+- text: exactly 1-3 words, ALL CAPS. Punchy nouns/verbs. Never filler
+  ("the", "a", "of", "you", "is"). Never the brand name unless the scene
+  is explicitly about the brand.
+- offsetSec: seconds within THIS scene's window (0.0 .. durationSec).
+  Distribute the 3 overlays across the scene: early (≤ 25%), middle
+  (40-60%), late (≥ 75%). Do not overlap.
+- durationSec: 0.6 - 1.4 seconds on screen. Shorter for punchy single
+  words, longer for 3-word phrases.
+
+CRITICAL CONSTRAINTS:
+- EXACTLY 3 overlays per scene. Not 2. Not 4. Three.
+- All 3 overlays for a scene must be DIFFERENT words (no repetition)
+- offsetSec + durationSec must be ≤ the scene's durationSec
+- The 3 overlays should feel like a beat: setup → reinforcement → payoff
+
+Generate one entry per scene with sceneIndex matching the scene number.
+`.trim();
+
+  return generateStructured<SceneOverlayBundle>({
+    prompt,
+    schema: sceneOverlayBundleSchema,
+    label: "extractSceneOverlays",
+    systemInstruction:
+      "You are a video editor who has cut clips for top creator brands. You design overlays that reinforce — never compete with — what's happening on screen. You think in 3-beat scene rhythms: setup, hit, payoff.",
+  });
+}

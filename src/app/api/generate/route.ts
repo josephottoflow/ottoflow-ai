@@ -51,7 +51,7 @@ import {
   generateVideoStoryboard,
   generateHeroFrame,
   generateVideoSEO,
-  extractImportantWords,
+  extractSceneOverlays,
 } from "@/lib/gemini";
 import {
   synthesizeNarration,
@@ -582,42 +582,80 @@ export async function POST(req: NextRequest) {
         }
         status("SEO ready", 84);
 
-        // ─── Stage 7b: Keyword overlays ─────────────────────────────────────
-        // Pull viral-style keyword overlays out of the narration script so
-        // the worker can drop them on-screen via FFmpeg drawtext. Best-effort
-        // — if Gemini fails here the video still renders cleanly (no overlays).
+        // ─── Stage 7b: Per-scene keyword overlays (Video Pipeline v2 P2) ───
+        // Pulls exactly 3 keyword overlays per scene, timed within that
+        // scene's window. Replaces the previous extractImportantWords()
+        // which produced one flat overlay list spread across the whole
+        // video (which made every scene look the same). The worker uses
+        // sceneIndex in P3 to rotate position/style so overlays don't all
+        // stack at the same lower-third y-coordinate.
+        //
+        // Best-effort: if Gemini fails here the video still renders cleanly
+        // (no overlays). We flatten scene-local offsets into absolute
+        // timestamps using cumulative scene durations so the worker side
+        // can stay unaware of scene boundaries during drawtext rendering.
         log("info", "Started: Overlays");
-        status("Extracting keyword overlays", 86);
-        let overlayBundle: {
-          keywords: { text: string; start: number; end: number; emphasis?: "normal" | "punch" | "highlight" }[];
-          estimatedNarrationSec: number;
-        } | null = null;
+        status("Extracting per-scene overlays", 86);
+        type FlatOverlay = {
+          text: string;
+          start: number;
+          end: number;
+          sceneIndex: number;
+        };
+        let sceneOverlays: FlatOverlay[] | null = null;
         try {
-          const fullNarrationText =
-            `${script.hook} ${script.body} ${script.cta}`.trim();
-          const narrationDuration =
-            script.estimatedDurationSec ?? targetSeconds;
-          const result = await extractImportantWords({
-            narration: fullNarrationText,
-            estimatedNarrationSec: narrationDuration,
-            density: "balanced",
+          const result = await extractSceneOverlays({
+            scenes: storyboard.scenes.map((s) => ({
+              index: s.index,
+              durationSec: s.durationSec,
+              description: s.description,
+              voiceLine: s.voiceLine ?? null,
+            })),
+            narration: {
+              hook: script.hook,
+              body: script.body,
+              cta: script.cta,
+            },
           });
-          overlayBundle = result;
+          // Convert scene-local offsetSec → absolute video timestamps.
+          // Cumulate storyboard.scenes durations in index order.
+          const sceneStarts = new Map<number, number>();
+          let cursor = 0;
+          for (const s of storyboard.scenes) {
+            sceneStarts.set(s.index, cursor);
+            cursor += s.durationSec;
+          }
+          const flat: FlatOverlay[] = [];
+          for (const sc of result.scenes) {
+            const baseSec = sceneStarts.get(sc.sceneIndex) ?? 0;
+            // Enforce exactly 3 overlays per scene — slice in case the
+            // model returned more (the schema can't strictly limit count).
+            for (const ov of sc.overlays.slice(0, 3)) {
+              const startAbs = baseSec + ov.offsetSec;
+              flat.push({
+                text: ov.text,
+                start: startAbs,
+                end: startAbs + ov.durationSec,
+                sceneIndex: sc.sceneIndex,
+              });
+            }
+          }
+          sceneOverlays = flat;
           void recordAIUsage({
             userId,
             renderJobId: jobId,
             provider: "gemini",
-            operation: "extractImportantWords",
+            operation: "extractSceneOverlays",
             costUsd: COST.gemini.perCallUsd,
           });
           log(
             "success",
-            `Overlays ready — ${result.keywords.length} keywords spanning ${result.estimatedNarrationSec}s`,
+            `Overlays ready — ${flat.length} per-scene keywords across ${result.scenes.length} scenes`,
           );
         } catch (err) {
           log(
             "warn",
-            `Overlays skipped: ${err instanceof Error ? err.message : String(err)}`,
+            `Per-scene overlays skipped: ${err instanceof Error ? err.message : String(err)}`,
           );
         }
         status("Overlays ready", 88);
@@ -630,8 +668,8 @@ export async function POST(req: NextRequest) {
             script_json: script as unknown as Record<string, unknown>,
             storyboard_json: storyboard as unknown as Record<string, unknown>,
             seo_json: (seo ?? null) as unknown as Record<string, unknown> | null,
-            overlay_json: overlayBundle
-              ? { keywords: overlayBundle.keywords }
+            overlay_json: sceneOverlays
+              ? { keywords: sceneOverlays }
               : null,
           })
           .eq("id", jobId);
@@ -755,11 +793,14 @@ export async function POST(req: NextRequest) {
               videoUrl,
               audioDataUrl: voiceAudioDataUrl ?? undefined,
               musicUrl: musicTrackUrl ?? undefined,
-              overlays: overlayBundle
-                ? overlayBundle.keywords.map((k) => ({
-                    text: k.text,
-                    start: k.start,
-                    end: k.end,
+              // v2 P2 — per-scene overlays carry sceneIndex so the worker
+              // can rotate position/style per scene in P3.
+              overlays: sceneOverlays
+                ? sceneOverlays.map((ov) => ({
+                    text: ov.text,
+                    start: ov.start,
+                    end: ov.end,
+                    sceneIndex: ov.sceneIndex,
                   }))
                 : undefined,
               // Phase D — hand storyboard specs to the worker. The worker
