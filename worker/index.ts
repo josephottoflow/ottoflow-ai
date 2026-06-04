@@ -247,6 +247,37 @@ const videoMergeWorker = new Worker<VideoMergeJobData>(
     });
     const result = await processVideoMerge(job.data, (step, progress) => {
       job.updateProgress(progress).catch(() => {});
+      // Video Pipeline v2 P0 — push progress into render_jobs.progress so
+      // UI Realtime subscribers see incremental updates (5/10/28/35/50/80/100)
+      // instead of a frozen row between merge_status='merging' (at start) and
+      // merge_status='done' (at end, 100-150s later). Best-effort: never fail
+      // the merge if this write fails. Reuses recoveryAdmin (module-scope
+      // service-role client) — RLS is bypassed intentionally since the worker
+      // acts on behalf of users without their session token.
+      void recoveryAdmin
+        .from("render_jobs")
+        .update({ progress })
+        .eq("id", job.data.renderJobId)
+        .then(
+          ({ error }) => {
+            if (error) {
+              log("video-merge", "progress.write_failed", {
+                jobId: job.id,
+                renderJobId: job.data.renderJobId,
+                progress,
+                error: error.message,
+              });
+            }
+          },
+          (err: unknown) => {
+            log("video-merge", "progress.write_failed", {
+              jobId: job.id,
+              renderJobId: job.data.renderJobId,
+              progress,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          },
+        );
       log("video-merge", "step", { jobId: job.id, step, progress });
     });
     log("video-merge", "job.done", {
