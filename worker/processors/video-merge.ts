@@ -38,6 +38,7 @@ import type { VideoMergeJobData, VideoMergeOverlay, VideoMergeScene } from "@/li
 import { generateScene as registryGenerateScene } from "@/lib/video-providers/registry";
 import { recordAIUsage } from "@/lib/budget";
 import { captureFallback } from "@/lib/observability";
+import { renderSilentVideo } from "../render-remotion";
 
 type Reporter = (step: string, progress: number) => void;
 
@@ -437,25 +438,11 @@ export async function processVideoMerge(
   report("merging", 10);
 
   try {
-    // ─── 1. Download all inputs in parallel ────────────────────────────────
-    //
-    // When `scenes` is provided (≥2 entries), we ignore the legacy
-    // `videoUrl` and download each scene clip in parallel. A subsequent
-    // ffmpeg concat step (Path C below) stitches them into `videoIn` for
-    // the rest of the pipeline. Single-clip path stays unchanged.
+    // ─── 1. Download narration + music in parallel ─────────────────────────
+    // Video composition is handled by Remotion now — it streams scene URLs
+    // directly from CDNs in Chrome Headless via <OffthreadVideo>. No need
+    // to pre-download scene MP4s to local disk for the multi-scene path.
     const tasks: Promise<unknown>[] = [];
-    const sceneFiles: string[] = [];
-    if (hasScenes) {
-      const ordered = [...scenes!].sort((a, b) => a.index - b.index);
-      ordered.forEach((s, i) => {
-        const localPath = path.join(workDir, `scene-${String(i).padStart(3, "0")}.mp4`);
-        sceneFiles.push(localPath);
-        tasks.push(downloadToFile(s.url, localPath));
-      });
-    } else {
-      tasks.push(downloadToFile(videoUrl, videoIn));
-    }
-
     let hasNarration = false;
     let hasMusic = false;
     if (audioDataUrl) {
@@ -466,230 +453,110 @@ export async function processVideoMerge(
       tasks.push(downloadToFile(musicUrl, musicIn));
       hasMusic = true;
     }
+    // Single-clip fallback still needs the videoUrl downloaded — Remotion
+    // only runs for the hasScenes path.
+    if (!hasScenes) {
+      tasks.push(downloadToFile(videoUrl, videoIn));
+    }
     await Promise.all(tasks);
     report("merging", 28);
 
-    // ─── 1b. Multi-scene concat into a single videoIn ─────────────────────
-    // Run BEFORE the audio merge so the audio + overlay logic below stays
-    // identical to the single-clip path. We normalize each scene to
-    // 1080x1920 @ 30fps so the concat demuxer doesn't reject mismatched
-    // streams (Runway returns 720p, Luma returns 720p, Pexels varies).
+    // ─── 1b. Render silent visual stream via Remotion ──────────────────────
+    // Replaces the previous per-scene normalize (libx264) + concat demuxer
+    // + drawtext chain with a single renderMedia() call. See
+    // docs/ADR-001-video-composition-engine.md for the architecture
+    // decision. The Remotion entry lives at remotion/index.ts; the bundle
+    // URL is cached at module-load by worker/render-remotion.ts.
+    //
+    // Output: silent.mp4 with all scenes composited via <TransitionSeries>
+    // and per-scene 3-word overlays positioned by sceneIndex. Same H.264
+    // codec + yuv420p + 720x1280 that the FFmpeg pipeline produced, so the
+    // downstream audio mux can stream-copy the video (no re-encode).
+    const silentPath = path.join(workDir, "silent.mp4");
     if (hasScenes) {
-      // Step 1b.1 — re-encode each scene to a normalized intermediate.
-      const normalizedFiles: string[] = [];
-      for (let i = 0; i < sceneFiles.length; i++) {
-        const src = sceneFiles[i];
-        const dest = path.join(workDir, `norm-${String(i).padStart(3, "0")}.mp4`);
-        normalizedFiles.push(dest);
-        const targetDur = scenes![i].durationSec;
-        const norm = await runFfmpeg([
-          "-y",
-          "-i", src,
-          // Scale + pad to 720x1280 preserving aspect ratio. Drops from
-          // 1080x1920 to match the source resolution (Pexels portrait HD
-          // is 720x1280, Luma 720p, Runway 720x1280) which means we avoid
-          // a full-resolution-doubling re-encode that was OOM-killing
-          // libx264 on Railway. setsar=1 prevents concat SAR mismatch.
-          "-vf",
-          "scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=30",
-          // Cap at scene's target duration so a long source clip doesn't
-          // bleed into the next scene's window.
-          "-t", String(targetDur),
-          "-an",                  // strip audio from individual scenes
-          "-c:v", "libx264",
-          // Ultrafast preset + mbtree disabled minimizes libx264 memory
-          // footprint. We trade ~10% size for getting under Railway's
-          // worker RAM cap.
-          "-preset", "ultrafast",
-          "-x264-params", "no-mbtree=1:rc-lookahead=10",
-          "-crf", "26",
-          "-pix_fmt", "yuv420p",
-          dest,
-        ]);
-        if (norm.exitCode !== 0 || norm.signal !== null) {
-          throw new Error(
-            `Scene ${i + 1} normalize failed (code=${norm.exitCode}, signal=${norm.signal}): ${norm.stderr.slice(-1000)}`,
-          );
-        }
-      }
+      await renderSilentVideo({
+        scenes: scenes!,
+        overlays: overlays ?? [],
+        outputPath: silentPath,
+        onProgress: (p) => {
+          // Map Remotion 0..1 → our 28..80 milestone range so render_jobs.progress
+          // updates remain coherent for the UI Realtime subscription (v2 P0).
+          const milestoneRange = 80 - 28;
+          report("merging", 28 + Math.round(p * milestoneRange));
+        },
+      });
+    } else {
+      // Single-clip fallback: the prefetched videoUrl is already at videoIn.
+      // Rename to silentPath so the downstream ffmpeg mux uses the same
+      // input variable. No re-encode, no overlays for this path.
+      await fs.rename(videoIn, silentPath);
+    }
+    report("merging", 80);
 
-      // Step 1b.2 — concat demuxer requires a manifest file.
-      const concatManifest = path.join(workDir, "concat.txt");
-      await fs.writeFile(
-        concatManifest,
-        normalizedFiles
-          .map((p) => `file '${p.replace(/'/g, "'\\''")}'`)
-          .join("\n"),
-        "utf-8",
-      );
-      // Stream-copy the concat into videoIn — all inputs share the same
-      // codec/SAR/fps so concat is fast.
-      const cat = await runFfmpeg([
+    // ─── 2. Audio mux via ffmpeg (stream-copy video) ───────────────────────
+    // silent.mp4 already has correct dimensions/fps/codec/pixelFormat from
+    // Remotion's render (or from the pre-fetched Pexels clip in the
+    // fallback path). Just mux audio onto it — `-c:v copy` means no
+    // re-encode of the video stream, much faster than the old Path B
+    // libx264 veryfast pass (~3s vs ~15-30s).
+    let args: string[];
+    if (!hasNarration && !hasMusic) {
+      // No audio sources — silent video IS the merged output.
+      await fs.rename(silentPath, out);
+      args = []; // skip ffmpeg below
+    } else if (hasNarration && !hasMusic) {
+      args = [
         "-y",
-        "-f", "concat",
-        "-safe", "0",
-        "-i", concatManifest,
-        "-c", "copy",
-        videoIn,
-      ]);
-      if (cat.exitCode !== 0 || cat.signal !== null) {
+        "-i", silentPath,
+        "-i", narrationIn,
+        "-map", "0:v:0", "-map", "1:a:0",
+        "-c:v", "copy",
+        "-c:a", "aac", "-b:a", "192k",
+        "-shortest",
+        out,
+      ];
+    } else if (!hasNarration && hasMusic) {
+      const musicLinearGain = Math.pow(10, duckingDb / 20);
+      args = [
+        "-y",
+        "-i", silentPath,
+        "-i", musicIn,
+        "-filter_complex", `[1:a]volume=${musicLinearGain.toFixed(3)}[mus]`,
+        "-map", "0:v:0", "-map", "[mus]",
+        "-c:v", "copy",
+        "-c:a", "aac", "-b:a", "192k",
+        "-shortest",
+        out,
+      ];
+    } else {
+      // hasNarration && hasMusic — same amix as before, just on silent.mp4.
+      const musicLinearGain = Math.pow(10, duckingDb / 20);
+      args = [
+        "-y",
+        "-i", silentPath,
+        "-i", narrationIn,
+        "-i", musicIn,
+        "-filter_complex",
+        `[1:a]volume=1.0[narr];[2:a]volume=${musicLinearGain.toFixed(3)}[mus];[narr][mus]amix=inputs=2:duration=first[mix]`,
+        "-map", "0:v:0", "-map", "[mix]",
+        "-c:v", "copy",
+        "-c:a", "aac", "-b:a", "192k",
+        "-shortest",
+        out,
+      ];
+    }
+
+    // ─── 3. Run ffmpeg (only if we had audio to mux) ───────────────────────
+    if (args.length > 0) {
+      const result = await runFfmpeg(args);
+      if (result.exitCode !== 0 || result.signal !== null) {
+        const tail = result.stderr.slice(-2000);
         throw new Error(
-          `Scene concat failed (code=${cat.exitCode}, signal=${cat.signal}): ${cat.stderr.slice(-1000)}`,
+          `ffmpeg audio mux failed (code=${result.exitCode}, signal=${result.signal}): ${tail}`,
         );
       }
     }
-    report("merging", 35);
-
-    // ─── 2. Build ffmpeg command ───────────────────────────────────────────
-    //
-    // Two-path strategy:
-    //
-    //   (A) NO overlays  → stream-copy video (~2-3s merge). Same fast path
-    //                      that's been working in production.
-    //   (B) WITH overlays → re-encode video with drawtext chain (~10-20s).
-    //                      Trades speed for the visual punch users actually
-    //                      want — keyword overlays are the whole product
-    //                      differentiator.
-    //
-    // Audio handling is identical in both paths.
-    let args: string[];
-    const fontPath = await resolveFontPath();
-
-    if (hasOverlays && fontPath === null) {
-      // Without a font, drawtext renders with ffmpeg's default which may
-      // not exist in the container. Log a warn and proceed without overlays
-      // rather than crashing — the rest of the video is still usable.
-      console.warn(
-        "[video-merge] No font resolvable; rendering without overlays",
-      );
-    }
-
-    if (!hasNarration && !hasMusic && !hasOverlays) {
-      // Path A, no audio, no overlays — pure stream copy.
-      args = ["-y", "-i", videoIn, "-c", "copy", out];
-    } else if (!hasOverlays) {
-      // Path A — preserve the previous fast paths verbatim.
-      if (hasNarration && !hasMusic) {
-        args = [
-          "-y",
-          "-i", videoIn,
-          "-i", narrationIn,
-          "-map", "0:v:0",
-          "-map", "1:a:0",
-          "-c:v", "copy",
-          "-c:a", "aac",
-          "-b:a", "192k",
-          "-shortest",
-          out,
-        ];
-      } else if (!hasNarration && hasMusic) {
-        const musicLinearGain = Math.pow(10, duckingDb / 20);
-        args = [
-          "-y",
-          "-i", videoIn,
-          "-i", musicIn,
-          "-filter_complex", `[1:a]volume=${musicLinearGain.toFixed(3)}[mus]`,
-          "-map", "0:v:0",
-          "-map", "[mus]",
-          "-c:v", "copy",
-          "-c:a", "aac",
-          "-b:a", "192k",
-          "-shortest",
-          out,
-        ];
-      } else {
-        // hasNarration && hasMusic
-        const musicLinearGain = Math.pow(10, duckingDb / 20);
-        args = [
-          "-y",
-          "-i", videoIn,
-          "-i", narrationIn,
-          "-i", musicIn,
-          "-filter_complex",
-          `[1:a]volume=1.0[narr];[2:a]volume=${musicLinearGain.toFixed(3)}[mus];[narr][mus]amix=inputs=2:duration=first[mix]`,
-          "-map", "0:v:0",
-          "-map", "[mix]",
-          "-c:v", "copy",
-          "-c:a", "aac",
-          "-b:a", "192k",
-          "-shortest",
-          out,
-        ];
-      }
-    } else {
-      // Path B — drawtext chain. Re-encode the video.
-      //
-      // We use videoHeightHint=0 in the filter builder to fall back to
-      // 1080p default — ffmpeg's `h` expression in the drawtext y= still
-      // resolves at runtime against the actual frame height, so the
-      // overlay sits at 65% of whatever the real video is. The hint only
-      // governs base font size.
-      const drawChain = buildDrawtextChain(overlays!, fontPath, 0);
-
-      // Build audio chain depending on what's present.
-      const musicLinearGain = Math.pow(10, duckingDb / 20);
-      let audioFilters = "";
-      let audioMapLabel: string | null = null;
-      let audioInputs: string[] = [];
-      if (hasNarration && !hasMusic) {
-        audioInputs = ["-i", narrationIn];
-        // No filter needed — map narration directly.
-      } else if (!hasNarration && hasMusic) {
-        audioInputs = ["-i", musicIn];
-        audioFilters = `[1:a]volume=${musicLinearGain.toFixed(3)}[mus]`;
-        audioMapLabel = "[mus]";
-      } else if (hasNarration && hasMusic) {
-        audioInputs = ["-i", narrationIn, "-i", musicIn];
-        audioFilters = `[1:a]volume=1.0[narr];[2:a]volume=${musicLinearGain.toFixed(3)}[mus];[narr][mus]amix=inputs=2:duration=first[mix]`;
-        audioMapLabel = "[mix]";
-      }
-
-      // Compose the filter_complex: video chain → [v_overlay]; then audio.
-      const filterComplexParts: string[] = [
-        `[0:v]${drawChain}[v_overlay]`,
-      ];
-      if (audioFilters) filterComplexParts.push(audioFilters);
-      const filterComplex = filterComplexParts.join(";");
-
-      args = [
-        "-y",
-        "-i", videoIn,
-        ...audioInputs,
-        "-filter_complex", filterComplex,
-        "-map", "[v_overlay]",
-      ];
-      if (audioMapLabel) {
-        args.push("-map", audioMapLabel);
-      } else if (hasNarration) {
-        args.push("-map", "1:a:0");
-      }
-      args.push(
-        "-c:v", "libx264",
-        "-preset", "veryfast",
-        "-crf", "23",
-        "-pix_fmt", "yuv420p",
-      );
-      if (hasNarration || hasMusic) {
-        args.push("-c:a", "aac", "-b:a", "192k", "-shortest");
-      } else {
-        args.push("-an");
-      }
-      args.push(out);
-    }
-    report("merging", 50);
-
-    // ─── 3. Run ffmpeg ─────────────────────────────────────────────────────
-    const result = await runFfmpeg(args);
-    if (result.exitCode !== 0 || result.signal !== null) {
-      // Surface BOTH the exit + signal AND the full stderr tail so we can
-      // see the real failure (vs. trailing progress lines from libavfilter
-      // that hide the actual error).
-      const tail = result.stderr.slice(-2000);
-      throw new Error(
-        `ffmpeg failed (code=${result.exitCode}, signal=${result.signal}): ${tail}`,
-      );
-    }
-    report("merging", 80);
+    report("merging", 95);
 
     // ─── 4. Upload to Supabase Storage ─────────────────────────────────────
     const mergedBytes = await fs.readFile(out);

@@ -47,7 +47,16 @@ await build({
   // node_modules is present at runtime on Railway (nixpacks runs
   // `npm ci --include=dev`), so a require('@sentry/node') from the
   // bundle resolves cleanly.
+  //
+  // Phase 2 (ADR-001) — also externalize Remotion + React. Remotion's
+  // bundler + renderer spawn Chrome Headless and load a dynamically-
+  // compiled webpack bundle at runtime; bundling those into the worker
+  // CJS output produces 100MB+ + breaks. Plus, our remotion/ entry
+  // (remotion/index.ts + Root.tsx + compositions/*.tsx) is intentionally
+  // OUTSIDE the worker bundle — it's served standalone to Chrome by
+  // Remotion's bundler.
   external: [
+    // Sentry / OpenTelemetry
     "@sentry/node",
     "@sentry/core",
     "@sentry/utils",
@@ -58,6 +67,21 @@ await build({
     "@opentelemetry/sdk-trace-base",
     "@opentelemetry/sdk-trace-node",
     "@opentelemetry/semantic-conventions",
+    // Remotion ecosystem — resolved at runtime from node_modules
+    "remotion",
+    "@remotion/bundler",
+    "@remotion/cli",
+    "@remotion/renderer",
+    "@remotion/player",
+    "@remotion/media",
+    "@remotion/transitions",
+    "@remotion/google-fonts",
+    // React peer deps — worker doesn't render React itself, but Remotion's
+    // bundler needs them resolvable on disk for its own webpack pass.
+    "react",
+    "react-dom",
+    // Zod — already used by Sentry + Remotion schemas; safer external.
+    "zod",
   ],
   // BullMQ's Lua scripts and JSON imports are handled by esbuild's
   // default loaders.

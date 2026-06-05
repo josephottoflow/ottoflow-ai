@@ -15,24 +15,49 @@
 [variables]
 NIXPACKS_NODE_VERSION = "22"
 
-# Install native ffmpeg so the video-merge processor can spawn it via
-# child_process.spawn(). We use the system binary (not ffmpeg-static)
-# because:
-#   - Smaller bundle (no 70MB binary in node_modules)
-#   - Nix gives us the full build with libx264 + aac + filter graph support
-#   - Cleaner than vendoring a static binary per architecture
 [phases.setup]
-# fontconfig + dejavu_fonts ship the standard sans-serif we use for the
-# Phase 4 keyword overlay renderer. The worker resolves the actual font
-# file path via `fc-match` at boot — so even if Nix moves the store path,
-# our drawtext filter still resolves a valid TTF.
-nixPkgs = ["nodejs_22", "ffmpeg-full", "fontconfig", "dejavu_fonts"]
+# Worker system dependencies:
+#   nodejs_22       — runtime (see above)
+#   ffmpeg-full     — child_process.spawn("ffmpeg") for audio mux step
+#                     in video-merge.ts (post-Remotion render). Full build
+#                     gives us libx264 + aac + amix filter support.
+#   fontconfig +    — used by older `fc-match` overlay font lookup (now
+#   dejavu_fonts      dead code post-ADR-001 Phase 2 since overlays render
+#                     in Remotion/Chrome, but cheap to keep around for the
+#                     single-clip fallback path if it ever needs text).
+#
+# ADR-001 Phase 2 additions for Remotion + Chrome Headless Shell:
+#   chromium        — full Chromium binary. Remotion can also auto-download
+#                     a Chrome Headless Shell into ~/.cache/remotion (see
+#                     `npx remotion browser ensure` in [phases.build]),
+#                     but having chromium present means our system has all
+#                     the shared libs the headless shell links against.
+#   liberation_ttf  — Chromium needs fallback fonts for text rendering of
+#                     the <OverlayText> component in remotion/compositions/.
+nixPkgs = [
+  "nodejs_22",
+  "ffmpeg-full",
+  "fontconfig",
+  "dejavu_fonts",
+  # v2 Phase 2 — Chromium + fonts for Remotion render in video-merge worker
+  "chromium",
+  "liberation_ttf",
+]
 
 [phases.install]
 cmds = ["npm ci --include=dev"]
 
 [phases.build]
-cmds = ["npm run build:worker"]
+# Pre-download Remotion's Chrome Headless Shell INTO the image layer so the
+# first worker job after a deploy doesn't pay the ~113MB / ~30s download.
+# This matches the root project's Dockerfile.worker pattern. The download
+# lands in ~/.cache/remotion and is reused for every render.
+#
+# `--silent` suppresses the progress bar (clean Railway build logs).
+cmds = [
+  "npm run build:worker",
+  "npx remotion browser ensure --silent",
+]
 
 [start]
 cmd = "npm run start:worker"
