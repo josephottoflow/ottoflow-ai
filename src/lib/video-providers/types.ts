@@ -25,6 +25,24 @@ export interface SceneRequest {
   aspectRatio?: "9:16" | "16:9" | "1:1";
   /** Seed for deterministic generation when supported. */
   seed?: number;
+  /**
+   * Video Pipeline v2 F3 — brand + topic context. Used by:
+   *   - PexelsFallbackProvider → forwarded to findStockVideoByPrompt so
+   *     keyword extraction lands on the brand's actual industry instead
+   *     of pattern-matched generic topics (root cause from
+   *     VIDEO_TIMELINE_AUDIT.md).
+   *   - RunwayProvider → forwarded to findStockPhotoByPrompt so the
+   *     seed image is on-topic for the brand.
+   *   - LumaProvider → ignored (Luma is pure text-to-video; the prompt
+   *     itself already carries the visual brief).
+   *
+   * All optional for backward compat with legacy callers (e.g. free-form
+   * prompt flow where no brand record exists).
+   */
+  brandIndustry?: string | null;
+  topicTitle?: string | null;
+  /** Shot type from storyboard (e.g. "close-up", "wide"). Influences Pexels query construction. */
+  shotType?: string | null;
 }
 
 export interface SceneResult {

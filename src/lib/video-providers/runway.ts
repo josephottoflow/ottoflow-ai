@@ -86,10 +86,17 @@ export class RunwayProvider implements VideoProvider {
     const startMs = Date.now();
 
     // ─── 0. Find a Pexels seed image matching the scene ─────────────────────
+    // v2 F3 — forward brand/topic so the seed image is on-topic for the
+    // brand's industry instead of relying on keyword extraction from the
+    // raw scene description (which can drift into tech imagery for
+    // brand-context-heavy topics like "AI for real estate").
     const orientation = request.aspectRatio === "16:9" ? "landscape" : "portrait";
     const photo = await findStockPhotoByPrompt({
       prompt: request.prompt,
       orientation,
+      brandIndustry: request.brandIndustry ?? null,
+      topicTitle: request.topicTitle ?? null,
+      shotType: request.shotType ?? null,
     });
     if (!photo) {
       throw new Error(

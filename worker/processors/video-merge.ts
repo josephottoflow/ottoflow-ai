@@ -37,6 +37,7 @@ import { createAdminClient } from "@/lib/supabase";
 import type { VideoMergeJobData, VideoMergeOverlay, VideoMergeScene } from "@/lib/queue";
 import { generateScene as registryGenerateScene } from "@/lib/video-providers/registry";
 import { recordAIUsage } from "@/lib/budget";
+import { captureFallback } from "@/lib/observability";
 
 type Reporter = (step: string, progress: number) => void;
 
@@ -218,7 +219,7 @@ export async function processVideoMerge(
   report: Reporter,
 ): Promise<{ ok: true; mergedUrl: string }> {
   const admin = createAdminClient();
-  const { renderJobId, userId, videoUrl, audioDataUrl, musicUrl, overlays, sceneSpecs, aestheticNotes } = data;
+  const { renderJobId, userId, videoUrl, audioDataUrl, musicUrl, overlays, sceneSpecs, aestheticNotes, brandIndustry, topicTitle } = data;
   let { scenes } = data;
   const duckingDb = data.musicDuckingDb ?? -12;
   const hasOverlays = !!overlays && overlays.length > 0;
@@ -240,6 +241,12 @@ export async function processVideoMerge(
   // Concurrency cap of 3 keeps us under Runway/Luma rate limits. Each
   // scene's row gets inserted as it completes so the /video/[jobId]
   // detail page can show live progress via Realtime.
+  //
+  // Video Pipeline v2 F1 — track per-scene failure reasons so we can write
+  // a single structured merge_error explaining WHY a 4-scene plan ended up
+  // a 1-clip video. The audit (VIDEO_TIMELINE_AUDIT.md) showed this is
+  // the dominant failure mode in production.
+  const sceneFailures: { index: number; reason: string }[] = [];
   if (needsSceneGeneration) {
     report("merging", 5);
     const completed: VideoMergeScene[] = [];
@@ -261,6 +268,13 @@ export async function processVideoMerge(
             prompt: `${aestheticPrefix}${spec.prompt}`.trim(),
             durationSec: spec.durationSec,
             aspectRatio: "9:16",
+            // v2 F3 — brand/topic context for per-scene Pexels fallback
+            // + Runway seed-photo search. brandIndustry/topicTitle come
+            // from the merge JobData (shared across scenes); shotType
+            // comes from this scene's spec.
+            brandIndustry: brandIndustry ?? null,
+            topicTitle: topicTitle ?? null,
+            shotType: spec.shotType ?? null,
           });
           const generationTimeMs = Date.now() - startedAt;
           completed.push({
@@ -305,6 +319,9 @@ export async function processVideoMerge(
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
+          // v2 F1 — collect per-scene failures so we can surface a single
+          // structured merge_error explaining why the user sees one clip.
+          sceneFailures.push({ index: spec.index, reason: message.slice(0, 200) });
           row = {
             render_job_id: renderJobId,
             scene_number: spec.index,
@@ -330,12 +347,78 @@ export async function processVideoMerge(
     await Promise.all(
       Array.from({ length: Math.min(CONCURRENCY, specs.length) }, () => worker()),
     );
-    // Sort + assign for the rest of the pipeline below. Skip failed scenes.
     completed.sort((a, b) => a.index - b.index);
-    scenes = completed;
+
+    // ─── Video Pipeline v2 F4 — pad partial success ──────────────────────
+    // The old policy: scenes = completed. If only 1 of 4 scenes succeeded
+    // the worker would throw the partial result away and fall back to a
+    // single-clip Pexels prefetch. F4 keeps the successful scenes and
+    // fills the missing slots with the prefetched `videoUrl` so the user
+    // sees what their plan produced instead of a uniform stock clip.
+    //
+    // Each gap is filled at the spec's original durationSec (the ffmpeg
+    // normalize step caps each input via `-t targetDur`). All gaps share
+    // the same videoUrl source — visually they'll look identical, but
+    // the AI-generated successful scenes still get to shine through.
+    const successByIndex = new Map(completed.map((c) => [c.index, c]));
+    const padded: VideoMergeScene[] = [];
+    for (const spec of specs) {
+      const hit = successByIndex.get(spec.index);
+      if (hit) {
+        padded.push(hit);
+      } else if (videoUrl && videoUrl.length > 0) {
+        padded.push({
+          index: spec.index,
+          url: videoUrl,
+          durationSec: spec.durationSec,
+          provider: "pexels-fallback",
+        });
+      }
+      // If no videoUrl prefetch is available either, we drop the slot — the
+      // remaining concat will still produce a multi-segment video from the
+      // successful ones.
+    }
+    scenes = padded;
   }
 
-  const hasScenes = !!scenes && scenes.length > 1;
+  // ─── F4: hasScenes threshold relaxed from > 1 to >= 1 ──────────────────
+  // Together with the padding above, this means: any planned multi-scene
+  // job with at least one slot resolved (either a real scene gen or a
+  // padded prefetch) goes through the concat path. The single-clip path
+  // is now reserved for truly single-clip jobs (sceneSpecs absent or
+  // length ≤ 1 from the route).
+  const hasScenes = !!scenes && scenes.length >= 1;
+
+  // ─── F1 — surface silent fallback ──────────────────────────────────────
+  // If the route asked for multi-scene but every single provider call
+  // failed, write a structured merge_error to the render_jobs row so the
+  // UI can show it AND Sentry gets paged. The user sees one stock clip;
+  // we want them (and us) to know why.
+  if (needsSceneGeneration && sceneFailures.length === sceneSpecs!.length) {
+    const failureMsg = `Scene generation produced 0 of ${sceneSpecs!.length} clips — reverted to single Pexels clip. First failure: ${sceneFailures[0]?.reason ?? "unknown"}`;
+    await admin
+      .from("render_jobs")
+      .update({ merge_error: failureMsg })
+      .eq("id", renderJobId);
+    captureFallback("video-merge.all_scenes_failed", new Error(failureMsg), {
+      renderJobId,
+      sceneCount: sceneSpecs!.length,
+      failures: sceneFailures.slice(0, 5),
+    });
+  } else if (needsSceneGeneration && sceneFailures.length > 0) {
+    // Partial failure — log but don't write merge_error (the merge will
+    // still produce a multi-segment video thanks to F4 padding).
+    captureFallback(
+      "video-merge.partial_scene_failure",
+      new Error(`${sceneFailures.length} of ${sceneSpecs!.length} scenes failed`),
+      {
+        renderJobId,
+        sceneCount: sceneSpecs!.length,
+        failedCount: sceneFailures.length,
+        failures: sceneFailures.slice(0, 5),
+      },
+    );
+  }
 
   // Working directory under /tmp — Railway gives ample disk for this.
   const workDir = path.join(tmpdir(), `merge-${renderJobId}-${randomUUID()}`);

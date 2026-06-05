@@ -819,6 +819,12 @@ export async function POST(req: NextRequest) {
               // can prefix each scene prompt with it. Previously generated
               // and stored but never consumed by any downstream stage.
               aestheticNotes: storyboard.aestheticNotes ?? undefined,
+              // v2 F3 — brand industry + topic title forwarded so the
+              // worker's per-scene Pexels fallback + Runway seed-photo
+              // search land on the brand's actual industry instead of
+              // keyword-extracting from generic scene descriptions.
+              brandIndustry: brandForGen?.industry ?? null,
+              topicTitle: topicForGen?.title ?? null,
             },
             { jobId },
           );

@@ -20,9 +20,16 @@ export class PexelsFallbackProvider implements VideoProvider {
 
   async generateScene(request: SceneRequest): Promise<SceneResult> {
     try {
+      // v2 F3 — forward brand/topic context so the per-scene Pexels
+      // fallback uses the same query priority as the route's prefetch.
+      // Falls back gracefully when the fields aren't provided (legacy
+      // callers without brand records).
       const clip = await findStockVideoByPrompt({
         prompt: request.prompt,
         targetSeconds: request.durationSec,
+        brandIndustry: request.brandIndustry ?? null,
+        topicTitle: request.topicTitle ?? null,
+        shotType: request.shotType ?? null,
       });
       if (!clip) {
         throw new Error(

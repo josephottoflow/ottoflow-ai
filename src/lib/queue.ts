@@ -209,6 +209,18 @@ export interface VideoMergeJobData {
    * Truncated to 400 chars at the worker before injection.
    */
   aestheticNotes?: string;
+  /**
+   * Video Pipeline v2 F3 — brand industry + topic title shared across
+   * every scene in this job. Worker forwards into each
+   * registryGenerateScene() call so the per-scene Pexels fallback (and
+   * Runway's seed-photo search) can construct queries grounded in the
+   * brand's actual industry instead of pattern-matching keywords from
+   * the scene description.
+   *
+   * Optional for legacy free-form prompt callers without a brand record.
+   */
+  brandIndustry?: string | null;
+  topicTitle?: string | null;
 }
 
 export interface JobPayloads {
