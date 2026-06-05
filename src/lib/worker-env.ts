@@ -92,6 +92,24 @@ const WorkerSchema = z.object({
     .min(10, "Pexels key looks too short")
     .pipe(headerSafe("Pexels key has invalid characters for an HTTP header"))
     .optional(),
+
+  // ─── Remotion render tuning (ADR-001 Phase 3) ────────────────────────────
+  // Hard cap on a single renderMedia() call. Catches Chrome hangs and asset
+  // 403s that would otherwise consume BullMQ's stalled-job recovery window.
+  // Spike rendered 24s of video in 78s; production target 30-60s should
+  // finish in ~100-200s. 5-min default gives generous headroom.
+  REMOTION_RENDER_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(300_000),
+  // Optional override — point Remotion at a specific Chrome binary instead
+  // of the auto-downloaded Chrome Headless Shell. Useful when nix's
+  // chromium package is preferable (smaller deploy diff, no cache eviction
+  // risk across Railway redeploys). Leave unset to use the cached binary
+  // in ~/.cache/remotion (pre-warmed by `npx remotion browser ensure` in
+  // nixpacks.toml [phases.build]).
+  REMOTION_CHROME_EXECUTABLE: z.string().min(1).optional(),
 });
 
 export type WorkerEnv = z.infer<typeof WorkerSchema>;

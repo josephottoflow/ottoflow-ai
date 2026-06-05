@@ -474,17 +474,39 @@ export async function processVideoMerge(
     // downstream audio mux can stream-copy the video (no re-encode).
     const silentPath = path.join(workDir, "silent.mp4");
     if (hasScenes) {
-      await renderSilentVideo({
-        scenes: scenes!,
-        overlays: overlays ?? [],
-        outputPath: silentPath,
-        onProgress: (p) => {
-          // Map Remotion 0..1 → our 28..80 milestone range so render_jobs.progress
-          // updates remain coherent for the UI Realtime subscription (v2 P0).
-          const milestoneRange = 80 - 28;
-          report("merging", 28 + Math.round(p * milestoneRange));
-        },
-      });
+      // Phase 3.B — wrap renderSilentVideo with structured error capture.
+      // On Remotion failure (Chrome crash, asset 403, render timeout, etc.)
+      // we attach renderJobId + scene count to Sentry, write merge_error
+      // to the render_jobs row so the UI can show what happened, then
+      // re-throw so BullMQ retries the job per its attempts policy.
+      try {
+        await renderSilentVideo({
+          scenes: scenes!,
+          overlays: overlays ?? [],
+          outputPath: silentPath,
+          onProgress: (p) => {
+            // Map Remotion 0..1 → our 28..80 milestone range so render_jobs.progress
+            // updates remain coherent for the UI Realtime subscription (v2 P0).
+            const milestoneRange = 80 - 28;
+            report("merging", 28 + Math.round(p * milestoneRange));
+          },
+        });
+      } catch (renderErr) {
+        const msg = renderErr instanceof Error ? renderErr.message : String(renderErr);
+        await admin
+          .from("render_jobs")
+          .update({
+            merge_error: `Remotion render failed (${scenes!.length} scenes): ${msg.slice(0, 400)}`,
+          })
+          .eq("id", renderJobId);
+        captureFallback("video-merge.remotion_render_failed", renderErr, {
+          renderJobId,
+          sceneCount: scenes!.length,
+          overlayCount: overlays?.length ?? 0,
+          totalDurationSec: scenes!.reduce((s, x) => s + x.durationSec, 0),
+        });
+        throw renderErr;
+      }
     } else {
       // Single-clip fallback: the prefetched videoUrl is already at videoIn.
       // Rename to silentPath so the downstream ffmpeg mux uses the same

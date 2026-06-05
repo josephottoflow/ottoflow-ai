@@ -34,6 +34,16 @@ import type {
   TimelineScene,
 } from "../remotion/types";
 
+// ─── Phase 3 ops knobs ─────────────────────────────────────────────────────
+// All env reads happen at module load; values are captured once. We read
+// from process.env directly (not worker-env.ts) to avoid coupling this
+// module to the validated env schema — keeps the helper unit-testable.
+const RENDER_TIMEOUT_MS = Number(
+  process.env.REMOTION_RENDER_TIMEOUT_MS ?? "300000",
+);
+const CHROME_EXEC_OVERRIDE =
+  process.env.REMOTION_CHROME_EXECUTABLE?.trim() || undefined;
+
 // ─── Module-scope cache ────────────────────────────────────────────────────
 // First call to getBundleUrl pays the bundle cost (~4-5s). Every render
 // thereafter reuses the URL.
@@ -116,7 +126,12 @@ export async function renderSilentVideo(
     transitionSec: 0.4,
   };
 
-  await renderMedia({
+  // Phase 3.A — wrap renderMedia in a timeout race so a hung Chrome
+  // process can't sit forever and waste BullMQ's stalled-job recovery
+  // window. The timeout default is 5 min (env-tunable). On timeout we
+  // throw a typed error so the caller (video-merge.ts) can attach
+  // structured context for Sentry.
+  const renderPromise = renderMedia({
     composition: {
       ...composition,
       // Override durationInFrames to match the actual scene durations for
@@ -127,17 +142,45 @@ export async function renderSilentVideo(
     codec: "h264",
     outputLocation: input.outputPath,
     inputProps: props as Record<string, unknown>,
-    // Match what video-merge.ts:587 currently uses for the drawtext re-encode.
-    // The downstream ffmpeg audio mux runs -c:v copy so we don't pay this
-    // re-encode cost twice.
+    // Same H.264 + yuv420p the FFmpeg pipeline produced — downstream
+    // audio mux stream-copies the video stream (no re-encode).
     pixelFormat: "yuv420p",
     onProgress: input.onProgress
       ? ({ progress }) => input.onProgress?.(progress)
       : undefined,
-    // Keep Chromium concurrency at 1 — the worker already has CONCURRENCY=2
-    // for parallel jobs; running 2 Chromes per job would OOM Railway.
+    // Phase 3.C — Chrome single-process keeps RAM use predictable on
+    // Railway's small worker replicas. Without this, each render spawns
+    // a parent + renderer + GPU process tree (1GB+ peak).
+    chromiumOptions: {
+      enableMultiProcessOnLinux: false,
+    },
+    // Optional override: point Remotion at a specific Chrome binary
+    // (e.g. nix-store's /nix/store/.../chromium). When unset, Remotion
+    // uses the auto-downloaded Chrome Headless Shell from ~/.cache/remotion
+    // (pre-warmed in nixpacks.toml [phases.build]).
+    browserExecutable: CHROME_EXEC_OVERRIDE,
+    // One Chromium per renderMedia call — worker-level concurrency caps
+    // how many jobs run in parallel (videoMerge worker = 1 by default).
     concurrency: 1,
   });
+
+  const timeoutHandle: { id?: NodeJS.Timeout } = {};
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutHandle.id = setTimeout(() => {
+      reject(
+        new Error(
+          `Remotion renderMedia exceeded ${RENDER_TIMEOUT_MS}ms timeout — Chrome may be hung or asset fetch stalled. Increase REMOTION_RENDER_TIMEOUT_MS if your videos legitimately need more time.`,
+        ),
+      );
+    }, RENDER_TIMEOUT_MS);
+    timeoutHandle.id.unref?.();
+  });
+
+  try {
+    await Promise.race([renderPromise, timeoutPromise]);
+  } finally {
+    if (timeoutHandle.id) clearTimeout(timeoutHandle.id);
+  }
 
   return {
     outputPath: input.outputPath,
