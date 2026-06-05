@@ -67,6 +67,31 @@ const WorkerSchema = z.object({
   LOG_LEVEL: z
     .enum(["trace", "debug", "info", "warn", "error", "fatal"])
     .default("info"),
+
+  // ─── Scene-generation providers (Video Pipeline v2 F2) ───────────────────
+  // All three are OPTIONAL at the schema level so the worker can boot to
+  // serve brand-research + content-generation even when scene gen is
+  // disabled. worker/index.ts logs a structured warning at boot if all
+  // three are unset (the video-merge processor will degrade to single-clip
+  // Pexels fallback for every job — see VIDEO_TIMELINE_AUDIT.md).
+  //
+  // At least ONE of these should be set in production. PEXELS_API_KEY is
+  // the cheapest path and produces working (if generic) results.
+  RUNWAYML_API_SECRET: z
+    .string()
+    .min(10, "Runway secret looks too short")
+    .pipe(headerSafe("Runway secret has invalid characters for an HTTP header"))
+    .optional(),
+  LUMA_API_KEY: z
+    .string()
+    .min(10, "Luma key looks too short")
+    .pipe(headerSafe("Luma key has invalid characters for an HTTP header"))
+    .optional(),
+  PEXELS_API_KEY: z
+    .string()
+    .min(10, "Pexels key looks too short")
+    .pipe(headerSafe("Pexels key has invalid characters for an HTTP header"))
+    .optional(),
 });
 
 export type WorkerEnv = z.infer<typeof WorkerSchema>;
@@ -110,4 +135,9 @@ export const OPTIONAL_WORKER_VARS = [
   { name: "GEMINI_TIMEOUT_MS", default: "90000" },
   { name: "WORKER_CONCURRENCY", default: "2" },
   { name: "LOG_LEVEL", default: "info" },
+  // Scene-gen providers — at least one should be set OR the video-merge
+  // processor degrades to a single Pexels clip for every job.
+  { name: "RUNWAYML_API_SECRET", default: "(scene gen disabled if unset)" },
+  { name: "LUMA_API_KEY", default: "(scene gen disabled if unset)" },
+  { name: "PEXELS_API_KEY", default: "(scene gen disabled if unset)" },
 ] as const;

@@ -91,6 +91,41 @@ const periodicSweepHandle = schedulePeriodicSweep(recoveryAdmin, (msg, extra) =>
   log("recovery", msg.replace(/^recovery\./, ""), extra),
 );
 
+// ─── Video Pipeline v2 F2: scene-provider visibility ────────────────────────
+// Surface scene-gen capability at boot so the operator can tell at a glance
+// whether video-merge jobs will produce real multi-scene composition or fall
+// back to single-clip Pexels (the root cause of the timeline audit's P0).
+//
+// We deliberately do NOT refuse boot when all three are unset — the worker
+// also serves brand-research + content-generation, which don't need these
+// keys. Instead we log a structured WARN that monitoring/alerts can latch on
+// to. See docs/VIDEO_TIMELINE_AUDIT.md F1/F2.
+{
+  const runwayCfg = !!workerEnv.RUNWAYML_API_SECRET && !!workerEnv.PEXELS_API_KEY;
+  const lumaCfg = !!workerEnv.LUMA_API_KEY;
+  const pexelsCfg = !!workerEnv.PEXELS_API_KEY;
+  const anyCfg = runwayCfg || lumaCfg || pexelsCfg;
+  const payload = {
+    runway: runwayCfg,
+    luma: lumaCfg,
+    pexels: pexelsCfg,
+    sceneGenAvailable: anyCfg,
+  };
+  if (!anyCfg) {
+    logError("worker", "scene_providers.all_unset", {
+      ...payload,
+      hint:
+        "video-merge jobs will fall back to a single Pexels clip prefetched on Vercel " +
+        "for every render. Set RUNWAYML_API_SECRET (+PEXELS_API_KEY for the seed image), " +
+        "LUMA_API_KEY, or PEXELS_API_KEY in Railway → Variables to enable real multi-scene " +
+        "composition.",
+    });
+    Sentry.captureMessage("scene-providers all unset on worker", { level: "warning" });
+  } else {
+    log("worker", "scene_providers.configured", payload);
+  }
+}
+
 // ─── Step 6: Brand Research worker ───────────────────────────────────────────
 const brandResearchWorker = new Worker<BrandResearchJobData>(
   QUEUE_NAMES.brandResearch,
