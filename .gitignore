@@ -46,3 +46,8 @@ coverage/
 .idea/
 .DS_Store
 Thumbs.db
+
+# ─── Remotion spike artifacts (ADR-001 Phase 1) ──────────────────────────────
+spike-output.mp4
+# Remotion's local Chrome Headless cache + bundle cache
+.remotion/
