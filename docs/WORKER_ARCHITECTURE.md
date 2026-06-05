@@ -305,3 +305,174 @@ size. Node start-up is sub-second either way.
   and where the worker's service-role escape hatch fits in
 - [PRODUCTION_AUDIT.md](./PRODUCTION_AUDIT.md) — full risk register with
   severity grouping
+- [ADR-001-video-composition-engine.md](./ADR-001-video-composition-engine.md)
+  — Hybrid Remotion+FFmpeg architecture decision
+- [VIDEO_TIMELINE_AUDIT.md](./VIDEO_TIMELINE_AUDIT.md) — the audit that
+  surfaced the silent-fallback failure mode
+
+---
+
+## 11. Video-merge processor — post-ADR-001 architecture
+
+The `video-merge` queue is a parallel third worker spawned alongside
+`brand-research` and `content-generation`. Lifecycle, env validation,
+shutdown, and recovery semantics are identical to the other two — but
+the processor itself runs a deeper pipeline involving AI scene-gen
+providers + Remotion + FFmpeg.
+
+### Pipeline diagram (post-ADR-001 Phase 2+3)
+
+```
+                  Vercel /api/generate enqueues VideoMergeJobData
+                  { renderJobId, scenes?, sceneSpecs?, overlays?,
+                    audioDataUrl?, musicUrl?, videoUrl,
+                    brandIndustry?, topicTitle?, aestheticNotes? }
+                                       │
+                                       ▼
+   ┌─────────────────────────────────────────────────────────────────┐
+   │  worker/processors/video-merge.ts                               │
+   │                                                                  │
+   │  ┌─────────────────────────────────────────────────────────┐    │
+   │  │ 1. Scene generation (if sceneSpecs && length > 1)        │    │
+   │  │    Concurrency=3, for each spec call:                    │    │
+   │  │       registryGenerateScene(prompt + brand context)      │    │
+   │  │       → Runway → Luma → Pexels chain                     │    │
+   │  │    F1: sceneFailures[] collected per scene               │    │
+   │  │    F4: failed slots padded with prefetched videoUrl     │    │
+   │  │    progress: 5 → 28                                       │    │
+   │  └────────────┬────────────────────────────────────────────┘    │
+   │               │                                                   │
+   │               ▼                                                   │
+   │  ┌─────────────────────────────────────────────────────────┐    │
+   │  │ 2. Audio download (parallel)                             │    │
+   │  │    narration MP3 from data URL + music MP3 from URL      │    │
+   │  │    progress: 28                                          │    │
+   │  └────────────┬────────────────────────────────────────────┘    │
+   │               │                                                   │
+   │               ▼                                                   │
+   │  ┌─────────────────────────────────────────────────────────┐    │
+   │  │ 3a. Multi-scene path (hasScenes)                         │    │
+   │  │     worker/render-remotion.ts                            │    │
+   │  │     ┌─────────────────────────────────────────────────┐  │    │
+   │  │     │ getBundleUrl() (cached after first call)         │  │    │
+   │  │     │   @remotion/bundler → compiles remotion/         │  │    │
+   │  │     │   into a webpack serve URL                       │  │    │
+   │  │     ├─────────────────────────────────────────────────┤  │    │
+   │  │     │ getComposition() (cached after first call)       │  │    │
+   │  │     │   @remotion/renderer → spins up Chrome, loads    │  │    │
+   │  │     │   Root.tsx, resolves MultiSceneVideo schema      │  │    │
+   │  │     ├─────────────────────────────────────────────────┤  │    │
+   │  │     │ renderMedia({                                    │  │    │
+   │  │     │   composition, serveUrl, inputProps={scenes,     │  │    │
+   │  │     │   overlays}, pixelFormat:'yuv420p', codec:'h264',│  │    │
+   │  │     │   chromiumOptions:{enableMultiProcessOnLinux:    │  │    │
+   │  │     │     false},                       (Phase 3.C)    │  │    │
+   │  │     │   browserExecutable: REMOTION_CHROME_EXECUTABLE  │  │    │
+   │  │     │     ?? auto-downloaded shell      (Phase 3.C)    │  │    │
+   │  │     │ })                                               │  │    │
+   │  │     │   wrapped in Promise.race(timeout = 5min default)│  │    │
+   │  │     │   onProgress maps to 28..80 milestones (Phase 3.A)│ │    │
+   │  │     └─────────────────────────────────────────────────┘  │    │
+   │  │     → silent.mp4 (720x1280, 30fps, H.264, yuv420p,       │    │
+   │  │       NO audio track)                                    │    │
+   │  │     try/catch surfaces Sentry "remotion_render_failed"   │    │
+   │  │       with renderJobId + sceneCount   (Phase 3.B)        │    │
+   │  │                                                          │    │
+   │  │ 3b. Single-clip fallback path (!hasScenes)              │    │
+   │  │     Just `mv videoIn silent.mp4` — the prefetched        │    │
+   │  │     Pexels clip is the silent video. No Remotion.        │    │
+   │  │                                                          │    │
+   │  │     progress: 30..80 (Remotion) or 80 (single-clip)      │    │
+   │  └────────────┬────────────────────────────────────────────┘    │
+   │               │                                                   │
+   │               ▼                                                   │
+   │  ┌─────────────────────────────────────────────────────────┐    │
+   │  │ 4. Audio mux via FFmpeg                                  │    │
+   │  │    ffmpeg -i silent.mp4 -i narration.mp3 -i music.mp3 \  │    │
+   │  │      -filter_complex                                     │    │
+   │  │      "[1:a]volume=1.0[narr];                             │    │
+   │  │       [2:a]volume=0.251[mus];          (10^(-12/20) dB)  │    │
+   │  │       [narr][mus]amix=inputs=2:duration=first[mix]"      │    │
+   │  │      -map 0:v:0 -map [mix]                               │    │
+   │  │      -c:v copy                  (NO re-encode of video!) │    │
+   │  │      -c:a aac -b:a 192k -shortest merged.mp4             │    │
+   │  │                                                          │    │
+   │  │    progress: 95                                          │    │
+   │  └────────────┬────────────────────────────────────────────┘    │
+   │               │                                                   │
+   │               ▼                                                   │
+   │  ┌─────────────────────────────────────────────────────────┐    │
+   │  │ 5. Supabase Storage upload                               │    │
+   │  │    bucket=merged-videos                                  │    │
+   │  │    path=<userId>/<renderJobId>.mp4                       │    │
+   │  │    service-role admin client (bypasses RLS)              │    │
+   │  │                                                          │    │
+   │  │    progress: 100, merge_status='done', merged_video_url  │    │
+   │  └─────────────────────────────────────────────────────────┘    │
+   └─────────────────────────────────────────────────────────────────┘
+```
+
+### Why the silent.mp4 / audio.mp4 split
+
+Two engines, one strict responsibility boundary:
+
+- **Remotion** owns visual composition. Multi-scene `<TransitionSeries>`,
+  `<OffthreadVideo>` per scene, animated `<OverlayText>` sequences. Output:
+  silent H.264 MP4. See `remotion/Root.tsx`, `remotion/compositions/*.tsx`.
+
+- **FFmpeg** owns audio mixing + final muxing. Same `amix=duration=first`
+  + ducking pipeline that's been in production since the FFmpeg-only era.
+  Stream-copies the silent video (`-c:v copy`) so we don't pay a second
+  encode pass.
+
+This makes the Chrome RAM footprint predictable (it's only there for
+visual composition, never for the audio path) and lets us swap either
+side independently if Remotion gets too expensive or FFmpeg gets a
+better filter.
+
+### Phase 3 ops knobs
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `REMOTION_RENDER_TIMEOUT_MS` | `300000` (5min) | Hard cap on a single renderMedia call. Catches Chrome hangs before BullMQ stalled-job recovery misclassifies the worker as crashed. |
+| `REMOTION_CHROME_EXECUTABLE` | unset (auto-download) | Point Remotion at a specific Chromium binary (e.g. nix's). Useful when Railway redeploys wipe `~/.cache/remotion`. |
+| `RUNWAYML_API_SECRET` | unset | Runway Gen-4 scene generation. Requires `PEXELS_API_KEY` for seed image. |
+| `LUMA_API_KEY` | unset | Luma Ray-Flash text-to-video scene generation. |
+| `PEXELS_API_KEY` | unset (recommended set) | Stock-clip scene fallback + Runway seed-photo search. Without this OR Luma, every video falls back to the single-clip prefetched videoUrl path. |
+
+Worker boot logs `scene_providers.configured` with all four states so
+operators can see scene-gen capability at a glance. When all three
+provider keys are unset, the worker still boots (so brand-research +
+content-generation continue working) but emits a structured WARN +
+Sentry event explaining the degradation.
+
+### Progress milestone schedule (post-Phase 2)
+
+| Progress | Event |
+|---|---|
+| 5 | Scene generation loop entered (multi-scene path only) |
+| 10 | Asset downloads started (narration + music in parallel) |
+| 28 | Audio downloads complete; about to enter render step |
+| 28..80 | Remotion renderMedia progress (interpolated from its 0..1) |
+| 80 | silent.mp4 written (or single-clip rename done) |
+| 95 | FFmpeg audio mux complete |
+| 100 | Supabase Storage upload complete, `merged_video_url` set |
+
+UI subscribes to `render_jobs` Realtime — these milestones tick the
+progress bar smoothly throughout the merge instead of jumping from
+0 to 100. See [VIDEO_PIPELINE_V2.md](./VIDEO_PIPELINE_V2.md) P0 for
+the original silent-progress fix that enables this.
+
+### Failure modes specific to this processor
+
+| Failure | Detection | Recovery |
+|---|---|---|
+| Every scene-gen provider throws | `sceneFailures.length === sceneSpecs.length` | F1: write `merge_error` to render_jobs, captureFallback, fall back to single-clip path |
+| Some scenes fail | `sceneFailures.length > 0 && < sceneSpecs.length` | F4: pad failed slots with prefetched videoUrl, continue to Remotion render |
+| Remotion render fails (Chrome crash, asset 403, timeout) | renderMedia throws or 5min timeout fires | Phase 3.B: captureFallback + write merge_error + re-throw for BullMQ retry |
+| FFmpeg audio mux fails | Non-zero exit code | Throw with full stderr tail, BullMQ retries per `attempts: 2` |
+| Supabase Storage upload fails | Upload returns error | Throw, BullMQ retries |
+
+Sentry tags for video-merge events: `queue: video-merge`,
+`render_job.id: <uuid>`. Filter the Sentry dashboard by these tags
+to see only video pipeline failures.
