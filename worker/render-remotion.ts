@@ -127,6 +127,11 @@ async function getComposition(): Promise<NonNullable<typeof cachedComposition>> 
   cachedComposition = await selectComposition({
     serveUrl,
     id: "MultiSceneVideo",
+    // 2026-06-06 — selectComposition spawns its own Chrome to evaluate
+    // Root.tsx. Without browserExecutable here, it falls back to the
+    // bundled chrome-headless-shell and fails on libnspr4.so. renderMedia
+    // gets the same param below — both call sites must pass it.
+    browserExecutable: RESOLVED_CHROME_EXECUTABLE ?? null,
   });
   return cachedComposition;
 }
