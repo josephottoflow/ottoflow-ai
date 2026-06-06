@@ -132,6 +132,12 @@ async function getComposition(): Promise<NonNullable<typeof cachedComposition>> 
     // bundled chrome-headless-shell and fails on libnspr4.so. renderMedia
     // gets the same param below — both call sites must pass it.
     browserExecutable: RESOLVED_CHROME_EXECUTABLE ?? null,
+    // chrome-for-testing makes Remotion pass --headless=new (new Chrome
+    // headless mode). Required because nix-installed chromium 149+ removed
+    // support for --headless=old. Default chromeMode "headless-shell" only
+    // works against the bundled chrome-headless-shell binary, which we
+    // explicitly bypassed via browserExecutable.
+    chromeMode: "chrome-for-testing",
   });
   return cachedComposition;
 }
@@ -211,6 +217,10 @@ export async function renderSilentVideo(
     // resolveChromiumExecutable() above for resolution order + the libnspr4
     // bug that motivated the auto-discovery rewrite.
     browserExecutable: RESOLVED_CHROME_EXECUTABLE,
+    // chrome-for-testing → Remotion passes --headless=new (modern Chrome
+    // flag). Default "headless-shell" mode passes --headless=old which
+    // modern Chromium binaries (nix package 149+) no longer support.
+    chromeMode: "chrome-for-testing",
     // One Chromium per renderMedia call — worker-level concurrency caps
     // how many jobs run in parallel (videoMerge worker = 1 by default).
     concurrency: 1,
