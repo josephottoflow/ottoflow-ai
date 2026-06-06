@@ -42,8 +42,13 @@ import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase";
 import { rateLimit } from "@/lib/rate-limit";
 import { captureFallback } from "@/lib/observability";
-import { videoMergeQueue } from "@/lib/queue";
+import { videoMergeQueue, ffmpegComposeQueue } from "@/lib/queue";
 import { getBudgetStatus, recordAIUsage, COST } from "@/lib/budget";
+import {
+  runScriptPhase,
+  runCompositionPhase,
+} from "@/lib/ffmpeg-pipeline/orchestrator";
+import type { AgentContext } from "@/lib/ffmpeg-pipeline/types";
 // `generateScene` no longer imported here — Phase D moves the provider
 // calls to the worker. See worker/processors/video-merge.ts.
 import {
@@ -114,6 +119,186 @@ function sseFrame(payload: Record<string, unknown>): Uint8Array {
   // SSE format: each event is `data: <json>\n\n`. The client splits on
   // newlines and looks for the `data:` prefix.
   return new TextEncoder().encode(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+// ─── ADR-002 · FFmpeg multi-agent pipeline runner ────────────────────────────
+// Invoked from inside the SSE stream when USE_FFMPEG_PIPELINE=1. Runs the
+// script phase (Agents 1-3) → ElevenLabs narration → Jamendo music →
+// composition phase (Agents 4-10) → enqueue `ffmpeg-compose` (Agents 11-12
+// run in the worker). Throws on fatal errors so the caller's outer catch
+// surfaces a `type:error` SSE event + marks the job failed.
+interface FfmpegV2Args {
+  emit: (payload: Record<string, unknown>) => void;
+  log: (level: "info" | "success" | "error" | "warn", message: string) => void;
+  status: (label: string, pct: number) => void;
+  admin: ReturnType<typeof createAdminClient>;
+  jobId: string;
+  userId: string;
+  topic: string;
+  effectivePrompt: string;
+  brandId: string | null;
+  brandIndustry: string | null;
+  musicVibe: string;
+  targetSeconds: number;
+  startMs: number;
+}
+
+async function runFfmpegV2Pipeline(args: FfmpegV2Args): Promise<void> {
+  const {
+    emit, log, status, admin, jobId, userId, topic, effectivePrompt,
+    brandIndustry, musicVibe, targetSeconds, startMs,
+  } = args;
+
+  log("info", "FFmpeg pipeline (ADR-002) engaged");
+  status("Generating strategy + script", 8);
+  await admin
+    .from("render_jobs")
+    .update({ status: "rendering", progress: 8, pipeline_version: "ffmpeg-v2" })
+    .eq("id", jobId);
+
+  const ctx: AgentContext = {
+    renderJobId: jobId,
+    userId,
+    topic,
+    brandId: args.brandId,
+    brandIndustry,
+    includeAiScenes: false, // stock-only by default; opt-in 5th source is a future request flag
+    budgetMode: "standard", // "premium" would enable Agent 5 Gemini vision
+    log: (msg, extra) =>
+      log("info", extra ? `${msg} ${JSON.stringify(extra)}` : msg),
+  };
+
+  // ─── Script phase: Agents 1-3 ──────────────────────────────────────────────
+  const { strategy, script, scenes } = await runScriptPhase(ctx, targetSeconds);
+  void recordAIUsage({
+    userId, renderJobId: jobId, provider: "gemini",
+    operation: "ffmpeg_script_phase",
+    costUsd: COST.gemini.perCallUsd * 3,
+  });
+  log("success", `Script ready — ${scenes.length} scenes, ~${script.totalDurationSec}s`);
+  status("Synthesizing narration", 30);
+
+  // ─── Narration (best-effort) ───────────────────────────────────────────────
+  let narrationDataUrl: string | null = null;
+  try {
+    const voice = await synthesizeNarration({ text: script.fullText });
+    narrationDataUrl = voice.audioDataUrl;
+    void recordAIUsage({
+      userId, renderJobId: jobId, provider: "elevenlabs",
+      operation: "synthesizeNarration",
+      costUsd: Math.round((script.fullText.length / 1000) * 0.18 * 100) / 100,
+      units: script.fullText.length, unitType: "chars",
+    });
+    log("success", `Voice ready — ${Math.round(voice.byteLength / 1024)}KB MP3`);
+  } catch (err) {
+    log(
+      "warn",
+      err instanceof ElevenLabsNotConfiguredError
+        ? "Voice skipped: ELEVENLABS_API_KEY not configured"
+        : `Voice failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  // ─── Music (best-effort) ───────────────────────────────────────────────────
+  status("Finding music", 38);
+  let musicUrl: string | null = null;
+  let musicTrackName: string | null = null;
+  try {
+    const track = await findTrackByVibe({ vibe: musicVibe, targetSeconds });
+    if (track) {
+      musicUrl = track.audio;
+      musicTrackName = `${track.name} — ${track.artist_name}`;
+      log("success", `Music ready — "${track.name}" by ${track.artist_name}`);
+    } else {
+      log("warn", `Music skipped: no Jamendo match for "${musicVibe}"`);
+    }
+  } catch (err) {
+    log(
+      "warn",
+      err instanceof JamendoNotConfiguredError
+        ? "Music skipped: JAMENDO_CLIENT_ID not configured"
+        : `Music failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  // ─── Composition phase: Agents 4-10 ────────────────────────────────────────
+  status("Selecting footage + editing plan", 50);
+  const { plan } = await runCompositionPhase({
+    ctx,
+    strategy,
+    script,
+    scenes,
+    // Use the script's estimate as the narration duration. ElevenLabs Turbo
+    // tracks ~2.7 w/s closely; Agent 12 QC flags any >0.75s drift and the
+    // worker's bounded regen re-times if needed.
+    narrationDurationSec: script.totalDurationSec,
+  });
+  void recordAIUsage({
+    userId, renderJobId: jobId, provider: "gemini",
+    operation: "ffmpeg_composition_phase",
+    costUsd: COST.gemini.perCallUsd * 2,
+  });
+
+  // Patch the audio the orchestrator left blank.
+  plan.audio.narrationUrl = narrationDataUrl ?? "";
+  plan.audio.musicUrl = musicUrl ?? "";
+
+  if (!plan.audio.narrationUrl) {
+    // Agent 11 requires narration. Fail loudly rather than ship a silent video.
+    throw new Error(
+      "FFmpeg pipeline requires narration but ElevenLabs produced none (set ELEVENLABS_API_KEY)",
+    );
+  }
+
+  // Provisional playable clip (first scene's selected clip) so the page can
+  // show something immediately; Realtime swaps to merged_video_url when the
+  // worker finishes.
+  const provisionalUrl = plan.scenes[0]?.clip.url ?? PLACEHOLDER_VIDEO_URL;
+  const provisionalAttribution = plan.scenes[0]?.clip.attribution ?? null;
+
+  log("success", `Composition plan ready — grade "${plan.globalGrade}", ${plan.scenes.length} scenes`);
+  status("Queueing render", 90);
+
+  // Persist artifacts + provisional output before enqueue.
+  await admin
+    .from("render_jobs")
+    .update({
+      script_json: { strategy, script } as unknown as Record<string, unknown>,
+      composition_plan: plan as unknown as Record<string, unknown>,
+      pipeline_version: plan.version,
+      output_url: provisionalUrl,
+      video_attribution: provisionalAttribution,
+      music_url: musicUrl,
+      music_track: musicTrackName,
+      merge_status: "pending",
+    })
+    .eq("id", jobId);
+
+  // Enqueue the worker BEFORE emitting done — if the enqueue fails there's
+  // no video, so we want that to throw into the outer catch (job→failed).
+  await ffmpegComposeQueue().add("compose", { plan }, { jobId });
+
+  const durationMs = Date.now() - startMs;
+  await admin
+    .from("render_jobs")
+    .update({
+      status: "done", // SSE planning stage done; merge_status tracks the render
+      progress: 100,
+      completed_at: new Date().toISOString(),
+      duration_ms: durationMs,
+    })
+    .eq("id", jobId);
+
+  status("Complete", 100);
+  emit({
+    type: "done",
+    videoUrl: provisionalUrl,
+    jobId,
+    audioUrl: narrationDataUrl ?? undefined,
+    musicUrl: musicUrl ?? undefined,
+    musicTrack: musicTrackName ?? undefined,
+    videoAttribution: provisionalAttribution ?? undefined,
+  });
 }
 
 // ─── Handler ─────────────────────────────────────────────────────────────────
@@ -373,6 +558,23 @@ export async function POST(req: NextRequest) {
       const startMs = Date.now();
 
       try {
+        // ─── ADR-002 · FFmpeg multi-agent pipeline (opt-in) ─────────────────
+        // When USE_FFMPEG_PIPELINE=1, run the new 12-agent FFmpeg pipeline
+        // instead of the legacy Gemini-storyboard → video-merge path below.
+        // Default OFF so production stays on the proven path until this is
+        // validated end-to-end in staging (see docs/ADR-002 §Migration plan).
+        if (process.env.USE_FFMPEG_PIPELINE === "1") {
+          await runFfmpegV2Pipeline({
+            emit, log, status, admin, jobId, userId,
+            topic: topicForGen?.title ?? effectivePrompt,
+            effectivePrompt,
+            brandId: brandIdForJob,
+            brandIndustry: brandForGen?.industry ?? null,
+            musicVibe, targetSeconds, startMs,
+          });
+          return; // finally{} closes the SSE stream
+        }
+
         // ─── Stage 1: Script ────────────────────────────────────────────────
         log("info", "Started: Script");
         status("Generating script", 5);

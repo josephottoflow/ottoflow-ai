@@ -33,6 +33,9 @@ import type {
   TimingPlan,
   EditDecision,
   SelectedClip,
+  StrategistOutput,
+  ScriptOutput,
+  ScenePlan,
 } from "./types";
 
 export interface OrchestratorInput {
@@ -49,35 +52,63 @@ export interface OrchestratorOutput {
   plan: CompositionPlan;
 }
 
+// ─── Phase split ─────────────────────────────────────────────────────────────
+// The route runs the SCRIPT phase first, synthesizes narration from
+// script.fullText to learn the REAL duration, then runs the COMPOSITION phase
+// with that exact duration so Agent 9 (Timing) has no estimate drift. The
+// all-in-one runOrchestrator() below is a convenience for tests / standalone
+// use that estimates the duration from the script itself.
+
+export interface ScriptPhaseOutput {
+  strategy: StrategistOutput;
+  script: ScriptOutput;
+  scenes: ScenePlan[];
+}
+
 /**
- * Run Agents 1-10 sequentially (Agents 4 + 5 fan out per scene internally).
- * Returns a fully-resolved CompositionPlan ready to enqueue. The SSE route
- * patches plan.audio.{narrationUrl,musicUrl} after ElevenLabs + Jamendo
- * resolve, then enqueues the `ffmpeg-compose` job.
- *
- * Agents 11 (compose) + 12 (QC) run in the worker, NOT here.
+ * Agents 1-3: strategy → script → 4-scene plan. No network beyond Gemini.
+ * The route calls this, then synthesizes narration from
+ * `result.script.fullText` to learn the true duration.
  */
-export async function runOrchestrator(
-  input: OrchestratorInput,
-): Promise<OrchestratorOutput> {
-  const { ctx, targetDurationSec, narrationDurationSec } = input;
+export async function runScriptPhase(
+  ctx: AgentContext,
+  targetDurationSec: number,
+): Promise<ScriptPhaseOutput> {
+  ctx.log("orchestrator.scriptPhase.start", { topic: ctx.topic });
 
-  ctx.log("orchestrator.start", { topic: ctx.topic });
-
-  // Agent 1 — Content Strategist
   const strategy = await runContentStrategist(
     { topic: ctx.topic, brandIndustry: ctx.brandIndustry ?? null },
     ctx,
   );
-
-  // Agent 2 — Script Writer
   const script = await runScriptWriter({ strategy, targetDurationSec }, ctx);
-
-  // Agent 3 — Scene Planner (exactly 4 scenes, ordered by sceneId)
   const { scenes } = await runScenePlanner(
     { script, emotionalArc: strategy.emotionalArc, sceneCount: 4 },
     ctx,
   );
+
+  ctx.log("orchestrator.scriptPhase.done", { scenes: scenes.length });
+  return { strategy, script, scenes };
+}
+
+export interface CompositionPhaseInput {
+  ctx: AgentContext;
+  strategy: StrategistOutput;
+  script: ScriptOutput;
+  scenes: ScenePlan[];
+  narrationDurationSec: number;
+}
+
+/**
+ * Agents 4-10: search → analysis → diversity → consistency → captions →
+ * timing → editor. Produces the CompositionPlan (audio URLs still blank —
+ * the route patches plan.audio.{narrationUrl,musicUrl} before enqueue).
+ *
+ * Agents 11 (compose) + 12 (QC) run in the worker, NOT here.
+ */
+export async function runCompositionPhase(
+  input: CompositionPhaseInput,
+): Promise<OrchestratorOutput> {
+  const { ctx, strategy, script, scenes, narrationDurationSec } = input;
 
   // Agent 4 — Multi-Source Search (fan out per scene)
   const searchResults = await Promise.all(
@@ -184,12 +215,33 @@ export async function runOrchestrator(
     artifacts: { strategy, script },
   };
 
-  ctx.log("orchestrator.done", {
+  ctx.log("orchestrator.compositionPhase.done", {
     sceneCount: plan.scenes.length,
     durationMs: plan.output.durationMs,
     grade: plan.globalGrade,
   });
   return { plan };
+}
+
+/**
+ * All-in-one convenience: runs both phases back to back, estimating the
+ * narration duration from the generated script (no real ElevenLabs call).
+ * Useful for tests + standalone runs. The PRODUCTION route uses the two
+ * phases directly so Agent 9 gets the true narration duration.
+ */
+export async function runOrchestrator(
+  input: OrchestratorInput,
+): Promise<OrchestratorOutput> {
+  const { ctx, targetDurationSec, narrationDurationSec } = input;
+  ctx.log("orchestrator.start", { topic: ctx.topic });
+
+  const { strategy, script, scenes } = await runScriptPhase(ctx, targetDurationSec);
+
+  // Prefer the caller's measured narration duration; otherwise fall back to
+  // the script's own estimate.
+  const durSec = narrationDurationSec > 0 ? narrationDurationSec : script.totalDurationSec;
+
+  return runCompositionPhase({ ctx, strategy, script, scenes, narrationDurationSec: durSec });
 }
 
 // Re-export for the BullMQ worker — Agent 11 lives in agents/.
