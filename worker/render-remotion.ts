@@ -180,7 +180,12 @@ export async function renderSilentVideo(
     scenes: input.scenes,
     overlays: input.overlays,
     brandColors: undefined,
-    transitionSec: 0.4,
+    // 2026-06-06 OOM mitigation — disable inter-scene fade transitions.
+    // TransitionSeries with fade keeps TWO <OffthreadVideo> components in
+    // memory during the overlap, which on small Railway replicas pushes
+    // Chrome's compositor over the OOM threshold. Hard cuts between scenes
+    // save ~150-200MB peak. Re-enable (0.4) once worker has 2GB+ RAM.
+    transitionSec: 0,
   };
 
   // Phase 3.A — wrap renderMedia in a timeout race so a hung Chrome
@@ -210,7 +215,20 @@ export async function renderSilentVideo(
     // a parent + renderer + GPU process tree (1GB+ peak).
     chromiumOptions: {
       enableMultiProcessOnLinux: false,
+      // swangle = software ANGLE backend. The hardware-accelerated default
+      // ("angle") allocates GPU memory for textures even when no GPU is
+      // present on the container. Swangle does all rasterization on CPU
+      // with a much smaller VRAM-equivalent footprint. Performance trade-
+      // off is real (~10-20% slower frames) but acceptable vs OOM crash.
+      gl: "swangle",
     },
+    // 2026-06-06 OOM mitigation — sequential ffmpeg encoding (no parallel
+    // worker thread keeping a second frame buffer in memory).
+    disallowParallelEncoding: true,
+    // JPEG frames use ~40% less memory than the default PNG (no alpha
+    // channel + lossy compression). For a video pipeline where the final
+    // output is H.264 anyway, the quality delta is invisible.
+    imageFormat: "jpeg",
     // Use the auto-discovered system chromium (nix-installed on Railway,
     // homebrew/apt on dev machines). Falls back to Remotion's bundled
     // chrome-headless-shell only when nothing else is found. See
