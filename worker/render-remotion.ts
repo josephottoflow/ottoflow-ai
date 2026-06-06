@@ -23,6 +23,7 @@
  *   path in ffmpeg = less code change, smaller blast radius, and we get
  *   ffmpeg's proven amix=duration=first behavior for free.
  */
+import { execSync } from "node:child_process";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { promises as fs } from "node:fs";
@@ -43,6 +44,51 @@ const RENDER_TIMEOUT_MS = Number(
 );
 const CHROME_EXEC_OVERRIDE =
   process.env.REMOTION_CHROME_EXECUTABLE?.trim() || undefined;
+
+// ─── Chrome executable resolution (auto-discovery, 2026-06-06 fix) ──────────
+// Remotion bundles a chrome-headless-shell binary in node_modules/.remotion,
+// but on Railway/nixpacks that bundled binary cannot launch because it dynamic-
+// links against libnspr4.so which isn't present in the nix profile. Production
+// fails with: "error while loading shared libraries: libnspr4.so: cannot open
+// shared object file" on every Remotion render.
+//
+// Fix: prefer the nix-installed chromium binary (already in nixpacks.toml's
+// nixPkgs), which is fully linked against its own /nix/store libraries. We
+// auto-discover via `which` rather than hard-coding a nix store path because
+// store hashes change every time nixpacks rebuilds.
+//
+// Resolution order:
+//   1. REMOTION_CHROME_EXECUTABLE env var (explicit override, wins)
+//   2. `which chromium` (nix package name)
+//   3. `which chromium-browser` (Debian/Ubuntu package name, safety net)
+//   4. `which google-chrome` (third-party Chrome installs)
+//   5. undefined → Remotion's bundled chrome-headless-shell (broken on Railway today)
+//
+// Resolution runs ONCE at module load. The result is logged so operators can
+// see which binary the worker will use without needing to trigger a render.
+function resolveChromiumExecutable(): string | undefined {
+  if (CHROME_EXEC_OVERRIDE) return CHROME_EXEC_OVERRIDE;
+  const candidates = ["chromium", "chromium-browser", "google-chrome"];
+  for (const cmd of candidates) {
+    try {
+      const found = execSync(`which ${cmd}`, {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+      if (found) return found;
+    } catch {
+      // Not on PATH — try next candidate.
+    }
+  }
+  return undefined;
+}
+
+const RESOLVED_CHROME_EXECUTABLE = resolveChromiumExecutable();
+
+// Boot-time visibility — single line so it's grep-able in Railway logs.
+console.log(
+  `[remotion] chrome_executable resolved=${RESOLVED_CHROME_EXECUTABLE ?? "(none — falling back to Remotion bundled chrome-headless-shell)"} envOverride=${CHROME_EXEC_OVERRIDE ? "set" : "unset"}`,
+);
 
 // ─── Module-scope cache ────────────────────────────────────────────────────
 // First call to getBundleUrl pays the bundle cost (~4-5s). Every render
@@ -154,11 +200,12 @@ export async function renderSilentVideo(
     chromiumOptions: {
       enableMultiProcessOnLinux: false,
     },
-    // Optional override: point Remotion at a specific Chrome binary
-    // (e.g. nix-store's /nix/store/.../chromium). When unset, Remotion
-    // uses the auto-downloaded Chrome Headless Shell from ~/.cache/remotion
-    // (pre-warmed in nixpacks.toml [phases.build]).
-    browserExecutable: CHROME_EXEC_OVERRIDE,
+    // Use the auto-discovered system chromium (nix-installed on Railway,
+    // homebrew/apt on dev machines). Falls back to Remotion's bundled
+    // chrome-headless-shell only when nothing else is found. See
+    // resolveChromiumExecutable() above for resolution order + the libnspr4
+    // bug that motivated the auto-discovery rewrite.
+    browserExecutable: RESOLVED_CHROME_EXECUTABLE,
     // One Chromium per renderMedia call — worker-level concurrency caps
     // how many jobs run in parallel (videoMerge worker = 1 by default).
     concurrency: 1,
