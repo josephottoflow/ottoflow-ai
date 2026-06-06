@@ -110,6 +110,46 @@ const WorkerSchema = z.object({
   // in ~/.cache/remotion (pre-warmed by `npx remotion browser ensure` in
   // nixpacks.toml [phases.build]).
   REMOTION_CHROME_EXECUTABLE: z.string().min(1).optional(),
+
+  // ─── ADR-002 — FFmpeg multi-agent pipeline ───────────────────────────────
+  // Extra stock-footage sources (Agent 4). All optional — the multi-source
+  // search agent skips an unconfigured source and uses the rest. Pexels
+  // (above) is the baseline; these add breadth + reduce repetition.
+  PIXABAY_API_KEY: z
+    .string()
+    .min(10, "Pixabay key looks too short")
+    .pipe(headerSafe("Pixabay key has invalid characters for an HTTP header"))
+    .optional(),
+  COVERR_API_KEY: z
+    .string()
+    .min(10, "Coverr key looks too short")
+    .pipe(headerSafe("Coverr key has invalid characters for an HTTP header"))
+    .optional(),
+  // Mixkit has no API — we scrape with a polite UA. Override the default UA
+  // here if Mixkit starts blocking the built-in one.
+  MIXKIT_USER_AGENT: z.string().min(1).optional(),
+
+  // Cloudflare R2 (primary video storage). All five must be set together
+  // for R2 uploads to work; r2.isR2Configured() checks presence. When unset,
+  // the compose worker falls back to Google Drive (if a token is supplied)
+  // or fails loudly with a clear "no storage configured" error.
+  R2_ACCOUNT_ID: z.string().min(1).optional(),
+  R2_ACCESS_KEY_ID: z
+    .string()
+    .min(10)
+    .pipe(headerSafe("R2 access key id has invalid characters"))
+    .optional(),
+  R2_SECRET_ACCESS_KEY: z
+    .string()
+    .min(10)
+    .pipe(headerSafe("R2 secret access key has invalid characters"))
+    .optional(),
+  R2_BUCKET: z.string().min(1).optional(),
+  R2_PUBLIC_BASE_URL: z.string().url().optional(),
+
+  // Google Drive fallback — folder to drop exports into (optional). The
+  // access token itself is per-user and travels in the job payload, not env.
+  GDRIVE_FOLDER_ID: z.string().min(1).optional(),
 });
 
 export type WorkerEnv = z.infer<typeof WorkerSchema>;

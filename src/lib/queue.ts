@@ -6,6 +6,7 @@
  */
 import { Queue, type QueueOptions, type JobsOptions, type ConnectionOptions } from "bullmq";
 import IORedis from "ioredis";
+import type { CompositionPlan } from "./ffmpeg-pipeline/types";
 
 // ─── Redis singleton ─────────────────────────────────────────────────────────
 // We hold the actual IORedis instance separately from the BullMQ-shaped
@@ -92,6 +93,10 @@ export const QUEUE_NAMES = {
   brandResearch: "brand-research",
   contentGeneration: "content-generation",
   videoMerge: "video-merge",
+  // ADR-002 — FFmpeg multi-agent pipeline. Runs Agents 11 (compose) + 12
+  // (QC) + storage upload in the worker. Payload is the frozen Agents 1-10
+  // CompositionPlan.
+  ffmpegCompose: "ffmpeg-compose",
 } as const;
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
 
@@ -223,10 +228,24 @@ export interface VideoMergeJobData {
   topicTitle?: string | null;
 }
 
+/**
+ * ADR-002 — FFmpeg multi-agent pipeline job. The CompositionPlan is the
+ * frozen output of Agents 1-10 (built in the SSE route by the orchestrator);
+ * the worker consumes it with zero further LLM calls except the bounded QC
+ * regen loop. `gdriveAccessToken` is optional and only set when the user
+ * opted into "Save to my Drive" — used as the storage fallback when R2 is
+ * unconfigured.
+ */
+export interface FfmpegComposeJobData {
+  plan: CompositionPlan;
+  gdriveAccessToken?: string | null;
+}
+
 export interface JobPayloads {
   "brand-research": BrandResearchJobData;
   "content-generation": ContentGenerationJobData;
   "video-merge": VideoMergeJobData;
+  "ffmpeg-compose": FfmpegComposeJobData;
 }
 
 // ─── Queue accessors ──────────────────────────────────────────────────────────
@@ -256,3 +275,4 @@ export function getQueue<N extends QueueName>(name: N): Queue<JobPayloads[N]> {
 export const brandResearchQueue = () => getQueue(QUEUE_NAMES.brandResearch);
 export const contentGenerationQueue = () => getQueue(QUEUE_NAMES.contentGeneration);
 export const videoMergeQueue = () => getQueue(QUEUE_NAMES.videoMerge);
+export const ffmpegComposeQueue = () => getQueue(QUEUE_NAMES.ffmpegCompose);

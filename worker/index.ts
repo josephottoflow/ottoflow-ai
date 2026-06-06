@@ -44,11 +44,13 @@ import {
   type BrandResearchJobData,
   type ContentGenerationJobData,
   type VideoMergeJobData,
+  type FfmpegComposeJobData,
 } from "@/lib/queue";
 import { createAdminClient } from "@/lib/supabase";
 import { processBrandResearch } from "./processors/brand-research";
 import { processContentGeneration } from "./processors/content-generation";
 import { processVideoMerge } from "./processors/video-merge";
+import { processFfmpegCompose } from "./processors/ffmpeg-compose";
 import { recoverStuckJobsAtBoot, markJobFailedFromStall, schedulePeriodicSweep } from "./recovery";
 
 // ─── Logging ─────────────────────────────────────────────────────────────────
@@ -371,6 +373,107 @@ videoMergeWorker.on("error", (err) => {
   logError("video-merge", "worker.error", { error: err.message });
 });
 
+// ─── Step 6d: FFmpeg Compose worker (ADR-002) ────────────────────────────────
+// Fourth Worker instance for the multi-agent FFmpeg pipeline. Consumes a
+// frozen CompositionPlan and runs Agents 11 (compose) + 12 (QC) + storage
+// upload. No Chrome/Remotion — pure ffmpeg, so RAM stays well under the
+// worker cap that broke the Remotion path. CPU-heavy + I/O bound; shares the
+// video-merge concurrency budget (half of WORKER_CONCURRENCY).
+const ffmpegComposeWorker = new Worker<FfmpegComposeJobData>(
+  QUEUE_NAMES.ffmpegCompose,
+  async (job: Job<FfmpegComposeJobData>) => {
+    log("ffmpeg-compose", "job.start", {
+      jobId: job.id,
+      renderJobId: job.data.plan.renderJobId,
+      scenes: job.data.plan.scenes.length,
+      version: job.data.plan.version,
+    });
+    const result = await processFfmpegCompose(job.data, (step, progress) => {
+      job.updateProgress(progress).catch(() => {});
+      // Mirror progress into render_jobs.progress for UI Realtime (same
+      // pattern as video-merge). Best-effort; never fail the compose on a
+      // progress write error.
+      void recoveryAdmin
+        .from("render_jobs")
+        .update({ progress })
+        .eq("id", job.data.plan.renderJobId)
+        .then(
+          ({ error }) => {
+            if (error) {
+              log("ffmpeg-compose", "progress.write_failed", {
+                jobId: job.id,
+                renderJobId: job.data.plan.renderJobId,
+                progress,
+                error: error.message,
+              });
+            }
+          },
+          (err: unknown) => {
+            log("ffmpeg-compose", "progress.write_failed", {
+              jobId: job.id,
+              renderJobId: job.data.plan.renderJobId,
+              progress,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          },
+        );
+      log("ffmpeg-compose", "step", { jobId: job.id, step, progress });
+    });
+    log("ffmpeg-compose", "job.done", {
+      jobId: job.id,
+      renderJobId: job.data.plan.renderJobId,
+      mergedUrl: result.mergedUrl,
+      qcScore: result.qcScore,
+    });
+    return result;
+  },
+  {
+    connection: getRedis(),
+    concurrency: Math.max(1, Math.floor(workerEnv.WORKER_CONCURRENCY / 2)),
+  },
+);
+
+ffmpegComposeWorker.on("active", (job) => {
+  log("ffmpeg-compose", "job.active", {
+    jobId: job.id,
+    renderJobId: job.data.plan.renderJobId,
+  });
+});
+
+ffmpegComposeWorker.on("completed", (job) => {
+  log("ffmpeg-compose", "job.completed", {
+    jobId: job.id,
+    renderJobId: job.data?.plan.renderJobId,
+    durationMs:
+      job.finishedOn && job.processedOn ? job.finishedOn - job.processedOn : null,
+  });
+});
+
+ffmpegComposeWorker.on("failed", (job, err) => {
+  logError("ffmpeg-compose", "job.failed", {
+    jobId: job?.id,
+    renderJobId: job?.data?.plan.renderJobId,
+    attemptsMade: job?.attemptsMade,
+    error: err?.message,
+  });
+  Sentry.withScope((scope) => {
+    scope.setTag("queue", QUEUE_NAMES.ffmpegCompose);
+    if (job?.id) scope.setTag("job.id", String(job.id));
+    if (job?.data?.plan.renderJobId)
+      scope.setTag("render_job.id", String(job.data.plan.renderJobId));
+    scope.setContext("job", {
+      id: job?.id,
+      renderJobId: job?.data?.plan.renderJobId,
+      attemptsMade: job?.attemptsMade,
+    });
+    Sentry.captureException(err ?? new Error("ffmpeg-compose job.failed with no error"));
+  });
+});
+
+ffmpegComposeWorker.on("error", (err) => {
+  logError("ffmpeg-compose", "worker.error", { error: err.message });
+});
+
 // ─── Step 7: Graceful shutdown with hard cap ─────────────────────────────────
 // Railway sends SIGTERM during a deploy and waits for a grace period before
 // SIGKILL. We try a graceful close (lets active jobs finish) but cap at a
@@ -402,6 +505,7 @@ async function shutdown(signal: string): Promise<never> {
     brandResearchWorker.close(),
     contentGenerationWorker.close(),
     videoMergeWorker.close(),
+    ffmpegComposeWorker.close(),
   ]);
   const deadline = new Promise<"timeout">((resolve) =>
     setTimeout(() => resolve("timeout"), GRACEFUL_SHUTDOWN_TIMEOUT_MS)
@@ -428,6 +532,9 @@ async function shutdown(signal: string): Promise<never> {
       }),
       videoMergeWorker.close(true).catch((err) => {
         logError("worker", "shutdown.force_close_failed", { error: err?.message, queue: "video-merge" });
+      }),
+      ffmpegComposeWorker.close(true).catch((err) => {
+        logError("worker", "shutdown.force_close_failed", { error: err?.message, queue: "ffmpeg-compose" });
       }),
     ]);
   } else {
