@@ -40,6 +40,11 @@ coverage/
 *.lcov
 .nyc_output/
 
+# ─── Local-only scripts + E2E artifacts (NEVER commit — may touch secrets) ───
+scripts/*.local.*
+e2e-output.mp4
+.e2e-work/
+
 # ─── IDE / OS noise ──────────────────────────────────────────────────────────
 .vscode/
 !.vscode/extensions.json
