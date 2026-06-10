@@ -25,6 +25,7 @@
  *     (which would otherwise spawn one thread per host CPU — 32+) does not
  *     blow the RAM cap.
  */
+import { promises as fs } from "node:fs";
 import type {
   CompositionPlan,
   EditDecision,
@@ -170,10 +171,11 @@ export function buildXfadeArgv(i: XfadeArgvInput): string[] {
   ];
 }
 
-// ─── Pass 3: finalize — burn captions + mix audio onto the silent video ─────
+// ─── Pass 2 (final): concat-join the scenes (zero decode) + captions + audio ─
 
 export interface FinalizeArgvInput {
-  silentVideoPath: string;
+  /** Path to a concat-demuxer list file referencing the normalized clips. */
+  concatListPath: string;
   assPath: string;
   narrationInputPath: string;
   musicInputPath: string | null;
@@ -193,8 +195,11 @@ export function buildFinalizeArgv(i: FinalizeArgvInput): string[] {
   const norm = "aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo";
   let audioFilter: string;
   let audioOut: string;
+  // Input 0 = the concat demuxer: it presents all normalized clips as ONE
+  // continuous video stream, so only ONE decode runs at a time (vs xfade's
+  // two), which is what fits the 1 GB worker. Hard cuts between scenes.
   const inputArgs: string[] = [
-    "-r", String(i.fps), "-i", i.silentVideoPath,
+    "-f", "concat", "-safe", "0", "-i", i.concatListPath,
     "-i", i.narrationInputPath,
   ];
   if (i.musicInputPath) {
@@ -231,7 +236,10 @@ export function buildFinalizeArgv(i: FinalizeArgvInput): string[] {
   ];
 }
 
-// ─── Orchestrator: run the three passes, ≤2 concurrent decodes throughout ───
+// ─── Orchestrator: normalize each scene (1 decode), then concat-join +
+//     caption + mix in one finalize pass (1 decode). Never >1 decode at once,
+//     so it fits the 1 GB worker. (Crossfades need 2 simultaneous decodes,
+//     which OOM 1 GB — they return when the worker has more RAM.) ────────────
 
 export interface MultiPassInput {
   plan: CompositionPlan;
@@ -260,7 +268,7 @@ export async function composeMultiPass(input: MultiPassInput): Promise<void> {
     );
   }
   const join = (name: string) => `${workDir}/${name}`;
-  const totalSteps = n /* normalize */ + Math.max(0, n - 1) /* folds */ + 1 /* finalize */;
+  const totalSteps = n /* normalize */ + 1 /* finalize */;
   let step = 0;
   const tick = () => input.onProgress?.(++step / totalSteps);
 
@@ -282,36 +290,16 @@ export async function composeMultiPass(input: MultiPassInput): Promise<void> {
     tick();
   }
 
-  // ── Pass 2: pairwise xfade fold (2 decodes per step) ──────────────────────
-  let acc = normPaths[0];
-  let accDurSec = (plan.scenes[0].timing.videoEndMs - plan.scenes[0].timing.videoStartMs) / 1000;
-  for (let k = 1; k < n; k++) {
-    const prevEdit = plan.scenes[k - 1].edit; // outgoing transition of the left clip
-    const transDur = prevEdit.transition === "cut" ? 0.1 : Math.max(0.1, prevEdit.transitionDurationMs / 1000);
-    const clipDur = (plan.scenes[k].timing.videoEndMs - plan.scenes[k].timing.videoStartMs) / 1000;
-    const offsetSec = Math.max(0, accDurSec - transDur);
-    const out = join(`fold-${k}.mp4`);
-    await input.runFfmpeg(
-      buildXfadeArgv({
-        aPath: acc,
-        bPath: normPaths[k],
-        transition: prevEdit.transition,
-        transitionDurationMs: prevEdit.transitionDurationMs,
-        offsetSec,
-        fps,
-        outputPath: out,
-      }),
-      `xfade-${k}`,
-    );
-    acc = out;
-    accDurSec = accDurSec + clipDur - transDur;
-    tick();
-  }
+  // ── Write the concat-demuxer list (single-quote-escaped absolute paths). ──
+  const concatListPath = join("concat-list.txt");
+  const listBody =
+    normPaths.map((p) => `file '${p.replace(/'/g, "'\\''")}'`).join("\n") + "\n";
+  await fs.writeFile(concatListPath, listBody, "utf-8");
 
-  // ── Pass 3: finalize (captions + audio) ───────────────────────────────────
+  // ── Pass 2 (final): concat-join (0 decode) + captions + audio mix ─────────
   await input.runFfmpeg(
     buildFinalizeArgv({
-      silentVideoPath: acc,
+      concatListPath,
       assPath: input.assPath,
       narrationInputPath: input.narrationInputPath,
       musicInputPath: input.musicInputPath,
