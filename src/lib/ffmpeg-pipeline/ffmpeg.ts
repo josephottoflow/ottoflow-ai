@@ -227,9 +227,16 @@ export function buildFfmpegArgv(input: BuildArgvInput): string[] {
   }
 
   // Input args — N scenes, then narration, then music.
+  //
+  // `-r <fps>` BEFORE each scene `-i` forces constant frame rate at the
+  // DECODE level, which sets the stream's r_frame_rate (base rate). This is
+  // what `xfade` actually inspects — the post-zoompan `fps` filter only sets
+  // the link's frame_rate, leaving r_frame_rate as 1/0 (undefined) on the
+  // nixpacks ffmpeg, which xfade rejects with "inputs needs to be a constant
+  // frame rate". Forcing it at input is the reliable cross-build fix.
   const inputArgs: string[] = [];
   for (const p of sceneInputPaths) {
-    inputArgs.push("-i", p);
+    inputArgs.push("-r", String(plan.output.fps), "-i", p);
   }
   const narrationIdx = sceneInputPaths.length;
   inputArgs.push("-i", narrationInputPath);
