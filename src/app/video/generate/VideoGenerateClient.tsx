@@ -27,7 +27,6 @@ import {
   Loader2,
   Circle,
   AlertCircle,
-  Video,
   Mic,
   Type,
   Film,
@@ -38,13 +37,11 @@ import {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type PipelineStage =
-  | "script"
-  | "storyboard"
-  | "voice"
-  | "clips"
-  | "music"
-  | "render";
+// Four honest phases that match the real pipeline: the route's SSE stream
+// drives script → voice → footage (Gemini script, ElevenLabs voice, stock
+// footage + edit plan); the worker drives `render` asynchronously and reports
+// back via render_jobs.merge_status (NOT the SSE stream).
+type PipelineStage = "script" | "voice" | "footage" | "render";
 
 type StageStatus = "pending" | "running" | "done" | "error";
 
@@ -64,18 +61,10 @@ interface LogEntry {
 
 const STAGES: Stage[] = [
   { id: "script", label: "Script", icon: Type },
-  { id: "storyboard", label: "Storyboard", icon: Film },
   { id: "voice", label: "Voice", icon: Mic },
-  { id: "clips", label: "Clips", icon: Video },
-  { id: "music", label: "Music", icon: Music },
+  { id: "footage", label: "Footage", icon: Film },
   { id: "render", label: "Render", icon: Zap },
 ];
-
-const PROVIDERS = [
-  { id: "veo3", label: "Veo 3 Lite", badge: "Best Quality", color: "#a78bfa" },
-  { id: "higgsfield", label: "Higgsfield", badge: "Director Mode", color: "#67e8f9" },
-  { id: "imagen3", label: "Imagen 3", badge: "Fastest", color: "#34d399" },
-] as const;
 
 const STYLES = [
   "cinematic", "ugc", "minimal", "bold", "luxury", "tech", "outdoor", "neon",
@@ -93,12 +82,15 @@ const EXAMPLES = [
 
 function stageFromLog(msg: string): PipelineStage | null {
   const m = msg.toLowerCase();
-  if (m.includes("script")) return "script";
-  if (m.includes("storyboard")) return "storyboard";
-  if (m.includes("voice") || m.includes("audio")) return "voice";
-  if (m.includes("clip") || m.includes("veo") || m.includes("imagen") || m.includes("higgsfield")) return "clips";
-  if (m.includes("music") || m.includes("ffmpeg")) return "music";
-  if (m.includes("render") || m.includes("remotion") || m.includes("export") || m.includes("done")) return "render";
+  if (m.includes("strategy") || m.includes("script") || m.includes("storyboard")) return "script";
+  if (m.includes("voice") || m.includes("narration") || m.includes("audio")) return "voice";
+  if (
+    m.includes("music") || m.includes("footage") || m.includes("composition") ||
+    m.includes("editing") || m.includes("plan") || m.includes("clip")
+  ) return "footage";
+  // "Queueing render" is the planning-side hand-off; the render stage only
+  // *completes* when the worker reports merge_status='done' (see Realtime).
+  if (m.includes("render") || m.includes("compose") || m.includes("queue")) return "render";
   return null;
 }
 
@@ -145,20 +137,22 @@ export function VideoGenerateClient({
 
   // ─── Legacy free-form prompt path (kept for "Advanced" mode) ────────────────
   const [prompt, setPrompt] = useState("");
-  const [provider, setProvider] = useState<GenerateRequest["provider"]>("veo3");
+  // provider + renderVariant are no longer user-selectable (the FFmpeg
+  // pipeline is stock-footage-only and ignores them); kept as fixed values so
+  // the request body shape stays stable for the route + render_jobs row.
+  const [provider] = useState<GenerateRequest["provider"]>("veo3");
   const [style, setStyle] = useState("cinematic");
   const [sceneCount, setSceneCount] = useState(4);
   const [vibe, setVibe] = useState("energetic");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [hookStyle, setHookStyle] = useState("bold-statement");
-  const [renderVariant, setRenderVariant] = useState("ugc-v2");
+  const [renderVariant] = useState("ugc-v2");
 
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState(0);
   const [statusLabel, setStatusLabel] = useState("");
   const [stages, setStages] = useState<Record<PipelineStage, StageStatus>>({
-    script: "pending", storyboard: "pending", voice: "pending",
-    clips: "pending", music: "pending", render: "pending",
+    script: "pending", voice: "pending", footage: "pending", render: "pending",
   });
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [showLogs, setShowLogs] = useState(false);
@@ -185,6 +179,10 @@ export function VideoGenerateClient({
     null | "pending" | "merging" | "done" | "failed"
   >(null);
   const [mergedVideoUrl, setMergedVideoUrl] = useState<string | null>(null);
+  // The worker's failure reason (render_jobs.merge_error) when merge_status
+  // flips to "failed" — surfaced so the user sees WHY the render failed
+  // instead of a hung spinner.
+  const [mergeError, setMergeError] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -245,11 +243,12 @@ export function VideoGenerateClient({
     if (!supabase || !jobId) return;
     let cancelled = false;
 
-    // Initial fetch in case the merge already finished before we subscribed.
+    // Initial fetch in case the merge already finished (or failed) before we
+    // subscribed — the worker can OOM in seconds, faster than the SSE close.
     (async () => {
       const { data } = await supabase
         .from("render_jobs")
-        .select("merge_status, merged_video_url")
+        .select("merge_status, merged_video_url, merge_error")
         .eq("id", jobId)
         .maybeSingle();
       if (cancelled || !data) return;
@@ -258,6 +257,9 @@ export function VideoGenerateClient({
       }
       if (data.merged_video_url) {
         setMergedVideoUrl(data.merged_video_url as string);
+      }
+      if (data.merge_error) {
+        setMergeError(data.merge_error as string);
       }
     })();
 
@@ -275,12 +277,16 @@ export function VideoGenerateClient({
           const row = payload.new as {
             merge_status?: string | null;
             merged_video_url?: string | null;
+            merge_error?: string | null;
           };
           if (row.merge_status) {
             setMergeStatus(row.merge_status as typeof mergeStatus);
           }
           if (row.merged_video_url) {
             setMergedVideoUrl(row.merged_video_url);
+          }
+          if (row.merge_error) {
+            setMergeError(row.merge_error);
           }
         },
       )
@@ -291,6 +297,29 @@ export function VideoGenerateClient({
       supabase.removeChannel(channel);
     };
   }, [supabase, jobId]);
+
+  // ─── Render stage is WORKER-driven (not the SSE stream) ────────────────────
+  // The SSE pipeline only does planning (script → voice → footage + plan). The
+  // actual video render runs async in the worker and reports via merge_status.
+  // We map that to the final "render" stage + overall completion HERE so the
+  // UI never claims "Complete" until a real merged video exists.
+  useEffect(() => {
+    if (!mergeStatus) return;
+    if (mergeStatus === "done") {
+      setStages((p) => ({ ...p, script: "done", voice: "done", footage: "done", render: "done" }));
+      setProgress(100);
+      setStatusLabel("Complete");
+      setMergeError(null);
+    } else if (mergeStatus === "failed") {
+      setStages((p) => ({ ...p, render: "error" }));
+      setStatusLabel("Render failed");
+    } else {
+      // pending | merging — the worker is rendering the final MP4.
+      setStages((p) => ({ ...p, render: "running" }));
+      setProgress((p) => (p < 95 ? 95 : p));
+      setStatusLabel("Rendering final video…");
+    }
+  }, [mergeStatus]);
 
   const advanceStage = useCallback((stage: PipelineStage) => {
     setStages((prev) => {
@@ -325,10 +354,11 @@ export function VideoGenerateClient({
     setSeo(null);
     setMergeStatus(null);
     setMergedVideoUrl(null);
+    setMergeError(null);
     setJobId(null);
     setError(null);
     setLogs([]);
-    setStages({ script: "pending", storyboard: "pending", voice: "pending", clips: "pending", music: "pending", render: "pending" });
+    setStages({ script: "pending", voice: "pending", footage: "pending", render: "pending" });
 
     abortRef.current = new AbortController();
 
@@ -404,14 +434,25 @@ export function VideoGenerateClient({
 
           if (event.type === "status") {
             if (event.label) setStatusLabel(event.label);
-            if (event.pct !== undefined) setProgress(event.pct);
+            // Cap the SSE-reported progress at 90 — the planning phase tops
+            // out here. The route emits "Complete 100" at the END of planning,
+            // but the actual render hasn't started; the worker's merge_status
+            // drives 95 → 100 (see the merge_status effect).
+            if (event.pct !== undefined) setProgress(Math.min(event.pct, 90));
           }
 
           if (event.type === "done") {
-            // Mark all stages done
-            setStages({ script: "done", storyboard: "done", voice: "done", clips: "done", music: "done", render: "done" });
-            setProgress(100);
-            setStatusLabel("Complete!");
+            // Planning finished — but the REAL video now renders ASYNC in the
+            // worker. Do NOT claim "Complete": mark planning stages done and
+            // the render stage running. The merge_status effect flips render →
+            // done (or error) + progress → 100 once the worker reports back.
+            setStages((p) => ({
+              ...p,
+              script: "done", voice: "done", footage: "done",
+              render: p.render === "done" ? "done" : "running",
+            }));
+            setProgress((p) => (p < 92 ? 92 : p));
+            setStatusLabel("Rendering final video…");
             if (event.videoUrl) setVideoUrl(event.videoUrl);
             if (event.audioUrl) setAudioUrl(event.audioUrl);
             if (event.musicUrl) setMusicUrl(event.musicUrl);
@@ -783,33 +824,6 @@ export function VideoGenerateClient({
             </div>
             )}
 
-            {/* Provider — advanced-mode-only legacy control. The brand-driven
-                flow always uses the Pexels + Gemini stack today; AI provider
-                selection is meaningless until Phase 5b lands real Runway. */}
-            {advancedPromptMode && (
-            <div className="mb-4">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-white/35 mb-2">AI Provider</p>
-              <div className="flex gap-2">
-                {PROVIDERS.map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => setProvider(p.id)}
-                    disabled={running}
-                    className="flex-1 flex flex-col items-center gap-1 py-2.5 px-3 rounded-xl text-xs font-medium transition-all"
-                    style={{
-                      background: provider === p.id ? `${p.color}12` : "rgba(255,255,255,0.02)",
-                      border: provider === p.id ? `1px solid ${p.color}35` : "1px solid rgba(255,255,255,0.06)",
-                      color: provider === p.id ? p.color : "rgba(255,255,255,0.35)",
-                    }}
-                  >
-                    {p.label}
-                    <span className="text-[9px] opacity-60">{p.badge}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-            )}
-
             {/* Style pills — advanced-mode-only. The brand-driven flow uses
                 the BrandTopicCategory style picker above instead. */}
             {advancedPromptMode && (
@@ -890,39 +904,23 @@ export function VideoGenerateClient({
             </button>
 
             {showAdvanced && (
-              <div className="grid grid-cols-2 gap-4 mb-4 pt-3"
+              <div className="mb-4 pt-3"
                 style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}>
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-white/35 mb-2">Hook Style</p>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-white/35 mb-2">Hook Style</p>
+                <div className="flex flex-wrap gap-1.5">
                   {["bold-statement", "question", "shocking-stat", "story"].map((h) => (
                     <button
                       key={h}
                       onClick={() => setHookStyle(h)}
                       disabled={running}
-                      className="block w-full text-left text-[11px] px-2.5 py-1.5 rounded-lg mb-1 capitalize transition-all"
+                      className="text-[11px] px-3 py-1.5 rounded-full capitalize transition-all font-medium"
                       style={{
-                        background: hookStyle === h ? "rgba(124,58,237,0.1)" : "transparent",
-                        color: hookStyle === h ? "#a78bfa" : "rgba(255,255,255,0.35)",
+                        background: hookStyle === h ? "rgba(124,58,237,0.12)" : "rgba(255,255,255,0.03)",
+                        border: hookStyle === h ? "1px solid rgba(124,58,237,0.3)" : "1px solid rgba(255,255,255,0.06)",
+                        color: hookStyle === h ? "#a78bfa" : "rgba(255,255,255,0.4)",
                       }}
                     >
                       {h.replace(/-/g, " ")}
-                    </button>
-                  ))}
-                </div>
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-white/35 mb-2">Render Template</p>
-                  {["ugc-v2", "cinematic", "product-demo", "before-after"].map((t) => (
-                    <button
-                      key={t}
-                      onClick={() => setRenderVariant(t)}
-                      disabled={running}
-                      className="block w-full text-left text-[11px] px-2.5 py-1.5 rounded-lg mb-1 capitalize transition-all"
-                      style={{
-                        background: renderVariant === t ? "rgba(6,182,212,0.08)" : "transparent",
-                        color: renderVariant === t ? "#67e8f9" : "rgba(255,255,255,0.35)",
-                      }}
-                    >
-                      {t}
                     </button>
                   ))}
                 </div>
@@ -967,15 +965,21 @@ export function VideoGenerateClient({
           <div className="glass rounded-2xl p-5">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-semibold text-white">Pipeline Progress</h3>
-              {running && (
+              {running ? (
                 <div className="flex items-center gap-1.5">
                   <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                  <span className="text-[10px] text-cyan-400">Running</span>
+                  <span className="text-[10px] text-cyan-400">Planning</span>
                 </div>
-              )}
-              {!running && progress === 100 && (
+              ) : mergeStatus === "failed" ? (
+                <Badge variant="destructive" className="text-[10px]">Render failed</Badge>
+              ) : mergeStatus === "done" && mergedVideoUrl ? (
                 <Badge variant="success" className="text-[10px]">Complete</Badge>
-              )}
+              ) : videoUrl ? (
+                <div className="flex items-center gap-1.5">
+                  <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                  <span className="text-[10px] text-cyan-400">Rendering</span>
+                </div>
+              ) : null}
             </div>
 
             {/* Overall progress bar */}
@@ -988,7 +992,7 @@ export function VideoGenerateClient({
             </div>
 
             {/* Stage badges */}
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-4 gap-2">
               {STAGES.map((stage) => {
                 const status = stages[stage.id];
                 const Icon = stage.icon;
@@ -1048,45 +1052,61 @@ export function VideoGenerateClient({
           {/* Video output */}
           {videoUrl ? (
             <div className="glass rounded-2xl overflow-hidden">
-              <video
-                // Swap source to merged MP4 once ffmpeg merge finishes
-                src={mergedVideoUrl ?? videoUrl}
-                key={mergedVideoUrl ?? videoUrl}
-                controls
-                autoPlay
-                muted
-                playsInline
-                className="w-full aspect-video bg-black"
-              />
-              {mergeStatus && mergeStatus !== "done" && (
-                <div className="px-4 py-2 border-t border-white/5 flex items-center justify-between">
-                  <p className="text-[11px] text-white/60 flex items-center gap-1.5">
-                    {mergeStatus === "failed" ? (
-                      <>
-                        <AlertCircle size={11} className="text-orange-400" />
-                        <span>
-                          Audio merge failed — playable assets still
-                          available below
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <Loader2 size={11} className="text-cyan-400 animate-spin" />
-                        <span>
-                          {mergeStatus === "pending"
-                            ? "Audio merge queued…"
-                            : "Merging audio into MP4…"}
-                        </span>
-                      </>
-                    )}
+              <div className="relative">
+                <video
+                  // Swap source to the final rendered MP4 once the worker
+                  // finishes; until then we show the first source clip.
+                  src={mergedVideoUrl ?? videoUrl}
+                  key={mergedVideoUrl ?? videoUrl}
+                  controls
+                  autoPlay
+                  muted
+                  playsInline
+                  className="w-full aspect-video bg-black"
+                />
+                {/* Preview badge — make it unmistakable that the displayed clip
+                    is NOT the finished video until the merged URL lands. */}
+                {!mergedVideoUrl && (
+                  <span
+                    className="absolute top-2 left-2 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md flex items-center gap-1"
+                    style={{
+                      background: "rgba(0,0,0,0.6)",
+                      color: mergeStatus === "failed" ? "#fca5a5" : "#67e8f9",
+                      backdropFilter: "blur(4px)",
+                    }}
+                  >
+                    Preview · first clip
+                  </span>
+                )}
+              </div>
+
+              {/* Honest render-status strip — driven by the worker, not the
+                  SSE stream. "Complete" only appears with a real merged URL. */}
+              {mergeStatus === "done" && mergedVideoUrl ? (
+                <div className="px-4 py-2.5 border-t border-white/5">
+                  <p className="text-[11px] text-emerald-400/90 flex items-center gap-1.5 font-medium">
+                    <CheckCircle2 size={12} />
+                    Final video ready — footage, captions &amp; audio baked into one MP4
                   </p>
                 </div>
-              )}
-              {mergeStatus === "done" && mergedVideoUrl && (
-                <div className="px-4 py-2 border-t border-white/5 flex items-center justify-between">
-                  <p className="text-[11px] text-emerald-400/90 flex items-center gap-1.5 font-medium">
-                    <CheckCircle2 size={11} />
-                    Audio merged — single MP4 ready to download
+              ) : mergeStatus === "failed" ? (
+                <div className="px-4 py-2.5 border-t border-white/5"
+                  style={{ background: "rgba(239,68,68,0.06)" }}>
+                  <p className="text-[11px] text-red-300 flex items-center gap-1.5 font-semibold">
+                    <AlertCircle size={12} />
+                    Render failed — showing the first source clip as a preview
+                  </p>
+                  {mergeError && (
+                    <p className="text-[10px] text-red-400/70 mt-1 font-mono break-words leading-relaxed">
+                      {mergeError.length > 240 ? mergeError.slice(0, 240) + "…" : mergeError}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="px-4 py-2.5 border-t border-white/5">
+                  <p className="text-[11px] text-cyan-300/90 flex items-center gap-1.5">
+                    <Loader2 size={12} className="animate-spin" />
+                    Rendering final video… this preview will swap to the finished MP4 when ready
                   </p>
                 </div>
               )}
@@ -1180,7 +1200,7 @@ export function VideoGenerateClient({
                 <a href={mergedVideoUrl ?? videoUrl} download>
                   <Button variant="gradient-cyan" size="sm" className="gap-1.5">
                     <Download size={13} />
-                    {mergedVideoUrl ? "Download (with audio)" : "Download"}
+                    {mergedVideoUrl ? "Download MP4" : "Download preview clip"}
                   </Button>
                 </a>
                 <Button
@@ -1205,10 +1225,12 @@ export function VideoGenerateClient({
                     setSeo(null);
                     setMergeStatus(null);
                     setMergedVideoUrl(null);
+                    setMergeError(null);
+                    setJobId(null);
                     setProgress(0);
                     setStatusLabel("");
                     setPrompt("");
-                    setStages({ script: "pending", storyboard: "pending", voice: "pending", clips: "pending", music: "pending", render: "pending" });
+                    setStages({ script: "pending", voice: "pending", footage: "pending", render: "pending" });
                     setLogs([]);
                   }}
                 >

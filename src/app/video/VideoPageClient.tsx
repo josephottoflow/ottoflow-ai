@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { KPICard } from "@/components/KPICard";
@@ -26,16 +25,19 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+// Mirrors the real ADR-002 FFmpeg pipeline (Gemini script → stock footage →
+// ElevenLabs voice → Jamendo music → captions → FFmpeg render → QC), NOT the
+// retired Higgsfield/Veo path.
 const videoPipelineSteps = [
-  { id: 1, label: "Creative Brief", desc: "Product, audience, goal", done: true },
-  { id: 2, label: "Script Generator", desc: "AI writes hook + body + CTA", done: true },
-  { id: 3, label: "Storyboard Builder", desc: "Scene-by-scene visual plan", done: true, active: true },
-  { id: 4, label: "Prompt Generator", desc: "Cinematic video prompts", done: false },
-  { id: 5, label: "Higgsfield Director", desc: "Camera motion & direction", done: false },
-  { id: 6, label: "Veo 3 Rendering", desc: "AI video clip generation", done: false },
-  { id: 7, label: "Voice Generation", desc: "ElevenLabs narration", done: false },
-  { id: 8, label: "Caption Generation", desc: "Auto subtitles & styling", done: false },
-  { id: 9, label: "Final Export", desc: "Merge, grade, deliver", done: false },
+  { id: 1, label: "Strategy & Script", desc: "Gemini writes hook + body + CTA", done: true },
+  { id: 2, label: "Scene Plan", desc: "Per-scene shot list + search intent", done: true },
+  { id: 3, label: "Footage Search", desc: "Stock clips matched per scene", done: true, active: true },
+  { id: 4, label: "Voiceover", desc: "ElevenLabs narration", done: false },
+  { id: 5, label: "Music", desc: "Jamendo track by vibe", done: false },
+  { id: 6, label: "Captions", desc: "Auto subtitles, on-screen", done: false },
+  { id: 7, label: "Edit & Grade", desc: "Cuts, color, pacing", done: false },
+  { id: 8, label: "FFmpeg Render", desc: "Compose final MP4", done: false },
+  { id: 9, label: "Quality Check", desc: "Auto QC + deliver", done: false },
 ];
 
 const outputFormats = [
@@ -46,10 +48,14 @@ const outputFormats = [
   { label: "Facebook Ads", icon: Image, count: 2, color: "#60a5fa" },
 ];
 
-const providers = [
-  { id: "veo3", label: "Veo 3 Lite", desc: "Google DeepMind · 4-8s clips", badge: "Best Quality", badgeColor: "#a78bfa" },
-  { id: "higgsfield", label: "Higgsfield AI", desc: "Camera motion control · Cinematic", badge: "Director Mode", badgeColor: "#67e8f9" },
-  { id: "imagen3", label: "Imagen 3", desc: "Static frames · Fast fallback", badge: "Fastest", badgeColor: "#34d399" },
+// The real generation stack (replaces the retired AI-provider selector — the
+// pipeline is stock-footage + FFmpeg, not Veo/Higgsfield).
+const pipelineStack = [
+  { label: "Gemini 2.5 Flash", desc: "Script, scene plan & captions", color: "#a78bfa" },
+  { label: "Pexels", desc: "Relevance-ranked stock footage", color: "#67e8f9" },
+  { label: "ElevenLabs", desc: "Voiceover narration", color: "#34d399" },
+  { label: "Jamendo", desc: "Licensed music by vibe", color: "#fb923c" },
+  { label: "FFmpeg", desc: "Compose · caption · grade · render", color: "#60a5fa" },
 ];
 
 interface Props {
@@ -58,8 +64,6 @@ interface Props {
 }
 
 export function VideoPageClient({ renderJobs, kpis }: Props) {
-  const [selectedProvider, setSelectedProvider] = useState("veo3");
-
   const activeJobs = renderJobs.filter((j) => j.status === "rendering").length;
   const pendingJobs = renderJobs.filter((j) => j.status !== "done").length;
   const completedJobs = renderJobs.filter((j) => j.status === "done");
@@ -78,7 +82,7 @@ export function VideoPageClient({ renderJobs, kpis }: Props) {
             <span className="text-xs font-medium text-cyan-400">Video Pipeline</span>
           </div>
           <h1 className="text-2xl font-bold text-white tracking-tight">Video Generation</h1>
-          <p className="text-white/40 text-sm mt-1">AI-powered video factory · Higgsfield + Veo 3 Lite + ElevenLabs</p>
+          <p className="text-white/40 text-sm mt-1">AI video factory · Gemini script · stock footage · ElevenLabs voice · FFmpeg render</p>
         </div>
         <div className="flex items-center gap-2">
           <Link href="/settings">
@@ -192,35 +196,26 @@ export function VideoPageClient({ renderJobs, kpis }: Props) {
             </Button>
           </div>
 
-          {/* Provider select */}
+          {/* Pipeline stack (informational — the real generation stack) */}
           <div className="glass rounded-2xl p-4">
-            <h3 className="text-xs font-semibold text-white/60 uppercase tracking-wider mb-3">AI Provider</h3>
+            <h3 className="text-xs font-semibold text-white/60 uppercase tracking-wider mb-3">Pipeline Stack</h3>
             <div className="space-y-2">
-              {providers.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => setSelectedProvider(p.id)}
-                  className="w-full flex items-start gap-3 p-2.5 rounded-xl text-left transition-all"
+              {pipelineStack.map((p) => (
+                <div
+                  key={p.label}
+                  className="w-full flex items-start gap-3 p-2.5 rounded-xl"
                   style={{
-                    background: selectedProvider === p.id ? "rgba(6,182,212,0.06)" : "rgba(255,255,255,0.02)",
-                    border: selectedProvider === p.id ? "1px solid rgba(6,182,212,0.2)" : "1px solid rgba(255,255,255,0.04)",
+                    background: "rgba(255,255,255,0.02)",
+                    border: "1px solid rgba(255,255,255,0.04)",
                   }}
                 >
                   <div className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0"
-                    style={{ background: selectedProvider === p.id ? "#67e8f9" : "rgba(255,255,255,0.2)" }} />
+                    style={{ background: p.color }} />
                   <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-semibold" style={{ color: selectedProvider === p.id ? "#e2e8f0" : "rgba(255,255,255,0.5)" }}>
-                        {p.label}
-                      </span>
-                      <span className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold"
-                        style={{ background: "rgba(255,255,255,0.06)", color: p.badgeColor }}>
-                        {p.badge}
-                      </span>
-                    </div>
+                    <span className="text-xs font-semibold text-white/70">{p.label}</span>
                     <p className="text-[10px] text-white/30 mt-0.5">{p.desc}</p>
                   </div>
-                </button>
+                </div>
               ))}
             </div>
           </div>
