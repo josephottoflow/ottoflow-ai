@@ -749,16 +749,15 @@ function TopicsSection({
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               {list.map((t) => (
-                <Link
+                <div
                   key={t.id}
-                  href={`/video/generate?brandId=${brandId}&topicId=${t.id}`}
-                  className="block rounded-lg p-3 transition group hover:bg-white/[0.04]"
+                  className="rounded-lg p-3 transition hover:bg-white/[0.04]"
                   style={{
                     background: "rgba(255,255,255,0.02)",
                     border: "1px solid rgba(255,255,255,0.04)",
                   }}
                 >
-                  <p className="text-[13px] font-semibold text-white leading-snug group-hover:text-fuchsia-200">
+                  <p className="text-[13px] font-semibold text-white leading-snug">
                     {t.title}
                   </p>
                   {t.hook_angle && (
@@ -771,7 +770,23 @@ function TopicsSection({
                       {t.description}
                     </p>
                   )}
-                </Link>
+                  {/* Per-idea entry points: turn the idea into a video or a
+                      brand-voiced social post, both pre-aligned to this idea. */}
+                  <div className="flex items-center gap-3 mt-2 pt-2 border-t border-white/[0.04]">
+                    <Link
+                      href={`/video/generate?brandId=${brandId}&topicId=${t.id}`}
+                      className="text-[10px] font-semibold text-fuchsia-300 hover:underline"
+                    >
+                      Generate video →
+                    </Link>
+                    <Link
+                      href={`/content/generate?brandId=${brandId}&topicId=${t.id}`}
+                      className="text-[10px] font-semibold text-violet-300 hover:underline"
+                    >
+                      Generate post →
+                    </Link>
+                  </div>
+                </div>
               ))}
             </div>
           </div>

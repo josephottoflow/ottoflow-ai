@@ -39,12 +39,20 @@ const PLATFORMS = [
   "email",
 ] as const;
 
-const Schema = z.object({
-  brandId: z.string().uuid(),
-  platform: z.enum(PLATFORMS),
-  userPrompt: z.string().max(500).optional(),
-  pillarId: z.string().uuid().optional(),
-});
+const Schema = z
+  .object({
+    brandId: z.string().uuid(),
+    // New: multi-platform in one run. `platform` (single) kept for back-compat.
+    platforms: z.array(z.enum(PLATFORMS)).min(1).max(PLATFORMS.length).optional(),
+    platform: z.enum(PLATFORMS).optional(),
+    // New: align the post to a researched idea (brand_topics).
+    topicId: z.string().uuid().optional(),
+    userPrompt: z.string().max(500).optional(),
+    pillarId: z.string().uuid().optional(),
+  })
+  .refine((v) => !!v.platforms?.length || !!v.platform, {
+    message: "Provide at least one platform.",
+  });
 
 const RATE_LIMIT = { limit: 20, windowSeconds: 60 * 60 } as const; // 20/hr per user
 const ROUTE = "POST:/api/content/generate";
@@ -88,6 +96,7 @@ export async function POST(req: NextRequest) {
     );
   }
   const input = parsed.data;
+  const platforms = input.platforms ?? (input.platform ? [input.platform] : []);
 
   const admin = createAdminClient();
 
@@ -130,92 +139,161 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // 3. Create content_items row (placeholder — title fills in when worker writes)
-  const placeholderTitle = `Generating ${input.platform} content…`;
-  const { data: item, error: itemErr } = await admin
-    .from("content_items")
-    .insert({
-      brand_id: input.brandId,
-      platform: input.platform,
-      title: placeholderTitle,
-      preview: "",
-      body: null,
-      status: "draft",
-      user_prompt: input.userPrompt ?? null,
-    })
-    .select("id")
-    .single();
+  // 2b. Optional researched idea (brand_topics) — resolve it into a topic-
+  // aligned steering block that we fold into the Gemini "userPrompt". The
+  // worker already treats userPrompt as the topic/steering, so this needs NO
+  // worker or schema change — the post comes out aligned to the idea's hook
+  // and angle (same pattern as the video route).
+  let topicTitle: string | null = null;
+  let effectiveUserPrompt = input.userPrompt?.trim() || undefined;
+  if (input.topicId) {
+    const { data: topic, error: topicErr } = await admin
+      .from("brand_topics")
+      .select("id, brand_id, title, description, category, hook_angle, seed_keyword")
+      .eq("id", input.topicId)
+      .eq("brand_id", input.brandId)
+      .maybeSingle();
+    if (topicErr || !topic) {
+      return NextResponse.json(
+        { error: "Selected idea doesn't belong to this brand." },
+        { status: 400 },
+      );
+    }
+    topicTitle = topic.title as string;
+    const topicBlock = [
+      `Topic: ${topic.title}.`,
+      topic.hook_angle ? `Lead with this hook angle: "${topic.hook_angle}".` : "",
+      topic.description ? `Core angle: ${topic.description}` : "",
+      topic.category ? `Content type: ${topic.category}.` : "",
+      topic.seed_keyword ? `Anchor keyword: ${topic.seed_keyword}.` : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    effectiveUserPrompt = [topicBlock, input.userPrompt?.trim()]
+      .filter(Boolean)
+      .join("\n\nExtra direction: ");
 
-  if (itemErr || !item) {
-    return NextResponse.json(
-      { error: itemErr?.message ?? "Failed to create content row" },
-      { status: 500 },
-    );
+    // Mark the idea as used (atomic increment, fire-and-forget) for parity
+    // with the video flow so the same idea de-prioritises on next browse.
+    void (async () => {
+      try {
+        await admin.rpc(
+          "increment_brand_topic_use" as never,
+          { p_topic_id: input.topicId } as never,
+        );
+      } catch (e) {
+        captureFallback("content.generate.topic_use_increment_failed", e, {
+          topicId: input.topicId,
+        });
+      }
+    })();
   }
 
-  // 4. Create job row
-  const { data: job, error: jobErr } = await admin
-    .from("content_generation_jobs")
-    .insert({
-      brand_id: input.brandId,
-      content_item_id: item.id,
-      status: "queued",
-      current_step: "queued",
-      progress: 0,
-      platform: input.platform,
-      user_prompt: input.userPrompt ?? null,
-      pillar_id: input.pillarId ?? null,
-    })
-    .select("id")
-    .single();
+  // 3-5. Create one content_item + job per selected platform, then enqueue
+  // each. The worker handles exactly one platform per job, so multi-platform
+  // is just N jobs — no worker change. effectiveUserPrompt carries the topic
+  // alignment block so every platform's post stays on-idea.
+  const generations: Array<{
+    platform: string;
+    contentItemId: string;
+    contentJobId: string;
+  }> = [];
+  const createdItemIds: string[] = [];
 
-  if (jobErr || !job) {
-    // Best-effort cleanup
-    await admin.from("content_items").delete().eq("id", item.id);
-    return NextResponse.json(
-      { error: jobErr?.message ?? "Failed to create content job" },
-      { status: 500 },
-    );
-  }
+  for (const pf of platforms) {
+    const { data: item, error: itemErr } = await admin
+      .from("content_items")
+      .insert({
+        brand_id: input.brandId,
+        platform: pf,
+        title: `Generating ${pf} content…`,
+        preview: "",
+        body: null,
+        status: "draft",
+        user_prompt: effectiveUserPrompt ?? null,
+      })
+      .select("id")
+      .single();
 
-  // 5. Enqueue BullMQ — same jobId-equals-uuid pattern as brand research so
-  //    retries can de-dup via queue.remove(jobId) cleanly.
-  try {
-    const queue = contentGenerationQueue();
-    const bullJob = await queue.add(
-      "generate",
-      {
+    if (itemErr || !item) {
+      if (createdItemIds.length) {
+        await admin.from("content_items").delete().in("id", createdItemIds);
+      }
+      return NextResponse.json(
+        { error: itemErr?.message ?? "Failed to create content row" },
+        { status: 500 },
+      );
+    }
+    createdItemIds.push(item.id as string);
+
+    const { data: job, error: jobErr } = await admin
+      .from("content_generation_jobs")
+      .insert({
+        brand_id: input.brandId,
+        content_item_id: item.id,
+        status: "queued",
+        current_step: "queued",
+        progress: 0,
+        platform: pf,
+        user_prompt: effectiveUserPrompt ?? null,
+        pillar_id: input.pillarId ?? null,
+      })
+      .select("id")
+      .single();
+
+    if (jobErr || !job) {
+      await admin.from("content_items").delete().in("id", createdItemIds);
+      return NextResponse.json(
+        { error: jobErr?.message ?? "Failed to create content job" },
+        { status: 500 },
+      );
+    }
+
+    try {
+      const bullJob = await contentGenerationQueue().add(
+        "generate",
+        {
+          brandId: input.brandId,
+          contentItemId: item.id,
+          contentJobId: job.id,
+          platform: pf,
+          userPrompt: effectiveUserPrompt,
+          pillarId: input.pillarId,
+        },
+        { jobId: job.id },
+      );
+      await admin
+        .from("content_generation_jobs")
+        .update({ bull_job_id: String(bullJob.id ?? job.id) })
+        .eq("id", job.id);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to enqueue";
+      captureFallback("content.generate.enqueue_failed", err, {
         brandId: input.brandId,
-        contentItemId: item.id,
         contentJobId: job.id,
-        platform: input.platform,
-        userPrompt: input.userPrompt,
-        pillarId: input.pillarId,
-      },
-      { jobId: job.id },
-    );
-    await admin
-      .from("content_generation_jobs")
-      .update({ bull_job_id: String(bullJob.id ?? job.id) })
-      .eq("id", job.id);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to enqueue";
-    captureFallback("content.generate.enqueue_failed", err, {
-      brandId: input.brandId,
-      contentJobId: job.id,
+      });
+      await admin
+        .from("content_generation_jobs")
+        .update({ status: "failed", error_message: message })
+        .eq("id", job.id);
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
+
+    generations.push({
+      platform: pf,
+      contentItemId: item.id as string,
+      contentJobId: job.id as string,
     });
-    await admin
-      .from("content_generation_jobs")
-      .update({ status: "failed", error_message: message })
-      .eq("id", job.id);
-    return NextResponse.json({ error: message }, { status: 500 });
   }
 
   return NextResponse.json(
     {
-      contentItemId: item.id,
-      contentJobId: job.id,
-      platform: input.platform,
+      generations,
+      topicTitle,
+      // Back-compat single-result fields (first platform) for older callers.
+      contentItemId: generations[0]?.contentItemId,
+      contentJobId: generations[0]?.contentJobId,
+      platform: generations[0]?.platform,
     },
     {
       status: 202,
