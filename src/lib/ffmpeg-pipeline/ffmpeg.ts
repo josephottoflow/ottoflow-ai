@@ -60,17 +60,22 @@ function buildSceneChain(
   //   crop   → exactly 1080x1920
   //   trim   → cap to scene duration so xfade offset math is predictable
   //   eq/lut → colour grade
-  //   fps    → assert constant frame rate (paired with the input-level `-r`)
   //   format → yuv420p so every input shares one pixel format for xfade
-  //   setpts → reset PTS so xfade can align
+  //   setpts → reset PTS to 0 so xfade's absolute `offset` math aligns
+  //   fps    → MUST come LAST, after setpts. Proven in the prod container:
+  //            `setpts` unsets the link frame rate to 1/0, and xfade rejects
+  //            it ("inputs needs to be a constant frame rate"). Re-asserting
+  //            `fps` AFTER setpts restores a constant rate xfade accepts.
+  //            (fps-before-setpts — the obvious order — FAILS; that cost
+  //            several prod cycles before bisecting it in the Railway console.)
+  //            Paired with the input-level `-r <fps>` for VFR sources.
   const filter =
     `[${inputIdx}:v]` +
     `scale=${width}:${height}:force_original_aspect_ratio=increase,` +
     `crop=${width}:${height},` +
     `trim=duration=${(durMs / 1000).toFixed(3)},` +
     gradeFilter + "," +
-    `fps=${fps},format=yuv420p,` +
-    `setpts=PTS-STARTPTS` +
+    `format=yuv420p,setpts=PTS-STARTPTS,fps=${fps}` +
     `[v${inputIdx}]`;
   return { filter, outLabel: `v${inputIdx}` };
 }
