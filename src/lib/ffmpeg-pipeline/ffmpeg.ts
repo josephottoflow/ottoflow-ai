@@ -64,7 +64,14 @@ function buildSceneChain(
   //   trim   → cap to scene duration so xfade offset math is predictable
   //   zoompan → Ken Burns
   //   eq/lut → colour grade
-  //   setpts → reset PTS so xfade can align
+  //   fps    → FORCE constant frame rate. xfade REQUIRES CFR inputs; source
+  //            clips (Pexels etc.) are often VFR, and on the nixpacks Linux
+  //            ffmpeg the post-zoompan stream reports rate 1/0 → xfade aborts
+  //            with "inputs needs to be a constant frame rate". Local ffmpeg
+  //            infers CFR and passed, masking this in dev. The explicit
+  //            `fps` filter + fixed timebase makes xfade deterministic.
+  //   format → yuv420p so every input shares one pixel format for xfade.
+  //   setpts → reset PTS so xfade can align.
   const filter =
     `[${inputIdx}:v]` +
     `scale=${width}:${height}:force_original_aspect_ratio=increase,` +
@@ -72,6 +79,7 @@ function buildSceneChain(
     `trim=duration=${(durMs / 1000).toFixed(3)},` +
     `zoompan=z=${zExpr}:x=${xExpr}:y=${yExpr}:d=${durFrames}:s=${width}x${height}:fps=${fps},` +
     gradeFilter + "," +
+    `fps=${fps},format=yuv420p,settb=AVTB,` +
     `setpts=PTS-STARTPTS` +
     `[v${inputIdx}]`;
   return { filter, outLabel: `v${inputIdx}` };
