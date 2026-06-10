@@ -38,48 +38,38 @@ function buildSceneChain(
   fps: number,
 ): { filter: string; outLabel: string } {
   const durMs = scene.timing.videoEndMs - scene.timing.videoStartMs;
-  const durFrames = Math.round((durMs / 1000) * fps);
-  const { zoom, grade } = scene.edit;
-
-  // Ken Burns: linear zoom from `zoom.from` to `zoom.to` across the scene.
-  // `zoompan` works on a per-frame expression. We use:
-  //   z = zoom.from + (zoom.to - zoom.from) * (on / d)
-  // where `on` is the current frame index and `d` is total frames.
-  const zoomDelta = zoom.to - zoom.from;
-  const zExpr =
-    `'min(max(${zoom.from.toFixed(3)}+${zoomDelta.toFixed(4)}*on/${durFrames},${zoom.from.toFixed(3)}),${zoom.to.toFixed(3)})'`;
-
-  // x/y track the pan envelope (Agent 10 may set non-centre origins).
-  const { pan } = scene.edit;
-  const xExpr =
-    `'iw*(${pan.fromX.toFixed(3)}+(${pan.toX.toFixed(3)}-${pan.fromX.toFixed(3)})*on/${durFrames})-(iw/zoom/2)'`;
-  const yExpr =
-    `'ih*(${pan.fromY.toFixed(3)}+(${pan.toY.toFixed(3)}-${pan.fromY.toFixed(3)})*on/${durFrames})-(ih/zoom/2)'`;
-
+  const { grade } = scene.edit;
   const gradeFilter = gradeFilterFor(grade);
 
+  // NO zoompan. Three prod deploys proved zoompan is the root of the
+  // `[xfade] inputs needs to be a constant frame rate; current rate of 1/0`
+  // failure on the nixpacks Linux ffmpeg: zoompan is an IMAGE Ken-Burns
+  // filter, and run over VIDEO inputs (d = scene-frame-count per input frame)
+  // it corrupts the output frame-rate metadata to 1/0 — which xfade rejects,
+  // and which no downstream fps/`-r`/settb could override. Local gyan ffmpeg
+  // tolerated it, masking it in dev.
+  //
+  // It was also redundant: the scenes are real moving stock-video clips, so
+  // the video is already dynamic without an added zoom. Dropping zoompan
+  // guarantees constant frame rate into xfade. (Ken Burns can be re-added
+  // later via a CFR-safe method — see scene.edit.zoom/pan, still planned by
+  // Agent 10 but currently unused at the FFmpeg layer.)
+  //
   // The chain:
   //   scale  → cover the 1080x1920 frame (then crop excess)
   //   crop   → exactly 1080x1920
   //   trim   → cap to scene duration so xfade offset math is predictable
-  //   zoompan → Ken Burns
   //   eq/lut → colour grade
-  //   fps    → FORCE constant frame rate. xfade REQUIRES CFR inputs; source
-  //            clips (Pexels etc.) are often VFR, and on the nixpacks Linux
-  //            ffmpeg the post-zoompan stream reports rate 1/0 → xfade aborts
-  //            with "inputs needs to be a constant frame rate". Local ffmpeg
-  //            infers CFR and passed, masking this in dev. The explicit
-  //            `fps` filter + fixed timebase makes xfade deterministic.
-  //   format → yuv420p so every input shares one pixel format for xfade.
-  //   setpts → reset PTS so xfade can align.
+  //   fps    → assert constant frame rate (paired with the input-level `-r`)
+  //   format → yuv420p so every input shares one pixel format for xfade
+  //   setpts → reset PTS so xfade can align
   const filter =
     `[${inputIdx}:v]` +
     `scale=${width}:${height}:force_original_aspect_ratio=increase,` +
     `crop=${width}:${height},` +
     `trim=duration=${(durMs / 1000).toFixed(3)},` +
-    `zoompan=z=${zExpr}:x=${xExpr}:y=${yExpr}:d=${durFrames}:s=${width}x${height}:fps=${fps},` +
     gradeFilter + "," +
-    `fps=${fps},format=yuv420p,settb=AVTB,` +
+    `fps=${fps},format=yuv420p,` +
     `setpts=PTS-STARTPTS` +
     `[v${inputIdx}]`;
   return { filter, outLabel: `v${inputIdx}` };
