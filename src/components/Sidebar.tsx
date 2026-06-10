@@ -111,6 +111,18 @@ export function Sidebar() {
             <Sparkles size={13} />
             Generate Video
           </Link>
+          <Link
+            href="/content/generate"
+            className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 mt-1"
+            style={{
+              background: "rgba(217, 70, 239, 0.08)",
+              border: "1px solid rgba(217, 70, 239, 0.15)",
+              color: "#e879f9",
+            }}
+          >
+            <FileText size={13} />
+            Generate Post
+          </Link>
         </div>
       </nav>
 

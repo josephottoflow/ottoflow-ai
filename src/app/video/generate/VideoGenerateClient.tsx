@@ -531,6 +531,14 @@ export function VideoGenerateClient({
         </Link>
         <span className="text-white/20">/</span>
         <span className="text-xs text-cyan-400 font-medium">Generate</span>
+        {/* Cross-link to the social-post generator — this page makes videos;
+            written posts live in the content pipeline. */}
+        <Link
+          href="/content/generate"
+          className="ml-auto flex items-center gap-1.5 text-[11px] font-medium text-fuchsia-300/80 hover:text-fuchsia-200 transition-colors"
+        >
+          <Type size={12} /> Generate a social post instead →
+        </Link>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-[1fr_420px] gap-6">
