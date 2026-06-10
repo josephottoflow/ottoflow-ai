@@ -286,11 +286,22 @@ export function buildFfmpegArgv(input: BuildArgvInput): string[] {
 
   return [
     "-y",
+    // Cap filtergraph parallelism. Without this, ffmpeg fans the filter
+    // chain across all host CPUs, each holding 1080x1920 frame buffers.
+    "-filter_complex_threads", "2",
+    "-filter_threads", "2",
     ...inputArgs,
     "-filter_complex", filterComplex,
     "-map", `[vout]`,
     "-map", `[${audio.outLabel}]`,
     "-c:v", ENC.vcodec,
+    // CAP ENCODER THREADS. The Railway worker container reports ~60 host
+    // CPUs, so libx264 auto-spawned threads=60 — each with per-thread
+    // 1080x1920 frame + lookahead buffers — which OOM-killed the process
+    // (SIGKILL at frame 0) under the worker's RAM cap. 2 threads keeps peak
+    // memory well under the cap; a 30s clip still encodes in seconds at
+    // `veryfast`. Memory-safety over raw speed (ADR-002 priority).
+    "-threads", "2",
     "-preset", ENC.preset,
     "-crf", String(ENC.crf),
     "-pix_fmt", ENC.pixFmt,
