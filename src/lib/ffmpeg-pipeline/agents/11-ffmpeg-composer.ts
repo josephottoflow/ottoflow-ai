@@ -18,8 +18,10 @@
  * writes. This file is single-responsibility: "run ffmpeg".
  */
 import { spawn } from "node:child_process";
-import { promises as fs } from "node:fs";
+import { promises as fs, createWriteStream } from "node:fs";
 import path from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { renderAss } from "../ass-captions";
 import { composeMultiPass } from "../ffmpeg";
 import type {
@@ -39,11 +41,13 @@ async function downloadTo(url: string, dest: string): Promise<void> {
     return;
   }
   const res = await fetch(url);
-  if (!res.ok) {
+  if (!res.ok || !res.body) {
     throw new Error(`composer: download failed ${url}: ${res.status} ${res.statusText}`);
   }
-  const buf = Buffer.from(await res.arrayBuffer());
-  await fs.writeFile(dest, buf);
+  // STREAM to disk — do NOT buffer the whole clip in memory. Buffering all
+  // scene clips (arrayBuffer) at CONCURRENCY 4 held ~4 full clips in Node RSS
+  // during the first ffmpeg pass and contributed to the 1 GB worker OOM.
+  await pipeline(Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]), createWriteStream(dest));
 }
 
 async function downloadAllScenes(
@@ -51,7 +55,9 @@ async function downloadAllScenes(
   workDir: string,
   ctx: AgentContext,
 ): Promise<string[]> {
-  const CONCURRENCY = 4;
+  // Low concurrency: each in-flight download + its disk write adds memory
+  // pressure on the 1 GB worker. 2 is a safe balance of speed vs RSS.
+  const CONCURRENCY = 2;
   const paths: string[] = new Array(plan.scenes.length);
   let cursor = 0;
   const fail: { idx: number; error: string }[] = [];

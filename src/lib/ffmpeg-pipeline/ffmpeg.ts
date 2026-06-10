@@ -34,23 +34,30 @@ import type {
 
 const ENC = {
   vcodec: "libx264",
-  preset: "veryfast",
-  crf: 22,
-  // Slightly higher quality on the intermediate clips so the 3 encode
-  // generations (normalize → fold → finalize) don't visibly compound.
+  // `ultrafast` is a deliberate MEMORY choice (not speed): it disables
+  // B-frames, CABAC, multi-ref, and the lookahead buffer — the structures
+  // that dominate libx264 RSS — so each pass fits the 1 GB worker. Quality
+  // is fine for short-form vertical at these CRFs. (`veryfast` + threads=2
+  // still OOM'd the 1 GB worker.)
+  preset: "ultrafast",
+  crf: 23,
   intermediateCrf: 20,
   pixFmt: "yuv420p",
-  profile: "high",
-  level: "4.0",
+  // ultrafast can't honour High profile features; baseline-ish via profile
+  // omission is fine. Keep yuv420p for universal playback.
   acodec: "aac",
   abitrate: "192k",
 } as const;
 
 // Shared thread/memory caps applied to every pass.
+//   -threads 2          : libx264 encoder threads (host shows 32 CPUs).
+//   -filter*_threads 1  : single filter thread — each filter thread holds
+//                         its own 1080x1920 frame buffers; on a 1 GB worker
+//                         we trade a little speed for a much smaller peak.
 const THREAD_CAP = [
   "-threads", "2",
-  "-filter_complex_threads", "2",
-  "-filter_threads", "2",
+  "-filter_complex_threads", "1",
+  "-filter_threads", "1",
 ] as const;
 
 function gradeFilterFor(grade: EditDecision["grade"]): string {
@@ -116,8 +123,6 @@ export function buildNormalizeArgv(i: NormalizeArgvInput): string[] {
     "-preset", ENC.preset,
     "-crf", String(ENC.intermediateCrf),
     "-pix_fmt", ENC.pixFmt,
-    "-profile:v", ENC.profile,
-    "-level", ENC.level,
     "-r", String(i.fps),
     "-t", durSec.toFixed(3),
     "-movflags", "+faststart",
@@ -159,8 +164,6 @@ export function buildXfadeArgv(i: XfadeArgvInput): string[] {
     "-preset", ENC.preset,
     "-crf", String(ENC.intermediateCrf),
     "-pix_fmt", ENC.pixFmt,
-    "-profile:v", ENC.profile,
-    "-level", ENC.level,
     "-r", String(i.fps),
     "-movflags", "+faststart",
     i.outputPath,
@@ -219,8 +222,6 @@ export function buildFinalizeArgv(i: FinalizeArgvInput): string[] {
     "-preset", ENC.preset,
     "-crf", String(ENC.crf),
     "-pix_fmt", ENC.pixFmt,
-    "-profile:v", ENC.profile,
-    "-level", ENC.level,
     "-c:a", ENC.acodec,
     "-b:a", ENC.abitrate,
     "-movflags", "+faststart",
