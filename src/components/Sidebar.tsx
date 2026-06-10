@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { UserButton, useUser } from "@clerk/nextjs";
 import {
@@ -18,6 +19,8 @@ import {
   HelpCircle,
   BarChart3,
   Briefcase,
+  Menu,
+  X,
 } from "lucide-react";
 
 const navItems: {
@@ -46,132 +49,176 @@ export function Sidebar() {
   const pathname = usePathname();
   const { user } = useUser();
 
+  // Mobile drawer state. On lg+ the sidebar is always docked; below lg it
+  // slides in over a backdrop. Close it whenever the route changes so a tap
+  // navigates AND dismisses.
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    setOpen(false);
+  }, [pathname]);
+
   const displayName =
     user?.firstName ?? user?.username ?? user?.emailAddresses[0]?.emailAddress ?? "You";
 
   return (
-    <aside
-      className="fixed left-0 top-0 h-screen w-[220px] flex flex-col z-40 border-r border-white/[0.04]"
-      style={{ background: "rgba(5, 5, 20, 0.9)", backdropFilter: "blur(20px)" }}
-    >
-      {/* Logo */}
-      <div className="flex items-center gap-2.5 px-4 py-5 border-b border-white/[0.04]">
+    <>
+      {/* Mobile hamburger — opens the drawer (hidden on lg+) */}
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-label="Open navigation menu"
+        aria-expanded={open}
+        className="lg:hidden fixed top-3 left-3 z-50 w-9 h-9 rounded-lg flex items-center justify-center border border-white/10"
+        style={{ background: "rgba(5,5,20,0.85)", backdropFilter: "blur(12px)" }}
+      >
+        <Menu size={16} className="text-white/70" />
+      </button>
+
+      {/* Backdrop (mobile only, when open) */}
+      {open && (
         <div
-          className="w-7 h-7 rounded-lg flex items-center justify-center"
-          style={{ background: "linear-gradient(135deg, #7c3aed, #6366f1)" }}
-        >
-          <Zap size={14} className="text-white" />
-        </div>
-        <div>
-          <span className="text-sm font-bold text-white tracking-tight">Ottoflow</span>
-          <span className="text-[10px] text-violet-400 font-medium block -mt-0.5">
-            AI Platform
-          </span>
-        </div>
-      </div>
+          className="lg:hidden fixed inset-0 z-40 bg-black/50"
+          onClick={() => setOpen(false)}
+          aria-hidden="true"
+        />
+      )}
 
-      {/* Main nav */}
-      <nav className="flex-1 px-2.5 py-3 space-y-0.5 overflow-y-auto">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const active =
-            item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn("nav-item", active && "active")}
-            >
-              <Icon size={15} />
-              {item.label}
-              {item.soon && (
-                <span
-                  className="ml-auto text-[8px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded"
-                  style={{ background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.35)" }}
-                >
-                  Soon
-                </span>
-              )}
-              {active && !item.soon && <ChevronRight size={12} className="ml-auto opacity-50" />}
-            </Link>
-          );
-        })}
-
-        {/* Quick actions */}
-        <div className="pt-3 pb-1">
-          <p className="px-3 text-[10px] font-semibold uppercase tracking-widest text-white/25 mb-2">
-            Quick Start
-          </p>
-          <Link
-            href="/brands/new"
-            className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150"
-            style={{
-              background: "rgba(124, 58, 237, 0.08)",
-              border: "1px solid rgba(124, 58, 237, 0.15)",
-              color: "#a78bfa",
-            }}
+      <aside
+        className={cn(
+          "fixed left-0 top-0 h-screen w-[220px] flex flex-col z-50 border-r border-white/[0.04] transition-transform duration-200",
+          open ? "translate-x-0" : "-translate-x-full",
+          "lg:translate-x-0",
+        )}
+        style={{ background: "rgba(5, 5, 20, 0.9)", backdropFilter: "blur(20px)" }}
+      >
+        {/* Logo */}
+        <div className="flex items-center gap-2.5 px-4 py-5 border-b border-white/[0.04]">
+          <div
+            className="w-7 h-7 rounded-lg flex items-center justify-center"
+            style={{ background: "linear-gradient(135deg, #7c3aed, #6366f1)" }}
           >
-            <Briefcase size={13} />
-            Research a Brand
-          </Link>
-          <Link
-            href="/video/generate"
-            className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 mt-1"
-            style={{
-              background: "rgba(6, 182, 212, 0.08)",
-              border: "1px solid rgba(6, 182, 212, 0.15)",
-              color: "#67e8f9",
-            }}
-          >
-            <Sparkles size={13} />
-            Generate Video
-          </Link>
-          <Link
-            href="/content/generate"
-            className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 mt-1"
-            style={{
-              background: "rgba(217, 70, 239, 0.08)",
-              border: "1px solid rgba(217, 70, 239, 0.15)",
-              color: "#e879f9",
-            }}
-          >
-            <FileText size={13} />
-            Generate Post
-          </Link>
-        </div>
-      </nav>
-
-      {/* Bottom nav */}
-      <nav className="px-2.5 py-2 border-t border-white/[0.04] space-y-0.5">
-        {bottomItems.map((item) => {
-          const Icon = item.icon;
-          return (
-            <Link key={item.href} href={item.href} className="nav-item">
-              <Icon size={14} />
-              {item.label}
-            </Link>
-          );
-        })}
-      </nav>
-
-      {/* User */}
-      <div className="px-3 py-3 border-t border-white/[0.04]">
-        <div className="flex items-center gap-2.5">
-          <UserButton
-            afterSignOutUrl="/sign-in"
-            appearance={{
-              elements: {
-                avatarBox: "w-7 h-7",
-              },
-            }}
-          />
-          <div className="min-w-0 flex-1">
-            <p className="text-xs font-medium text-white/80 truncate">{displayName}</p>
-            <p className="text-[10px] text-white/35 truncate">Pro Plan</p>
+            <Zap size={14} className="text-white" />
           </div>
-          <Bell size={13} className="text-white/30 flex-shrink-0" />
+          <div>
+            <span className="text-sm font-bold text-white tracking-tight">Ottoflow</span>
+            <span className="text-[10px] text-violet-400 font-medium block -mt-0.5">
+              AI Platform
+            </span>
+          </div>
+          {/* Close (mobile only) */}
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            aria-label="Close navigation menu"
+            className="lg:hidden ml-auto text-white/40 hover:text-white/70 transition-colors"
+          >
+            <X size={16} />
+          </button>
         </div>
-      </div>
-    </aside>
+
+        {/* Main nav */}
+        <nav className="flex-1 px-2.5 py-3 space-y-0.5 overflow-y-auto">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const active =
+              item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn("nav-item", active && "active")}
+              >
+                <Icon size={15} />
+                {item.label}
+                {item.soon && (
+                  <span
+                    className="ml-auto text-[8px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded"
+                    style={{ background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.35)" }}
+                  >
+                    Soon
+                  </span>
+                )}
+                {active && !item.soon && <ChevronRight size={12} className="ml-auto opacity-50" />}
+              </Link>
+            );
+          })}
+
+          {/* Quick actions */}
+          <div className="pt-3 pb-1">
+            <p className="px-3 text-[10px] font-semibold uppercase tracking-widest text-white/25 mb-2">
+              Quick Start
+            </p>
+            <Link
+              href="/brands/new"
+              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150"
+              style={{
+                background: "rgba(124, 58, 237, 0.08)",
+                border: "1px solid rgba(124, 58, 237, 0.15)",
+                color: "#a78bfa",
+              }}
+            >
+              <Briefcase size={13} />
+              Research a Brand
+            </Link>
+            <Link
+              href="/video/generate"
+              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 mt-1"
+              style={{
+                background: "rgba(6, 182, 212, 0.08)",
+                border: "1px solid rgba(6, 182, 212, 0.15)",
+                color: "#67e8f9",
+              }}
+            >
+              <Sparkles size={13} />
+              Generate Video
+            </Link>
+            <Link
+              href="/content/generate"
+              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 mt-1"
+              style={{
+                background: "rgba(217, 70, 239, 0.08)",
+                border: "1px solid rgba(217, 70, 239, 0.15)",
+                color: "#e879f9",
+              }}
+            >
+              <FileText size={13} />
+              Generate Post
+            </Link>
+          </div>
+        </nav>
+
+        {/* Bottom nav */}
+        <nav className="px-2.5 py-2 border-t border-white/[0.04] space-y-0.5">
+          {bottomItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <Link key={item.href} href={item.href} className="nav-item">
+                <Icon size={14} />
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+
+        {/* User */}
+        <div className="px-3 py-3 border-t border-white/[0.04]">
+          <div className="flex items-center gap-2.5">
+            <UserButton
+              afterSignOutUrl="/sign-in"
+              appearance={{
+                elements: {
+                  avatarBox: "w-7 h-7",
+                },
+              }}
+            />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-medium text-white/80 truncate">{displayName}</p>
+              <p className="text-[10px] text-white/35 truncate">Pro Plan</p>
+            </div>
+            <Bell size={13} className="text-white/30 flex-shrink-0" aria-label="Notifications" />
+          </div>
+        </div>
+      </aside>
+    </>
   );
 }

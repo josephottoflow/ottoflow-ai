@@ -217,7 +217,7 @@ export function ProjectDetailClient({ project, content, renderJobs, activity }: 
                         </div>
                         {job.output_url && (
                           <a href={job.output_url} download target="_blank" rel="noopener noreferrer">
-                            <Button variant="ghost" size="icon" className="w-7 h-7 flex-shrink-0">
+                            <Button variant="ghost" size="icon" className="w-7 h-7 flex-shrink-0" aria-label="Download render">
                               <Download size={12} className="text-white/30" />
                             </Button>
                           </a>

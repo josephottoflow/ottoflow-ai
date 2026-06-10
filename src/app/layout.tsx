@@ -99,7 +99,9 @@ export default async function RootLayout({
             ) : userId ? (
               <div className="flex min-h-screen">
                 <Sidebar />
-                <main className="flex-1 ml-[220px] min-h-screen">{children}</main>
+                {/* Sidebar is docked at lg+; below lg it's an off-canvas
+                    drawer, so the content takes the full width there. */}
+                <main className="flex-1 lg:ml-[220px] min-h-screen">{children}</main>
               </div>
             ) : (
               <main className="min-h-screen">{children}</main>

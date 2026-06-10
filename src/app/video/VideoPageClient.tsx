@@ -144,7 +144,7 @@ export function VideoPageClient({ renderJobs, kpis }: Props) {
           <div className="glass rounded-2xl p-5">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-sm font-semibold text-white">Video Workflow</h2>
-              <Button variant="ghost" size="icon" className="w-7 h-7">
+              <Button variant="ghost" size="icon" className="w-7 h-7" aria-label="Refresh video workflow">
                 <RefreshCw size={13} className="text-white/40" />
               </Button>
             </div>
@@ -304,7 +304,7 @@ export function VideoPageClient({ renderJobs, kpis }: Props) {
                     </div>
                     {v.output_url && (
                       <a href={v.output_url} download target="_blank" rel="noopener noreferrer">
-                        <Button variant="ghost" size="icon" className="w-7 h-7 flex-shrink-0">
+                        <Button variant="ghost" size="icon" className="w-7 h-7 flex-shrink-0" aria-label="Download video">
                           <Download size={13} className="text-white/40" />
                         </Button>
                       </a>

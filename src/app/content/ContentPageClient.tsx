@@ -144,7 +144,7 @@ export function ContentPageClient({ items, kpis }: Props) {
           <div className="glass rounded-2xl p-5">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-sm font-semibold text-white">Pipeline Workflow</h2>
-              <Button variant="ghost" size="icon" className="w-7 h-7">
+              <Button variant="ghost" size="icon" className="w-7 h-7" aria-label="Refresh pipeline workflow">
                 <RefreshCw size={13} className="text-white/40" />
               </Button>
             </div>
@@ -247,7 +247,7 @@ export function ContentPageClient({ items, kpis }: Props) {
                   </button>
                 ))}
               </div>
-              <Button variant="ghost" size="icon" className="w-7 h-7">
+              <Button variant="ghost" size="icon" className="w-7 h-7" aria-label="New content">
                 <Plus size={14} className="text-white/40" />
               </Button>
             </div>
