@@ -21,7 +21,7 @@ import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { renderAss } from "../ass-captions";
-import { buildFfmpegArgv } from "../ffmpeg";
+import { composeMultiPass } from "../ffmpeg";
 import type {
   AgentContext,
   CompositionPlan,
@@ -147,31 +147,35 @@ export async function runFfmpegComposer(
   const assContent = renderAss(plan.scenes.map((s) => s.caption));
   await fs.writeFile(assPath, assContent, "utf-8");
 
-  // 5. Build argv
+  // 5-6. Low-memory multi-pass compose (normalize → pairwise xfade → finalize).
+  // Each ffmpeg invocation keeps ≤2 concurrent 1080x1920 decodes so peak RSS
+  // stays under the 1 GB worker cap. A single all-scenes filtergraph OOM'd.
   const outputPath = path.join(workDir, "out.mp4");
-  const argv = buildFfmpegArgv({
+  let lastStderr = "";
+  const runOne = async (argv: string[], label: string): Promise<void> => {
+    ctx.log("agent.ffmpegComposer.pass", { label, argvLength: argv.length });
+    const { exitCode, signal, stderr } = await runFfmpeg(argv);
+    lastStderr = stderr;
+    if (exitCode !== 0 || signal !== null) {
+      throw new Error(
+        `ffmpeg pass "${label}" failed (code=${exitCode}, signal=${signal}): ${stderr.slice(-2500)}`,
+      );
+    }
+  };
+
+  await composeMultiPass({
     plan,
     sceneInputPaths: scenePaths,
     narrationInputPath: narrationPath,
     musicInputPath: musicPath,
     assPath,
+    workDir,
     outputPath,
+    runFfmpeg: runOne,
   });
 
-  ctx.log("agent.ffmpegComposer.spawning", { argvLength: argv.length });
-
-  // 6. Spawn
-  const { exitCode, signal, stderr } = await runFfmpeg(argv);
-  if (exitCode !== 0 || signal !== null) {
-    const tail = stderr.slice(-3000);
-    throw new Error(
-      `ffmpeg failed (code=${exitCode}, signal=${signal}): ${tail}`,
-    );
-  }
-
-  // 7. Probe output for the result struct. We don't need ffprobe just for
-  //    width/height — the plan dictates them — so we return the plan values
-  //    plus the actual file path.
+  // 7. Probe output for the result struct. Plan dictates dimensions; we just
+  //    confirm the file exists + report size.
   const stat = await fs.stat(outputPath);
   ctx.log("agent.ffmpegComposer.done", {
     bytes: stat.size,
@@ -183,6 +187,6 @@ export async function runFfmpegComposer(
     durationSec: plan.output.durationMs / 1000,
     width: plan.output.width,
     height: plan.output.height,
-    ffmpegStderr: stderr,
+    ffmpegStderr: lastStderr,
   };
 }

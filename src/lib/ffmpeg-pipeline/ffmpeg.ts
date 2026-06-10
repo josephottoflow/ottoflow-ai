@@ -1,10 +1,29 @@
 /**
- * FFmpeg filter-graph builder for the multi-agent pipeline.
+ * FFmpeg command builders for the multi-agent pipeline — LOW-MEMORY MULTI-PASS.
  *
- * One ffmpeg invocation per video. The filter graph is built from the
- * CompositionPlan's per-scene EditDecisions, then handed to spawn(). The
- * function returns the FULL argv array — callers wrap spawn() themselves
- * so they can attach progress parsers if needed.
+ * The original single-invocation design decoded all N scenes (1080x1920 H.264)
+ * simultaneously inside one filtergraph, which OOM-killed the 1 GB Railway
+ * worker (alongside the Node process). This rewrite bounds peak memory to
+ * ≤2 concurrent decodes by splitting compose into three passes:
+ *
+ *   Pass 1 — normalize: ONE ffmpeg per scene. Decodes a single clip, applies
+ *            scale/crop/trim/grade and forces CFR, writes a clean silent
+ *            1080x1920 H.264 temp clip. Peak = 1 decode + 1 encode.
+ *   Pass 2 — fold: pairwise xfade. Start from clip 0, xfade-join clip 1, then
+ *            clip 2, … into a running `silent.mp4`. Each step decodes exactly
+ *            2 clips. (A 2-decode xfade encode was verified to fit 1 GB in the
+ *            prod container; a 4-decode one OOM'd.)
+ *   Pass 3 — finalize: burn ASS captions onto the silent video + mix narration
+ *            (full) with side-chain-ducked music → final MP4. 1 video + 2 audio
+ *            decodes.
+ *
+ * CRITICAL ffmpeg ordering (proven in the prod nixpacks container):
+ *   - `fps` must come AFTER `setpts` — setpts unsets the link frame rate to
+ *     1/0, which xfade rejects ("inputs needs to be a constant frame rate").
+ *   - `-r <fps>` is set as an INPUT option to force CFR at decode.
+ *   - `-threads 2` + `-filter_complex_threads 2` cap parallelism so libx264
+ *     (which would otherwise spawn one thread per host CPU — 32+) does not
+ *     blow the RAM cap.
  */
 import type {
   CompositionPlan,
@@ -17,68 +36,22 @@ const ENC = {
   vcodec: "libx264",
   preset: "veryfast",
   crf: 22,
+  // Slightly higher quality on the intermediate clips so the 3 encode
+  // generations (normalize → fold → finalize) don't visibly compound.
+  intermediateCrf: 20,
   pixFmt: "yuv420p",
   profile: "high",
   level: "4.0",
   acodec: "aac",
   abitrate: "192k",
-};
+} as const;
 
-// ─── Filter-graph builders (small, composable, testable) ───────────────────
-
-/**
- * Build the per-scene normalize + Ken Burns + grade chain.
- * Returns the filter string + the output label.
- */
-function buildSceneChain(
-  inputIdx: number,
-  scene: { timing: TimingPlan; edit: EditDecision },
-  width: number,
-  height: number,
-  fps: number,
-): { filter: string; outLabel: string } {
-  const durMs = scene.timing.videoEndMs - scene.timing.videoStartMs;
-  const { grade } = scene.edit;
-  const gradeFilter = gradeFilterFor(grade);
-
-  // NO zoompan. Three prod deploys proved zoompan is the root of the
-  // `[xfade] inputs needs to be a constant frame rate; current rate of 1/0`
-  // failure on the nixpacks Linux ffmpeg: zoompan is an IMAGE Ken-Burns
-  // filter, and run over VIDEO inputs (d = scene-frame-count per input frame)
-  // it corrupts the output frame-rate metadata to 1/0 — which xfade rejects,
-  // and which no downstream fps/`-r`/settb could override. Local gyan ffmpeg
-  // tolerated it, masking it in dev.
-  //
-  // It was also redundant: the scenes are real moving stock-video clips, so
-  // the video is already dynamic without an added zoom. Dropping zoompan
-  // guarantees constant frame rate into xfade. (Ken Burns can be re-added
-  // later via a CFR-safe method — see scene.edit.zoom/pan, still planned by
-  // Agent 10 but currently unused at the FFmpeg layer.)
-  //
-  // The chain:
-  //   scale  → cover the 1080x1920 frame (then crop excess)
-  //   crop   → exactly 1080x1920
-  //   trim   → cap to scene duration so xfade offset math is predictable
-  //   eq/lut → colour grade
-  //   format → yuv420p so every input shares one pixel format for xfade
-  //   setpts → reset PTS to 0 so xfade's absolute `offset` math aligns
-  //   fps    → MUST come LAST, after setpts. Proven in the prod container:
-  //            `setpts` unsets the link frame rate to 1/0, and xfade rejects
-  //            it ("inputs needs to be a constant frame rate"). Re-asserting
-  //            `fps` AFTER setpts restores a constant rate xfade accepts.
-  //            (fps-before-setpts — the obvious order — FAILS; that cost
-  //            several prod cycles before bisecting it in the Railway console.)
-  //            Paired with the input-level `-r <fps>` for VFR sources.
-  const filter =
-    `[${inputIdx}:v]` +
-    `scale=${width}:${height}:force_original_aspect_ratio=increase,` +
-    `crop=${width}:${height},` +
-    `trim=duration=${(durMs / 1000).toFixed(3)},` +
-    gradeFilter + "," +
-    `format=yuv420p,setpts=PTS-STARTPTS,fps=${fps}` +
-    `[v${inputIdx}]`;
-  return { filter, outLabel: `v${inputIdx}` };
-}
+// Shared thread/memory caps applied to every pass.
+const THREAD_CAP = [
+  "-threads", "2",
+  "-filter_complex_threads", "2",
+  "-filter_threads", "2",
+] as const;
 
 function gradeFilterFor(grade: EditDecision["grade"]): string {
   switch (grade) {
@@ -94,10 +67,7 @@ function gradeFilterFor(grade: EditDecision["grade"]): string {
   }
 }
 
-/**
- * Map our TransitionKind to xfade's `transition` parameter. Falls back to
- * `fade` for anything xfade doesn't natively know.
- */
+/** Map our TransitionKind to xfade's `transition` parameter. */
 function xfadeName(kind: TransitionKind): string {
   switch (kind) {
     case "fade":      return "fade";
@@ -105,203 +75,147 @@ function xfadeName(kind: TransitionKind): string {
     case "dissolve":  return "dissolve";
     case "wiperight": return "wiperight";
     case "wipeleft":  return "wipeleft";
-    case "cut":       return "fade";        // 0-duration fade ≈ cut; we set duration=0 below
+    case "cut":       return "fade"; // near-instant via short duration below
   }
 }
 
-/**
- * Chain xfade transitions across N scene labels.
- * Returns the final video output label.
- */
-function buildXfadeChain(
-  sceneLabels: string[],
-  scenes: { timing: TimingPlan; edit: EditDecision }[],
-): { filter: string; outLabel: string } {
-  if (sceneLabels.length === 0) {
-    throw new Error("buildXfadeChain: no scenes");
-  }
-  if (sceneLabels.length === 1) {
-    return { filter: "", outLabel: sceneLabels[0] };
-  }
-
-  const parts: string[] = [];
-  // Running cumulative duration (in seconds) of the composed video so far.
-  // xfade's `offset` is measured from the START of the first input —
-  // i.e. where the transition begins on the timeline.
-  let cumulativeMs = 0;
-  let prev = sceneLabels[0];
-  for (let i = 1; i < sceneLabels.length; i++) {
-    const inLabel = sceneLabels[i];
-    const outLabel = i === sceneLabels.length - 1 ? "vbase" : `x${i}`;
-    const sceneDurMs =
-      scenes[i - 1].timing.videoEndMs - scenes[i - 1].timing.videoStartMs;
-    cumulativeMs += sceneDurMs;
-    const edit = scenes[i - 1].edit;
-    const transitionDurSec =
-      edit.transition === "cut"
-        ? 0
-        : Math.max(0.05, edit.transitionDurationMs / 1000);
-    // xfade's offset is "start of transition" — i.e. cumulative duration
-    // of all PRIOR scenes, minus the transition duration so they overlap.
-    const offsetSec = Math.max(
-      0,
-      (cumulativeMs / 1000) - transitionDurSec,
-    );
-    const name = xfadeName(edit.transition);
-    parts.push(
-      `[${prev}][${inLabel}]xfade=transition=${name}:duration=${transitionDurSec.toFixed(3)}:offset=${offsetSec.toFixed(3)}[${outLabel}]`,
-    );
-    prev = outLabel;
-  }
-  return { filter: parts.join(";"), outLabel: prev };
+/** Escape a filesystem path for use inside an ffmpeg filter argument. */
+function escapeFilterPath(p: string): string {
+  return p.replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
 }
 
-/**
- * Build the audio mix: narration full volume, music ducked dynamically via
- * sidechain compression keyed to narration. If musicUrl is empty, narration
- * goes through alone.
- */
-function buildAudioChain(
-  narrationInputIdx: number,
-  musicInputIdx: number | null,
-  duckingDb: number,
-): { filter: string; outLabel: string } {
-  // narration: pass-through at +0 dB
-  if (musicInputIdx === null) {
-    // Just rename narration's audio so the -map below is consistent.
-    return {
-      filter: `[${narrationInputIdx}:a]volume=1.0[aout]`,
-      outLabel: "aout",
-    };
-  }
-  // Music linear gain from dB (fallback static volume in case sidechain
-  // misbehaves — sidechaincompress overrides this dynamically).
-  const musicLinear = Math.pow(10, duckingDb / 20);
-  // CRITICAL: normalize BOTH audio streams to an identical format
-  // (44.1kHz / fltp / stereo) before sidechaincompress + amix. ElevenLabs
-  // narration and Jamendo music MP3s arrive at different sample rates;
-  // sidechaincompress (and amix) error out when their inputs don't match.
-  // Some ffmpeg builds auto-insert aresample, others (the nixpacks Linux
-  // build on Railway) do NOT — which failed prod with `code=234` on the
-  // music input while passing locally. Explicit aformat makes the graph
-  // deterministic across builds.
-  //
-  // No looping: Jamendo tracks are full songs (minutes), always longer than
-  // a 30-60s video, so `amix=duration=first` already trims to the narration.
-  // The old `aloop=loop=-1:size=2e+09` allocated a multi-GB buffer for no
-  // benefit and risked OOM on the memory-capped worker.
+// ─── Pass 1: normalize one scene → clean CFR 1080x1920 silent clip ──────────
+
+export interface NormalizeArgvInput {
+  inputPath: string;
+  timing: TimingPlan;
+  edit: EditDecision;
+  width: number;
+  height: number;
+  fps: number;
+  outputPath: string;
+}
+
+export function buildNormalizeArgv(i: NormalizeArgvInput): string[] {
+  const durSec = (i.timing.videoEndMs - i.timing.videoStartMs) / 1000;
+  const vf =
+    `scale=${i.width}:${i.height}:force_original_aspect_ratio=increase,` +
+    `crop=${i.width}:${i.height},` +
+    `trim=duration=${durSec.toFixed(3)},` +
+    `${gradeFilterFor(i.edit.grade)},` +
+    // fps AFTER setpts — see file header.
+    `format=yuv420p,setpts=PTS-STARTPTS,fps=${i.fps}`;
+  return [
+    "-y",
+    ...THREAD_CAP,
+    "-r", String(i.fps),
+    "-i", i.inputPath,
+    "-vf", vf,
+    "-an",
+    "-c:v", ENC.vcodec,
+    "-preset", ENC.preset,
+    "-crf", String(ENC.intermediateCrf),
+    "-pix_fmt", ENC.pixFmt,
+    "-profile:v", ENC.profile,
+    "-level", ENC.level,
+    "-r", String(i.fps),
+    "-t", durSec.toFixed(3),
+    "-movflags", "+faststart",
+    i.outputPath,
+  ];
+}
+
+// ─── Pass 2: xfade two already-normalized clips → one clip ──────────────────
+
+export interface XfadeArgvInput {
+  aPath: string;
+  bPath: string;
+  transition: TransitionKind;
+  transitionDurationMs: number;
+  /** Seconds into the COMBINED timeline where the transition starts. */
+  offsetSec: number;
+  fps: number;
+  outputPath: string;
+}
+
+export function buildXfadeArgv(i: XfadeArgvInput): string[] {
+  const transDur = i.transition === "cut" ? 0.1 : Math.max(0.1, i.transitionDurationMs / 1000);
+  const name = xfadeName(i.transition);
+  // Both inputs are already normalized CFR clips; re-assert format/setpts/fps
+  // (fps last) so xfade sees a constant rate regardless of decode quirks.
+  const filter =
+    `[0:v]format=yuv420p,setpts=PTS-STARTPTS,fps=${i.fps}[a];` +
+    `[1:v]format=yuv420p,setpts=PTS-STARTPTS,fps=${i.fps}[b];` +
+    `[a][b]xfade=transition=${name}:duration=${transDur.toFixed(3)}:offset=${i.offsetSec.toFixed(3)}[v]`;
+  return [
+    "-y",
+    ...THREAD_CAP,
+    "-r", String(i.fps), "-i", i.aPath,
+    "-r", String(i.fps), "-i", i.bPath,
+    "-filter_complex", filter,
+    "-map", "[v]",
+    "-an",
+    "-c:v", ENC.vcodec,
+    "-preset", ENC.preset,
+    "-crf", String(ENC.intermediateCrf),
+    "-pix_fmt", ENC.pixFmt,
+    "-profile:v", ENC.profile,
+    "-level", ENC.level,
+    "-r", String(i.fps),
+    "-movflags", "+faststart",
+    i.outputPath,
+  ];
+}
+
+// ─── Pass 3: finalize — burn captions + mix audio onto the silent video ─────
+
+export interface FinalizeArgvInput {
+  silentVideoPath: string;
+  assPath: string;
+  narrationInputPath: string;
+  musicInputPath: string | null;
+  musicDuckingDb: number;
+  width: number;
+  height: number;
+  fps: number;
+  durationSec: number;
+  outputPath: string;
+}
+
+export function buildFinalizeArgv(i: FinalizeArgvInput): string[] {
+  const assFilter = `[0:v]ass='${escapeFilterPath(i.assPath)}'[vout]`;
+
+  // Audio: narration full volume; music (if any) side-chain ducked. Normalize
+  // both to 44.1k/fltp/stereo first so sidechaincompress/amix inputs match.
   const norm = "aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo";
-  return {
-    filter: [
-      `[${narrationInputIdx}:a]${norm},volume=1.0,asplit=2[narr_main][narr_key]`,
-      `[${musicInputIdx}:a]${norm},volume=${musicLinear.toFixed(3)}[mus]`,
-      `[mus][narr_key]sidechaincompress=threshold=0.05:ratio=8:attack=20:release=250[ducked]`,
-      `[narr_main][ducked]amix=inputs=2:duration=first:dropout_transition=0[aout]`,
-    ].join(";"),
-    outLabel: "aout",
-  };
-}
-
-// ─── Public entry: build the full argv for ffmpeg ──────────────────────────
-
-export interface BuildArgvInput {
-  plan: CompositionPlan;
-  sceneInputPaths: string[];      // ordered by sceneId
-  narrationInputPath: string;     // .mp3
-  musicInputPath: string | null;  // .mp3 — null when no music available
-  assPath: string;                // captions file
-  outputPath: string;             // .mp4
-}
-
-export function buildFfmpegArgv(input: BuildArgvInput): string[] {
-  const { plan, sceneInputPaths, narrationInputPath, musicInputPath, assPath, outputPath } = input;
-  if (sceneInputPaths.length !== plan.scenes.length) {
-    throw new Error(
-      `buildFfmpegArgv: sceneInputPaths length ${sceneInputPaths.length} != plan.scenes ${plan.scenes.length}`,
-    );
+  let audioFilter: string;
+  let audioOut: string;
+  const inputArgs: string[] = [
+    "-r", String(i.fps), "-i", i.silentVideoPath,
+    "-i", i.narrationInputPath,
+  ];
+  if (i.musicInputPath) {
+    inputArgs.push("-i", i.musicInputPath);
+    const musicLinear = Math.pow(10, i.musicDuckingDb / 20);
+    audioFilter =
+      `[1:a]${norm},volume=1.0,asplit=2[narr_main][narr_key];` +
+      `[2:a]${norm},volume=${musicLinear.toFixed(3)}[mus];` +
+      `[mus][narr_key]sidechaincompress=threshold=0.05:ratio=8:attack=20:release=250[ducked];` +
+      `[narr_main][ducked]amix=inputs=2:duration=first:dropout_transition=0[aout]`;
+    audioOut = "[aout]";
+  } else {
+    audioFilter = `[1:a]${norm},volume=1.0[aout]`;
+    audioOut = "[aout]";
   }
-
-  // Input args — N scenes, then narration, then music.
-  //
-  // `-r <fps>` BEFORE each scene `-i` forces constant frame rate at the
-  // DECODE level, which sets the stream's r_frame_rate (base rate). This is
-  // what `xfade` actually inspects — the post-zoompan `fps` filter only sets
-  // the link's frame_rate, leaving r_frame_rate as 1/0 (undefined) on the
-  // nixpacks ffmpeg, which xfade rejects with "inputs needs to be a constant
-  // frame rate". Forcing it at input is the reliable cross-build fix.
-  const inputArgs: string[] = [];
-  for (const p of sceneInputPaths) {
-    inputArgs.push("-r", String(plan.output.fps), "-i", p);
-  }
-  const narrationIdx = sceneInputPaths.length;
-  inputArgs.push("-i", narrationInputPath);
-  let musicIdx: number | null = null;
-  if (musicInputPath) {
-    musicIdx = sceneInputPaths.length + 1;
-    inputArgs.push("-i", musicInputPath);
-  }
-
-  // Per-scene chains.
-  const sceneChains: string[] = [];
-  const sceneLabels: string[] = [];
-  for (let i = 0; i < plan.scenes.length; i++) {
-    const built = buildSceneChain(
-      i,
-      { timing: plan.scenes[i].timing, edit: plan.scenes[i].edit },
-      plan.output.width,
-      plan.output.height,
-      plan.output.fps,
-    );
-    sceneChains.push(built.filter);
-    sceneLabels.push(built.outLabel);
-  }
-
-  // xfade chain across scenes.
-  const xfade = buildXfadeChain(
-    sceneLabels,
-    plan.scenes.map((s) => ({ timing: s.timing, edit: s.edit })),
-  );
-  // ass burn-in on top of the xfaded base.
-  // Escape the ASS path for the FFmpeg filter syntax — colons and backslashes
-  // must be backslash-escaped because the ass filter splits its options on ":".
-  const assPathEscaped = assPath
-    .replace(/\\/g, "\\\\")
-    .replace(/:/g, "\\:")
-    .replace(/'/g, "\\'");
-  const assFilter = `[${xfade.outLabel}]ass='${assPathEscaped}'[vout]`;
-
-  // Audio chain.
-  const audio = buildAudioChain(narrationIdx, musicIdx, plan.audio.musicDuckingDb);
-
-  const filterComplex = [
-    sceneChains.join(";"),
-    xfade.filter, // possibly empty
-    assFilter,
-    audio.filter,
-  ]
-    .filter((s) => s.length > 0)
-    .join(";");
-
-  const totalDurSec = plan.output.durationMs / 1000;
 
   return [
     "-y",
-    // Cap filtergraph parallelism. Without this, ffmpeg fans the filter
-    // chain across all host CPUs, each holding 1080x1920 frame buffers.
-    "-filter_complex_threads", "2",
-    "-filter_threads", "2",
+    ...THREAD_CAP,
     ...inputArgs,
-    "-filter_complex", filterComplex,
-    "-map", `[vout]`,
-    "-map", `[${audio.outLabel}]`,
+    "-filter_complex", `${assFilter};${audioFilter}`,
+    "-map", "[vout]",
+    "-map", audioOut,
     "-c:v", ENC.vcodec,
-    // CAP ENCODER THREADS. The Railway worker container reports ~60 host
-    // CPUs, so libx264 auto-spawned threads=60 — each with per-thread
-    // 1080x1920 frame + lookahead buffers — which OOM-killed the process
-    // (SIGKILL at frame 0) under the worker's RAM cap. 2 threads keeps peak
-    // memory well under the cap; a 30s clip still encodes in seconds at
-    // `veryfast`. Memory-safety over raw speed (ADR-002 priority).
-    "-threads", "2",
     "-preset", ENC.preset,
     "-crf", String(ENC.crf),
     "-pix_fmt", ENC.pixFmt,
@@ -310,8 +224,102 @@ export function buildFfmpegArgv(input: BuildArgvInput): string[] {
     "-c:a", ENC.acodec,
     "-b:a", ENC.abitrate,
     "-movflags", "+faststart",
-    "-r", String(plan.output.fps),
-    "-t", totalDurSec.toFixed(3),
-    outputPath,
+    "-r", String(i.fps),
+    "-t", i.durationSec.toFixed(3),
+    i.outputPath,
   ];
+}
+
+// ─── Orchestrator: run the three passes, ≤2 concurrent decodes throughout ───
+
+export interface MultiPassInput {
+  plan: CompositionPlan;
+  /** Ordered by sceneId — the downloaded source clip for each scene. */
+  sceneInputPaths: string[];
+  narrationInputPath: string;
+  musicInputPath: string | null;
+  assPath: string;
+  workDir: string;
+  outputPath: string;
+  /** Runs ffmpeg; MUST reject on non-zero exit. `label` is for logging. */
+  runFfmpeg: (argv: string[], label: string) => Promise<void>;
+  /** Optional progress callback 0..1 across the passes. */
+  onProgress?: (fraction: number) => void;
+}
+
+export async function composeMultiPass(input: MultiPassInput): Promise<void> {
+  const { plan, sceneInputPaths, workDir } = input;
+  const fps = plan.output.fps;
+  const W = plan.output.width;
+  const H = plan.output.height;
+  const n = plan.scenes.length;
+  if (sceneInputPaths.length !== n) {
+    throw new Error(
+      `composeMultiPass: ${sceneInputPaths.length} clips != ${n} scenes`,
+    );
+  }
+  const join = (name: string) => `${workDir}/${name}`;
+  const totalSteps = n /* normalize */ + Math.max(0, n - 1) /* folds */ + 1 /* finalize */;
+  let step = 0;
+  const tick = () => input.onProgress?.(++step / totalSteps);
+
+  // ── Pass 1: normalize each scene (1 decode each) ──────────────────────────
+  const normPaths: string[] = [];
+  for (let k = 0; k < n; k++) {
+    const out = join(`norm-${k}.mp4`);
+    await input.runFfmpeg(
+      buildNormalizeArgv({
+        inputPath: sceneInputPaths[k],
+        timing: plan.scenes[k].timing,
+        edit: plan.scenes[k].edit,
+        width: W, height: H, fps,
+        outputPath: out,
+      }),
+      `normalize-${k}`,
+    );
+    normPaths.push(out);
+    tick();
+  }
+
+  // ── Pass 2: pairwise xfade fold (2 decodes per step) ──────────────────────
+  let acc = normPaths[0];
+  let accDurSec = (plan.scenes[0].timing.videoEndMs - plan.scenes[0].timing.videoStartMs) / 1000;
+  for (let k = 1; k < n; k++) {
+    const prevEdit = plan.scenes[k - 1].edit; // outgoing transition of the left clip
+    const transDur = prevEdit.transition === "cut" ? 0.1 : Math.max(0.1, prevEdit.transitionDurationMs / 1000);
+    const clipDur = (plan.scenes[k].timing.videoEndMs - plan.scenes[k].timing.videoStartMs) / 1000;
+    const offsetSec = Math.max(0, accDurSec - transDur);
+    const out = join(`fold-${k}.mp4`);
+    await input.runFfmpeg(
+      buildXfadeArgv({
+        aPath: acc,
+        bPath: normPaths[k],
+        transition: prevEdit.transition,
+        transitionDurationMs: prevEdit.transitionDurationMs,
+        offsetSec,
+        fps,
+        outputPath: out,
+      }),
+      `xfade-${k}`,
+    );
+    acc = out;
+    accDurSec = accDurSec + clipDur - transDur;
+    tick();
+  }
+
+  // ── Pass 3: finalize (captions + audio) ───────────────────────────────────
+  await input.runFfmpeg(
+    buildFinalizeArgv({
+      silentVideoPath: acc,
+      assPath: input.assPath,
+      narrationInputPath: input.narrationInputPath,
+      musicInputPath: input.musicInputPath,
+      musicDuckingDb: plan.audio.musicDuckingDb,
+      width: W, height: H, fps,
+      durationSec: plan.output.durationMs / 1000,
+      outputPath: input.outputPath,
+    }),
+    "finalize",
+  );
+  tick();
 }
