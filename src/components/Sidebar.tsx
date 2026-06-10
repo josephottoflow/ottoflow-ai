@@ -93,10 +93,7 @@ export function Sidebar() {
       >
         {/* Logo */}
         <div className="flex items-center gap-2.5 px-4 py-5 border-b border-white/[0.04]">
-          <div
-            className="w-7 h-7 rounded-lg flex items-center justify-center"
-            style={{ background: "linear-gradient(135deg, #7c3aed, #6366f1)" }}
-          >
+          <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-gradient-to-br from-violet-600 to-indigo-500">
             <Zap size={14} className="text-white" />
           </div>
           <div>
@@ -131,10 +128,7 @@ export function Sidebar() {
                 <Icon size={15} />
                 {item.label}
                 {item.soon && (
-                  <span
-                    className="ml-auto text-3xs font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded"
-                    style={{ background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.35)" }}
-                  >
+                  <span className="ml-auto text-3xs font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-white/[0.06] text-white/35">
                     Soon
                   </span>
                 )}
@@ -150,36 +144,21 @@ export function Sidebar() {
             </p>
             <Link
               href="/brands/new"
-              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150"
-              style={{
-                background: "rgba(124, 58, 237, 0.08)",
-                border: "1px solid rgba(124, 58, 237, 0.15)",
-                color: "#a78bfa",
-              }}
+              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 bg-violet-600/[0.08] border border-violet-600/15 text-violet-400"
             >
               <Briefcase size={13} />
               Research a Brand
             </Link>
             <Link
               href="/video/generate"
-              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 mt-1"
-              style={{
-                background: "rgba(6, 182, 212, 0.08)",
-                border: "1px solid rgba(6, 182, 212, 0.15)",
-                color: "#67e8f9",
-              }}
+              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 mt-1 bg-cyan-500/[0.08] border border-cyan-500/15 text-cyan-300"
             >
               <Sparkles size={13} />
               Generate Video
             </Link>
             <Link
               href="/content/generate"
-              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 mt-1"
-              style={{
-                background: "rgba(217, 70, 239, 0.08)",
-                border: "1px solid rgba(217, 70, 239, 0.15)",
-                color: "#e879f9",
-              }}
+              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 mt-1 bg-fuchsia-500/[0.08] border border-fuchsia-500/15 text-fuchsia-400"
             >
               <FileText size={13} />
               Generate Post
