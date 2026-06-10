@@ -498,8 +498,8 @@ After this sprint, the operator can run the beta with the same confidence as a S
 
 Single-page summary to fill out as you go:
 
-- [x] §1 Railway 2 replicas — **done 2026-06-03 15:34 UTC** (locking audit verified clean across 11 historical + 1 fresh post-fix job; replica count operator-controlled in Railway dashboard; P0 worker crash from `import "server-only"` fixed inline as commit `3e5abad`)
-- [x] §2 UptimeRobot HTTP monitor — **done 2026-06-03** (operator-attested: HTTP(s) monitor live at 5-min interval, sustained UP, REDIS_URL deliberate-failure round-trip + email alert verified, configuration restored)
+- [ ] §1 Railway 2 replicas — `__:__ start  __:__ done`
+- [ ] §2 UptimeRobot HTTP monitor — `__:__ start  __:__ done`
 - [ ] §3 Sentry alert rules (A, B, C) — `__:__ start  __:__ done`
 - [ ] §4 Storage spend cap + check query — `__:__ start  __:__ done`
 - [ ] §5 Vercel + provider billing alerts — `__:__ start  __:__ done`
