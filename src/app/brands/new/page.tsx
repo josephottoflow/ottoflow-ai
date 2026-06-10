@@ -105,7 +105,7 @@ export default function NewBrandPage() {
             disabled={submitting}
             inputMode="url"
           />
-          <p className="text-[11px] text-white/35 mt-1.5">
+          <p className="text-2xs text-white/35 mt-1.5">
             We&apos;ll fetch the homepage and key sub-pages.
           </p>
         </div>
@@ -129,7 +129,7 @@ export default function NewBrandPage() {
         )}
 
         <div className="flex items-center justify-between pt-2">
-          <p className="text-[11px] text-white/40">
+          <p className="text-2xs text-white/40">
             Research takes ~60–90 seconds and uses Gemini Flash + Google Search.
           </p>
           <Button

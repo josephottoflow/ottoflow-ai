@@ -114,16 +114,16 @@ export function VideoDetailClient({ job, brand, scenes }: Props) {
               {seo?.title?.trim() || script?.hook?.trim() || job.name || "Video"}
             </h1>
             {videoReady ? (
-              <Badge variant="success" className="text-[10px]">Ready</Badge>
+              <Badge variant="success" className="text-3xs">Ready</Badge>
             ) : job.merge_status === "merging" ? (
-              <Badge variant="info" className="text-[10px]">Merging</Badge>
+              <Badge variant="info" className="text-3xs">Merging</Badge>
             ) : job.status === "failed" ? (
-              <Badge variant="destructive" className="text-[10px]">Failed</Badge>
+              <Badge variant="destructive" className="text-3xs">Failed</Badge>
             ) : (
-              <Badge variant="warning" className="text-[10px]">Queued</Badge>
+              <Badge variant="warning" className="text-3xs">Queued</Badge>
             )}
           </div>
-          <div className="flex items-center gap-2 text-[11px] text-white/55 flex-wrap">
+          <div className="flex items-center gap-2 text-2xs text-white/55 flex-wrap">
             {brand && (
               <Link href={`/brands/${brand.id}`} className="hover:text-cyan-400">
                 {brand.name}
@@ -173,7 +173,7 @@ export function VideoDetailClient({ job, brand, scenes }: Props) {
                 </Button>
               </Link>
               {job.video_attribution && (
-                <p className="text-[10px] text-white/40 ml-auto">
+                <p className="text-3xs text-white/40 ml-auto">
                   Stock · {job.video_attribution}
                 </p>
               )}
@@ -217,33 +217,33 @@ export function VideoDetailClient({ job, brand, scenes }: Props) {
                   }}
                 >
                   <div className="flex items-center gap-2 mb-2 flex-wrap">
-                    <Badge variant="purple" className="text-[10px]">
+                    <Badge variant="purple" className="text-3xs">
                       Scene {s.scene_number}
                     </Badge>
-                    <Badge variant={PROVIDER_VARIANT[s.provider] ?? "purple"} className="text-[10px]">
+                    <Badge variant={PROVIDER_VARIANT[s.provider] ?? "purple"} className="text-3xs">
                       {s.provider}
                     </Badge>
                     {s.shot_type && (
-                      <span className="text-[10px] text-white/40 uppercase tracking-wider">
+                      <span className="text-3xs text-white/40 uppercase tracking-wider">
                         {s.shot_type}
                       </span>
                     )}
-                    <span className="text-[10px] text-white/40 ml-auto flex items-center gap-1.5">
+                    <span className="text-3xs text-white/40 ml-auto flex items-center gap-1.5">
                       <Clock size={10} />
                       {fmtMs(s.generation_time_ms)} · {fmtUsd(s.cost_usd)}
                     </span>
                   </div>
-                  <p className="text-[12px] text-white/75 leading-relaxed mb-1">
+                  <p className="text-xs text-white/75 leading-relaxed mb-1">
                     {s.prompt}
                   </p>
                   {s.fallback_reason && (
-                    <p className="text-[11px] text-rose-300/80 flex items-start gap-1.5">
+                    <p className="text-2xs text-rose-300/80 flex items-start gap-1.5">
                       <AlertCircle size={11} className="shrink-0 mt-0.5" />
                       <span>Fallback: {s.fallback_reason.slice(0, 200)}</span>
                     </p>
                   )}
                   {s.attribution && (
-                    <p className="text-[10px] text-white/35 mt-1">
+                    <p className="text-3xs text-white/35 mt-1">
                       {s.attribution}
                     </p>
                   )}
@@ -263,28 +263,28 @@ export function VideoDetailClient({ job, brand, scenes }: Props) {
             >
               {script.hook && (
                 <SubSection label="Hook">
-                  <p className="text-[14px] text-white italic font-semibold">
+                  <p className="text-sm text-white italic font-semibold">
                     &ldquo;{script.hook}&rdquo;
                   </p>
                 </SubSection>
               )}
               {script.body && (
                 <SubSection label="Body">
-                  <p className="text-[13px] text-white/80 leading-relaxed whitespace-pre-wrap">
+                  <p className="text-sm text-white/80 leading-relaxed whitespace-pre-wrap">
                     {script.body}
                   </p>
                 </SubSection>
               )}
               {script.cta && (
                 <SubSection label="CTA">
-                  <p className="text-[13px] text-white/85 leading-snug">
+                  <p className="text-sm text-white/85 leading-snug">
                     {script.cta}
                   </p>
                 </SubSection>
               )}
               {script.voiceDirection && (
                 <SubSection label="Voice direction">
-                  <p className="text-[11px] text-white/55">{script.voiceDirection}</p>
+                  <p className="text-2xs text-white/55">{script.voiceDirection}</p>
                 </SubSection>
               )}
             </div>
@@ -303,14 +303,14 @@ export function VideoDetailClient({ job, brand, scenes }: Props) {
                   style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}
                 >
                   <div className="flex items-center gap-1.5 mb-1">
-                    <Badge variant="info" className="text-[10px]">
+                    <Badge variant="info" className="text-3xs">
                       Scene {sc.index}
                     </Badge>
-                    <span className="text-[10px] text-white/40">
+                    <span className="text-3xs text-white/40">
                       {sc.durationSec}s · {sc.shotType}
                     </span>
                   </div>
-                  <p className="text-[12px] text-white/70 leading-snug">
+                  <p className="text-xs text-white/70 leading-snug">
                     {sc.description}
                   </p>
                 </div>
@@ -330,10 +330,10 @@ export function VideoDetailClient({ job, brand, scenes }: Props) {
               {overlay.keywords.map((k, i) => (
                 <span
                   key={i}
-                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-fuchsia-500/10 text-fuchsia-200 text-[11px] font-bold tracking-wider border border-fuchsia-500/20"
+                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-fuchsia-500/10 text-fuchsia-200 text-2xs font-bold tracking-wider border border-fuchsia-500/20"
                 >
                   {k.text}
-                  <span className="text-[9px] text-fuchsia-300/60 font-normal tracking-normal">
+                  <span className="text-3xs text-fuchsia-300/60 font-normal tracking-normal">
                     {k.start.toFixed(1)}s
                   </span>
                 </span>
@@ -352,12 +352,12 @@ export function VideoDetailClient({ job, brand, scenes }: Props) {
             >
               {seo.title && (
                 <SubSection label="Title">
-                  <p className="text-[14px] text-white font-semibold">{seo.title}</p>
+                  <p className="text-sm text-white font-semibold">{seo.title}</p>
                 </SubSection>
               )}
               {seo.description && (
                 <SubSection label="Description">
-                  <p className="text-[13px] text-white/75 leading-relaxed whitespace-pre-wrap">
+                  <p className="text-sm text-white/75 leading-relaxed whitespace-pre-wrap">
                     {seo.description}
                   </p>
                 </SubSection>
@@ -368,7 +368,7 @@ export function VideoDetailClient({ job, brand, scenes }: Props) {
                     {seo.hashtags.map((tag) => (
                       <span
                         key={tag}
-                        className="text-[11px] px-2 py-0.5 rounded-full bg-white/[0.04] text-white/70"
+                        className="text-2xs px-2 py-0.5 rounded-full bg-white/[0.04] text-white/70"
                       >
                         #{tag}
                       </span>
@@ -398,7 +398,7 @@ function SectionHeader({
       <Icon size={14} className="text-cyan-400" />
       <h2 className="text-sm font-bold text-white">{label}</h2>
       {count != null && (
-        <span className="text-[10px] text-white/40 font-medium">({count})</span>
+        <span className="text-3xs text-white/40 font-medium">({count})</span>
       )}
     </div>
   );
@@ -407,7 +407,7 @@ function SectionHeader({
 function SubSection({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <p className="text-[10px] uppercase tracking-wider text-white/40 font-semibold mb-1">
+      <p className="text-3xs uppercase tracking-wider text-white/40 font-semibold mb-1">
         {label}
       </p>
       {children}
@@ -418,7 +418,7 @@ function SubSection({ label, children }: { label: string; children: React.ReactN
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-[10px] uppercase tracking-wider text-white/40 font-semibold mb-1">
+      <p className="text-3xs uppercase tracking-wider text-white/40 font-semibold mb-1">
         {label}
       </p>
       <p className="text-sm text-white font-semibold truncate">{value}</p>

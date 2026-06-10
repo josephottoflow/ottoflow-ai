@@ -97,6 +97,14 @@ const config: Config = {
         sans: ["var(--font-inter)", "system-ui", "sans-serif"],
         mono: ["var(--font-mono)", "monospace"],
       },
+      // Named micro sizes for the dense dashboard — replace ad-hoc
+      // text-[10px]/text-[11px] and establish a 10px floor (no sub-10px text).
+      // Together with Tailwind's defaults this is the canonical type scale:
+      //   3xs(10) · 2xs(11) · xs(12) · sm(14) · base(16) · lg(18) · xl(20) · 2xl(24) · 3xl(30)
+      fontSize: {
+        "3xs": ["10px", { lineHeight: "14px" }],
+        "2xs": ["11px", { lineHeight: "16px" }],
+      },
     },
   },
   plugins: [require("tailwindcss-animate")],

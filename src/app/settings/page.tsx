@@ -52,7 +52,7 @@ export default function SettingsPage() {
             <p className="text-white/40 text-sm mt-0.5">Workspace preferences and account</p>
           </div>
         </div>
-        <Badge variant="purple" className="text-[11px]">Coming soon</Badge>
+        <Badge variant="purple" className="text-2xs">Coming soon</Badge>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">

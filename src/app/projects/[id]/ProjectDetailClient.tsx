@@ -72,7 +72,7 @@ export function ProjectDetailClient({ project, content, renderJobs, activity }: 
             <div>
               <div className="flex items-center gap-3 mb-1">
                 <h1 className="text-xl font-bold text-white">{project.name}</h1>
-                <Badge variant={project.status === "active" ? "success" : "secondary"} className="text-[10px] capitalize">
+                <Badge variant={project.status === "active" ? "success" : "secondary"} className="text-3xs capitalize">
                   {project.status}
                 </Badge>
               </div>
@@ -93,7 +93,7 @@ export function ProjectDetailClient({ project, content, renderJobs, activity }: 
 
               <div className="flex flex-wrap gap-1.5 mt-3">
                 {(project.tags ?? []).map((t: string) => (
-                  <span key={t} className="text-[10px] px-2 py-0.5 rounded-full font-medium"
+                  <span key={t} className="text-3xs px-2 py-0.5 rounded-full font-medium"
                     style={{ background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.4)" }}>
                     {t}
                   </span>
@@ -141,7 +141,7 @@ export function ProjectDetailClient({ project, content, renderJobs, activity }: 
                 </div>
                 <div>
                   <div className="text-base font-bold text-white">{s.value}</div>
-                  <div className="text-[10px] text-white/35">{s.label}</div>
+                  <div className="text-3xs text-white/35">{s.label}</div>
                 </div>
               </div>
             );
@@ -183,11 +183,11 @@ export function ProjectDetailClient({ project, content, renderJobs, activity }: 
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="text-xs font-medium text-white/70 truncate">{item.title}</p>
-                            <p className="text-[10px] text-white/30 mt-0.5">{formatRelative(item.created_at)}</p>
+                            <p className="text-3xs text-white/30 mt-0.5">{formatRelative(item.created_at)}</p>
                           </div>
                           <Badge
                             variant={item.status === "published" ? "success" : item.status === "draft" ? "secondary" : "warning"}
-                            className="text-[9px]">
+                            className="text-3xs">
                             {item.status}
                           </Badge>
                         </div>
@@ -213,7 +213,7 @@ export function ProjectDetailClient({ project, content, renderJobs, activity }: 
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-medium text-white/70 truncate">{job.name}</p>
-                          <p className="text-[10px] text-white/30">{job.template}</p>
+                          <p className="text-3xs text-white/30">{job.template}</p>
                         </div>
                         {job.output_url && (
                           <a href={job.output_url} download target="_blank" rel="noopener noreferrer">
@@ -265,12 +265,12 @@ export function ProjectDetailClient({ project, content, renderJobs, activity }: 
                           <div className="flex items-start justify-between gap-2">
                             <p className="text-sm font-medium text-white/80">{item.title}</p>
                             <Badge variant={item.status === "published" ? "success" : item.status === "approved" ? "info" : "secondary"}
-                              className="text-[10px] flex-shrink-0">
+                              className="text-3xs flex-shrink-0">
                               {item.status}
                             </Badge>
                           </div>
                           <p className="text-xs text-white/40 mt-1 line-clamp-1">{item.preview}</p>
-                          <div className="flex items-center gap-3 mt-2 text-[10px] text-white/30">
+                          <div className="flex items-center gap-3 mt-2 text-3xs text-white/30">
                             <span>{formatRelative(item.created_at)}</span>
                             {engagement?.likes && (
                               <span className="text-emerald-400/60">
@@ -320,13 +320,13 @@ export function ProjectDetailClient({ project, content, renderJobs, activity }: 
                       )}
                       <Badge
                         variant={job.status === "done" ? "success" : job.status === "rendering" ? "info" : "warning"}
-                        className="absolute top-2 right-2 text-[9px]">
+                        className="absolute top-2 right-2 text-3xs">
                         {job.status}
                       </Badge>
                     </div>
                     <div className="p-2.5">
-                      <p className="text-[11px] font-medium text-white/70 truncate">{job.name}</p>
-                      <p className="text-[9px] text-white/30 mt-0.5">{job.template}</p>
+                      <p className="text-2xs font-medium text-white/70 truncate">{job.name}</p>
+                      <p className="text-3xs text-white/30 mt-0.5">{job.template}</p>
                     </div>
                   </div>
                 ))}
@@ -355,7 +355,7 @@ export function ProjectDetailClient({ project, content, renderJobs, activity }: 
                   ) : (
                     <Mic size={20} className="text-emerald-400/50 mb-1.5" />
                   )}
-                  <span className="text-[9px] text-white/25 text-center">
+                  <span className="text-3xs text-white/25 text-center">
                     {i < 3 ? `image-0${i + 1}.png` : i < 6 ? `clip-0${i - 2}.mp4` : `voice-0${i - 5}.mp3`}
                   </span>
                 </div>
@@ -363,7 +363,7 @@ export function ProjectDetailClient({ project, content, renderJobs, activity }: 
               <div className="aspect-square rounded-xl flex flex-col items-center justify-center cursor-pointer"
                 style={{ border: "1px dashed rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.01)" }}>
                 <Plus size={18} className="text-white/20 mb-1" />
-                <span className="text-[9px] text-white/20">Upload</span>
+                <span className="text-3xs text-white/20">Upload</span>
               </div>
             </div>
           </div>
@@ -387,7 +387,7 @@ export function ProjectDetailClient({ project, content, renderJobs, activity }: 
                   <div>
                     <div className="text-2xl font-bold text-white">{s.value}</div>
                     <div className="text-xs text-white/40">{s.label}</div>
-                    <div className="text-[11px] text-emerald-400 mt-0.5">{s.change} this month</div>
+                    <div className="text-2xs text-emerald-400 mt-0.5">{s.change} this month</div>
                   </div>
                 </div>
               );
@@ -405,7 +405,7 @@ export function ProjectDetailClient({ project, content, renderJobs, activity }: 
                     }} />
                 ))}
               </div>
-              <div className="flex justify-between mt-2 text-[9px] text-white/25">
+              <div className="flex justify-between mt-2 text-3xs text-white/25">
                 <span>May 1</span><span>May 15</span><span>May 30</span>
               </div>
             </div>

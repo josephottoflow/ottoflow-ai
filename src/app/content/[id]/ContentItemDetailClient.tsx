@@ -137,17 +137,17 @@ export function ContentItemDetailClient({ item, brandName }: Props) {
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-              <span className="text-[10px] uppercase tracking-wider text-white/40 font-semibold">
+              <span className="text-3xs uppercase tracking-wider text-white/40 font-semibold">
                 {platform.label}
               </span>
               <Badge
                 variant={statusVariant[item.status] ?? "secondary"}
-                className="text-[9px]"
+                className="text-3xs"
               >
                 {item.status}
               </Badge>
               {brandName && (
-                <span className="text-[10px] text-white/40">
+                <span className="text-3xs text-white/40">
                   · for{" "}
                   <Link
                     href={item.brand_id ? `/brands/${item.brand_id}` : "/brands"}
@@ -157,7 +157,7 @@ export function ContentItemDetailClient({ item, brandName }: Props) {
                   </Link>
                 </span>
               )}
-              <span className="text-[10px] text-white/30 flex items-center gap-1 ml-auto">
+              <span className="text-3xs text-white/30 flex items-center gap-1 ml-auto">
                 <Clock size={9} /> {formatRelative(item.created_at)}
               </span>
             </div>
@@ -210,7 +210,7 @@ export function ContentItemDetailClient({ item, brandName }: Props) {
 
         {cta && (
           <div className="mt-6 pt-5 border-t border-white/5">
-            <p className="text-[10px] uppercase tracking-wider text-white/40 font-semibold mb-1.5">
+            <p className="text-3xs uppercase tracking-wider text-white/40 font-semibold mb-1.5">
               Suggested CTA
             </p>
             <p className="text-sm text-white/75">{cta}</p>
@@ -219,7 +219,7 @@ export function ContentItemDetailClient({ item, brandName }: Props) {
 
         {hashtags.length > 0 && (
           <div className="mt-6 pt-5 border-t border-white/5">
-            <p className="text-[10px] uppercase tracking-wider text-white/40 font-semibold mb-2 flex items-center gap-1.5">
+            <p className="text-3xs uppercase tracking-wider text-white/40 font-semibold mb-2 flex items-center gap-1.5">
               <Hash size={10} /> Hashtags
             </p>
             <div className="flex flex-wrap gap-1.5">
@@ -237,7 +237,7 @@ export function ContentItemDetailClient({ item, brandName }: Props) {
       </div>
 
       {/* Footer actions */}
-      <div className="flex items-center justify-between text-[11px] text-white/30">
+      <div className="flex items-center justify-between text-2xs text-white/30">
         <span>Content ID: {item.id}</span>
         <Link href="/content/generate">
           <Button variant="outline" size="sm" className="gap-1.5">

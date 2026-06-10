@@ -39,34 +39,34 @@ function timeAgo(iso: string): string {
 function statusBadge(job: DbRenderJob) {
   if (job.merge_status === "done" && job.merged_video_url) {
     return (
-      <Badge variant="success" className="text-[10px]">
+      <Badge variant="success" className="text-3xs">
         Ready
       </Badge>
     );
   }
   if (job.merge_status === "merging" || job.merge_status === "pending") {
     return (
-      <Badge variant="info" className="text-[10px]">
+      <Badge variant="info" className="text-3xs">
         Merging…
       </Badge>
     );
   }
   if (job.status === "rendering") {
     return (
-      <Badge variant="info" className="text-[10px]">
+      <Badge variant="info" className="text-3xs">
         Rendering
       </Badge>
     );
   }
   if (job.status === "failed" || job.merge_status === "failed") {
     return (
-      <Badge variant="destructive" className="text-[10px]">
+      <Badge variant="destructive" className="text-3xs">
         Failed
       </Badge>
     );
   }
   return (
-    <Badge variant="warning" className="text-[10px]">
+    <Badge variant="warning" className="text-3xs">
       Queued
     </Badge>
   );
@@ -104,7 +104,7 @@ export function VideoHistoryClient({ jobs, brandLookup }: Props) {
         <div className="flex items-center gap-3">
           <Film size={16} className="text-cyan-400" />
           <h1 className="text-xl font-bold">Video History</h1>
-          <span className="text-[11px] text-white/40">
+          <span className="text-2xs text-white/40">
             {filtered.length} generation{filtered.length === 1 ? "" : "s"}
           </span>
         </div>
@@ -114,7 +114,7 @@ export function VideoHistoryClient({ jobs, brandLookup }: Props) {
             <button
               type="button"
               onClick={() => setFilterBrandId(null)}
-              className={`text-[11px] rounded-full px-3 py-1 transition-colors ${
+              className={`text-2xs rounded-full px-3 py-1 transition-colors ${
                 filterBrandId === null
                   ? "bg-cyan-500/15 text-cyan-300 border border-cyan-500/30"
                   : "bg-white/[0.03] text-white/55 border border-white/[0.06] hover:border-white/15"
@@ -127,7 +127,7 @@ export function VideoHistoryClient({ jobs, brandLookup }: Props) {
                 key={b.id}
                 type="button"
                 onClick={() => setFilterBrandId(b.id)}
-                className={`text-[11px] rounded-full px-3 py-1 transition-colors ${
+                className={`text-2xs rounded-full px-3 py-1 transition-colors ${
                   filterBrandId === b.id
                     ? "bg-cyan-500/15 text-cyan-300 border border-cyan-500/30"
                     : "bg-white/[0.03] text-white/55 border border-white/[0.06] hover:border-white/15"
@@ -149,7 +149,7 @@ export function VideoHistoryClient({ jobs, brandLookup }: Props) {
           >
             <Video size={28} className="text-white/30 mx-auto mb-3" />
             <p className="text-sm text-white/60 mb-1">No videos yet</p>
-            <p className="text-[12px] text-white/40 mb-5">
+            <p className="text-xs text-white/40 mb-5">
               Generate your first video from a brand topic.
             </p>
             <Link href="/video/generate">
@@ -280,12 +280,12 @@ function HistoryRow({
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <p className="text-[13px] font-semibold text-white truncate">
+            <p className="text-sm font-semibold text-white truncate">
               {headline}
             </p>
             {statusBadge(job)}
           </div>
-          <div className="flex items-center gap-2 text-[11px] text-white/50 mb-2 flex-wrap">
+          <div className="flex items-center gap-2 text-2xs text-white/50 mb-2 flex-wrap">
             {brandName && (
               <Link
                 href={`/brands/${job.brand_id}`}
@@ -316,30 +316,30 @@ function HistoryRow({
             <span>{timeAgo(job.created_at ?? job.started_at)}</span>
           </div>
           {script?.hook && (
-            <p className="text-[12px] text-white/55 line-clamp-2 italic mb-2">
+            <p className="text-xs text-white/55 line-clamp-2 italic mb-2">
               &ldquo;{script.hook}&rdquo;
             </p>
           )}
           <Link
             href={`/video/${job.id}`}
-            className="text-[10px] text-cyan-400 hover:underline mb-2 inline-block"
+            className="text-3xs text-cyan-400 hover:underline mb-2 inline-block"
           >
             View generation details →
           </Link>
           {job.merge_error && (
-            <p className="text-[11px] text-rose-300/80 flex items-center gap-1.5 mb-2">
+            <p className="text-2xs text-rose-300/80 flex items-center gap-1.5 mb-2">
               <AlertCircle size={11} />
               {job.merge_error}
             </p>
           )}
           {regenError && (
-            <p className="text-[11px] text-rose-300/80 mb-2">{regenError}</p>
+            <p className="text-2xs text-rose-300/80 mb-2">{regenError}</p>
           )}
 
           <div className="flex items-center gap-2 flex-wrap">
             {downloadUrl && ready && (
               <a href={downloadUrl} download>
-                <Button variant="gradient-cyan" size="sm" className="gap-1.5 h-7 text-[11px]">
+                <Button variant="gradient-cyan" size="sm" className="gap-1.5 h-7 text-2xs">
                   <Download size={11} />
                   Download
                 </Button>
@@ -348,7 +348,7 @@ function HistoryRow({
             <Button
               variant="outline"
               size="sm"
-              className="gap-1.5 h-7 text-[11px]"
+              className="gap-1.5 h-7 text-2xs"
               onClick={handleRegenerate}
               disabled={regenerating}
             >

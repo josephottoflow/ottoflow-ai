@@ -105,7 +105,7 @@ export default async function AnalyticsPage() {
         <div className="glass rounded-2xl p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-white">Credit Consumption</h3>
-            <span className="text-[10px] text-white/30 flex items-center gap-1">
+            <span className="text-3xs text-white/30 flex items-center gap-1">
               <Zap size={10} className="text-amber-400/70" />
               {formatNumber(kpis.creditsUsed)} used total
             </span>
@@ -125,7 +125,7 @@ export default async function AnalyticsPage() {
                       background: "linear-gradient(to top, rgba(245,158,11,0.5), rgba(251,191,36,0.3))",
                     }}
                   />
-                  <span className="text-[9px] text-white/25 truncate w-full text-center">
+                  <span className="text-3xs text-white/25 truncate w-full text-center">
                     {d.date.split(" ")[1]}
                   </span>
                 </div>
@@ -138,7 +138,7 @@ export default async function AnalyticsPage() {
       {/* ─── Provider Analytics ─────────────────────────────────────── */}
       <div className="mt-8 mb-4 flex items-center gap-2">
         <h2 className="text-lg font-bold text-white">Video provider analytics</h2>
-        <span className="text-[11px] text-white/40">last 14 days</span>
+        <span className="text-2xs text-white/40">last 14 days</span>
       </div>
 
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
@@ -180,13 +180,13 @@ export default async function AnalyticsPage() {
       <div className="glass rounded-2xl p-5 mb-5">
         <h3 className="text-sm font-semibold text-white mb-4">Per-provider performance</h3>
         {providerStats.length === 0 ? (
-          <div className="text-[12px] text-white/40 py-6 text-center">
+          <div className="text-xs text-white/40 py-6 text-center">
             No scene-generation data in the last 14 days. Generate a video to see
             provider analytics here.
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-[12px]">
+            <table className="w-full text-xs">
               <thead>
                 <tr className="text-white/40 border-b border-white/[0.06]">
                   <th className="text-left font-semibold py-2 px-2">Provider</th>
@@ -203,7 +203,7 @@ export default async function AnalyticsPage() {
                 {providerStats.map((row) => (
                   <tr key={row.provider} className="border-b border-white/[0.03]">
                     <td className="py-2 px-2">
-                      <Badge variant={PROVIDER_VARIANT[row.provider] ?? "purple"} className="text-[10px]">
+                      <Badge variant={PROVIDER_VARIANT[row.provider] ?? "purple"} className="text-3xs">
                         {row.provider}
                       </Badge>
                     </td>
@@ -213,7 +213,7 @@ export default async function AnalyticsPage() {
                     <td className="text-right py-2 px-2">
                       <Badge
                         variant={statusBadgeForRate(row.successRatePct)}
-                        className="text-[10px]"
+                        className="text-3xs"
                       >
                         {row.successRatePct}%
                       </Badge>
@@ -245,7 +245,7 @@ export default async function AnalyticsPage() {
       <div className="glass rounded-2xl p-5">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-white">AI spend per day</h3>
-          <span className="text-[10px] text-white/30 flex items-center gap-1">
+          <span className="text-3xs text-white/30 flex items-center gap-1">
             <DollarSign size={10} className="text-violet-400/70" />
             ${totalCost14d.toFixed(2)} (14d total)
           </span>
@@ -265,7 +265,7 @@ export default async function AnalyticsPage() {
                     background: "linear-gradient(to top, rgba(124,58,237,0.6), rgba(167,139,250,0.3))",
                   }}
                 />
-                <span className="text-[9px] text-white/25 truncate w-full text-center">
+                <span className="text-3xs text-white/25 truncate w-full text-center">
                   {d.date.split(" ")[1]}
                 </span>
               </div>

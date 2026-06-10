@@ -535,7 +535,7 @@ export function VideoGenerateClient({
             written posts live in the content pipeline. */}
         <Link
           href="/content/generate"
-          className="ml-auto flex items-center gap-1.5 text-[11px] font-medium text-fuchsia-300/80 hover:text-fuchsia-200 transition-colors"
+          className="ml-auto flex items-center gap-1.5 text-2xs font-medium text-fuchsia-300/80 hover:text-fuchsia-200 transition-colors"
         >
           <Type size={12} /> Generate a social post instead →
         </Link>
@@ -551,7 +551,7 @@ export function VideoGenerateClient({
               <h2 className="text-base font-bold text-white">
                 {advancedPromptMode ? "Video Prompt" : "Brand · Topic · Style"}
               </h2>
-              <Badge variant="info" className="text-[10px] ml-auto">
+              <Badge variant="info" className="text-3xs ml-auto">
                 {advancedPromptMode ? "Advanced" : "Brand-driven"}
               </Badge>
             </div>
@@ -560,7 +560,7 @@ export function VideoGenerateClient({
             {!advancedPromptMode && (
               <div className="space-y-4 mb-4">
                 {brands.length === 0 ? (
-                  <div className="rounded-xl p-4 text-[13px] text-white/60 leading-relaxed"
+                  <div className="rounded-xl p-4 text-sm text-white/60 leading-relaxed"
                     style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
                     You don&apos;t have any ready brands yet.{" "}
                     <Link href="/brands/new" className="text-cyan-400 hover:underline">
@@ -572,7 +572,7 @@ export function VideoGenerateClient({
                   <>
                     {/* Brand selector */}
                     <div>
-                      <label className="text-[10px] uppercase tracking-wider text-white/40 font-semibold mb-1.5 block">
+                      <label className="text-3xs uppercase tracking-wider text-white/40 font-semibold mb-1.5 block">
                         Brand
                       </label>
                       <select
@@ -603,7 +603,7 @@ export function VideoGenerateClient({
                     {/* Topic picker */}
                     <div>
                       <div className="flex items-center justify-between mb-1.5">
-                        <label className="text-[10px] uppercase tracking-wider text-white/40 font-semibold">
+                        <label className="text-3xs uppercase tracking-wider text-white/40 font-semibold">
                           Topic{" "}
                           <span className="text-white/30">
                             ({topics.length})
@@ -612,7 +612,7 @@ export function VideoGenerateClient({
                         {selectedBrandId && (
                           <Link
                             href={`/brands/${selectedBrandId}`}
-                            className="text-[10px] text-cyan-400 hover:underline"
+                            className="text-3xs text-cyan-400 hover:underline"
                           >
                             Manage topics →
                           </Link>
@@ -624,7 +624,7 @@ export function VideoGenerateClient({
                         onChange={(e) => setTopicSearch(e.target.value)}
                         placeholder="Search topics…"
                         disabled={running || topics.length === 0}
-                        className="w-full text-[13px] text-white/80 placeholder:text-white/30 outline-none rounded-xl px-3 py-2 mb-2"
+                        className="w-full text-sm text-white/80 placeholder:text-white/30 outline-none rounded-xl px-3 py-2 mb-2"
                         style={{
                           background: "rgba(255,255,255,0.03)",
                           border: "1px solid rgba(255,255,255,0.06)",
@@ -640,12 +640,12 @@ export function VideoGenerateClient({
                         }}
                       >
                         {topicsLoading ? (
-                          <div className="p-4 text-[12px] text-white/50 flex items-center gap-2">
+                          <div className="p-4 text-xs text-white/50 flex items-center gap-2">
                             <Loader2 size={11} className="animate-spin" />
                             Loading topics…
                           </div>
                         ) : topics.length === 0 ? (
-                          <div className="p-4 text-[12px] text-white/50">
+                          <div className="p-4 text-xs text-white/50">
                             No topics yet for this brand.{" "}
                             {selectedBrandId && (
                               <Link
@@ -668,7 +668,7 @@ export function VideoGenerateClient({
                               : topics;
                             if (filtered.length === 0) {
                               return (
-                                <div className="p-4 text-[12px] text-white/50">
+                                <div className="p-4 text-xs text-white/50">
                                   No topics match &ldquo;{topicSearch}&rdquo;
                                 </div>
                               );
@@ -688,7 +688,7 @@ export function VideoGenerateClient({
                                     }`}
                                   >
                                     <div className="flex items-center gap-1.5 mb-0.5">
-                                      <p className="text-[13px] font-semibold text-white truncate">
+                                      <p className="text-sm font-semibold text-white truncate">
                                         {t.title}
                                       </p>
                                       {selectedTopicId === t.id && (
@@ -696,12 +696,12 @@ export function VideoGenerateClient({
                                       )}
                                     </div>
                                     {t.hook_angle && (
-                                      <p className="text-[11px] text-white/55 italic truncate">
+                                      <p className="text-2xs text-white/55 italic truncate">
                                         &ldquo;{t.hook_angle}&rdquo;
                                       </p>
                                     )}
                                     {t.category && (
-                                      <Badge variant="purple" className="text-[9px] mt-1">
+                                      <Badge variant="purple" className="text-3xs mt-1">
                                         {t.category}
                                       </Badge>
                                     )}
@@ -716,7 +716,7 @@ export function VideoGenerateClient({
 
                     {/* Style picker */}
                     <div>
-                      <label className="text-[10px] uppercase tracking-wider text-white/40 font-semibold mb-1.5 block">
+                      <label className="text-3xs uppercase tracking-wider text-white/40 font-semibold mb-1.5 block">
                         Video Style
                       </label>
                       <div className="flex flex-wrap gap-1.5">
@@ -726,7 +726,7 @@ export function VideoGenerateClient({
                             type="button"
                             disabled={running}
                             onClick={() => setSelectedStyle(s.id)}
-                            className={`text-[11px] font-semibold rounded-full px-3 py-1.5 transition-colors ${
+                            className={`text-2xs font-semibold rounded-full px-3 py-1.5 transition-colors ${
                               selectedStyle === s.id
                                 ? "bg-cyan-500/15 text-cyan-300 border border-cyan-500/30"
                                 : "bg-white/[0.03] text-white/55 border border-white/[0.06] hover:border-white/15"
@@ -750,24 +750,24 @@ export function VideoGenerateClient({
                             border: "1px solid rgba(6,182,212,0.15)",
                           }}
                         >
-                          <p className="text-[10px] uppercase tracking-wider text-cyan-300/80 font-semibold">
+                          <p className="text-3xs uppercase tracking-wider text-cyan-300/80 font-semibold">
                             Topic preview
                           </p>
-                          <p className="text-[13px] font-semibold text-white">
+                          <p className="text-sm font-semibold text-white">
                             {t.title}
                           </p>
                           {t.hook_angle && (
                             <div>
-                              <p className="text-[10px] uppercase tracking-wider text-white/40 mb-0.5">Hook</p>
-                              <p className="text-[12px] text-white/85 italic">
+                              <p className="text-3xs uppercase tracking-wider text-white/40 mb-0.5">Hook</p>
+                              <p className="text-xs text-white/85 italic">
                                 &ldquo;{t.hook_angle}&rdquo;
                               </p>
                             </div>
                           )}
                           {t.description && (
                             <div>
-                              <p className="text-[10px] uppercase tracking-wider text-white/40 mb-0.5">Core angle</p>
-                              <p className="text-[12px] text-white/70 leading-relaxed">
+                              <p className="text-3xs uppercase tracking-wider text-white/40 mb-0.5">Core angle</p>
+                              <p className="text-xs text-white/70 leading-relaxed">
                                 {t.description}
                               </p>
                             </div>
@@ -781,7 +781,7 @@ export function VideoGenerateClient({
                 <button
                   type="button"
                   onClick={() => setAdvancedPromptMode(true)}
-                  className="text-[11px] text-white/40 hover:text-white/70 transition-colors"
+                  className="text-2xs text-white/40 hover:text-white/70 transition-colors"
                 >
                   Switch to free-form prompt →
                 </button>
@@ -793,7 +793,7 @@ export function VideoGenerateClient({
                 <button
                   type="button"
                   onClick={() => setAdvancedPromptMode(false)}
-                  className="text-[11px] text-white/40 hover:text-white/70 transition-colors"
+                  className="text-2xs text-white/40 hover:text-white/70 transition-colors"
                 >
                   ← Back to brand-driven flow
                 </button>
@@ -822,7 +822,7 @@ export function VideoGenerateClient({
                     key={ex}
                     onClick={() => setPrompt(ex)}
                     disabled={running}
-                    className="text-[10px] text-white/30 hover:text-white/55 transition-colors px-2 py-1 rounded-lg max-w-[200px] text-left truncate"
+                    className="text-3xs text-white/30 hover:text-white/55 transition-colors px-2 py-1 rounded-lg max-w-[200px] text-left truncate"
                     style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
                   >
                     {ex}
@@ -836,7 +836,7 @@ export function VideoGenerateClient({
                 the BrandTopicCategory style picker above instead. */}
             {advancedPromptMode && (
             <div className="mb-4">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-white/35 mb-2">Visual Style</p>
+              <p className="text-3xs font-semibold uppercase tracking-wider text-white/35 mb-2">Visual Style</p>
               <div className="flex flex-wrap gap-1.5">
                 {STYLES.map((s) => (
                   <button
@@ -861,7 +861,7 @@ export function VideoGenerateClient({
                 the brand-driven flow has a fast way to tune length/vibe. */}
             <div className="flex gap-4 mb-4">
               <div className="flex-1">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-white/35 mb-2">Scenes</p>
+                <p className="text-3xs font-semibold uppercase tracking-wider text-white/35 mb-2">Scenes</p>
                 <div className="flex gap-1.5">
                   {[3, 4, 5].map((n) => (
                     <button
@@ -881,14 +881,14 @@ export function VideoGenerateClient({
                 </div>
               </div>
               <div className="flex-1">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-white/35 mb-2">Music Vibe</p>
+                <p className="text-3xs font-semibold uppercase tracking-wider text-white/35 mb-2">Music Vibe</p>
                 <div className="flex flex-wrap gap-1">
                   {VIBES.map((v) => (
                     <button
                       key={v}
                       onClick={() => setVibe(v)}
                       disabled={running}
-                      className="text-[10px] px-2 py-1 rounded-lg capitalize transition-all font-medium"
+                      className="text-3xs px-2 py-1 rounded-lg capitalize transition-all font-medium"
                       style={{
                         background: vibe === v ? "rgba(6,182,212,0.12)" : "rgba(255,255,255,0.03)",
                         border: vibe === v ? "1px solid rgba(6,182,212,0.25)" : "1px solid rgba(255,255,255,0.05)",
@@ -905,7 +905,7 @@ export function VideoGenerateClient({
             {/* Advanced toggle */}
             <button
               onClick={() => setShowAdvanced((v) => !v)}
-              className="flex items-center gap-1.5 text-[11px] text-white/30 hover:text-white/50 transition-colors mb-3"
+              className="flex items-center gap-1.5 text-2xs text-white/30 hover:text-white/50 transition-colors mb-3"
             >
               {showAdvanced ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
               Advanced options
@@ -914,14 +914,14 @@ export function VideoGenerateClient({
             {showAdvanced && (
               <div className="mb-4 pt-3"
                 style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-white/35 mb-2">Hook Style</p>
+                <p className="text-3xs font-semibold uppercase tracking-wider text-white/35 mb-2">Hook Style</p>
                 <div className="flex flex-wrap gap-1.5">
                   {["bold-statement", "question", "shocking-stat", "story"].map((h) => (
                     <button
                       key={h}
                       onClick={() => setHookStyle(h)}
                       disabled={running}
-                      className="text-[11px] px-3 py-1.5 rounded-full capitalize transition-all font-medium"
+                      className="text-2xs px-3 py-1.5 rounded-full capitalize transition-all font-medium"
                       style={{
                         background: hookStyle === h ? "rgba(124,58,237,0.12)" : "rgba(255,255,255,0.03)",
                         border: hookStyle === h ? "1px solid rgba(124,58,237,0.3)" : "1px solid rgba(255,255,255,0.06)",
@@ -976,23 +976,23 @@ export function VideoGenerateClient({
               {running ? (
                 <div className="flex items-center gap-1.5">
                   <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                  <span className="text-[10px] text-cyan-400">Planning</span>
+                  <span className="text-3xs text-cyan-400">Planning</span>
                 </div>
               ) : mergeStatus === "failed" ? (
-                <Badge variant="destructive" className="text-[10px]">Render failed</Badge>
+                <Badge variant="destructive" className="text-3xs">Render failed</Badge>
               ) : mergeStatus === "done" && mergedVideoUrl ? (
-                <Badge variant="success" className="text-[10px]">Complete</Badge>
+                <Badge variant="success" className="text-3xs">Complete</Badge>
               ) : videoUrl ? (
                 <div className="flex items-center gap-1.5">
                   <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                  <span className="text-[10px] text-cyan-400">Rendering</span>
+                  <span className="text-3xs text-cyan-400">Rendering</span>
                 </div>
               ) : null}
             </div>
 
             {/* Overall progress bar */}
             <div className="mb-4">
-              <div className="flex justify-between text-[10px] text-white/40 mb-1.5">
+              <div className="flex justify-between text-3xs text-white/40 mb-1.5">
                 <span>{statusLabel || "Ready"}</span>
                 <span>{progress}%</span>
               </div>
@@ -1030,7 +1030,7 @@ export function VideoGenerateClient({
                     ) : (
                       <Icon size={14} className="text-white/20" />
                     )}
-                    <span className="text-[10px] font-medium"
+                    <span className="text-3xs font-medium"
                       style={{
                         color: status === "done" ? "#34d399"
                           : status === "running" ? "#67e8f9"
@@ -1076,7 +1076,7 @@ export function VideoGenerateClient({
                     is NOT the finished video until the merged URL lands. */}
                 {!mergedVideoUrl && (
                   <span
-                    className="absolute top-2 left-2 text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md flex items-center gap-1"
+                    className="absolute top-2 left-2 text-3xs font-bold uppercase tracking-wider px-2 py-1 rounded-md flex items-center gap-1"
                     style={{
                       background: "rgba(0,0,0,0.6)",
                       color: mergeStatus === "failed" ? "#fca5a5" : "#67e8f9",
@@ -1092,7 +1092,7 @@ export function VideoGenerateClient({
                   SSE stream. "Complete" only appears with a real merged URL. */}
               {mergeStatus === "done" && mergedVideoUrl ? (
                 <div className="px-4 py-2.5 border-t border-white/5">
-                  <p className="text-[11px] text-emerald-400/90 flex items-center gap-1.5 font-medium">
+                  <p className="text-2xs text-emerald-400/90 flex items-center gap-1.5 font-medium">
                     <CheckCircle2 size={12} />
                     Final video ready — footage, captions &amp; audio baked into one MP4
                   </p>
@@ -1100,19 +1100,19 @@ export function VideoGenerateClient({
               ) : mergeStatus === "failed" ? (
                 <div className="px-4 py-2.5 border-t border-white/5"
                   style={{ background: "rgba(239,68,68,0.06)" }}>
-                  <p className="text-[11px] text-red-300 flex items-center gap-1.5 font-semibold">
+                  <p className="text-2xs text-red-300 flex items-center gap-1.5 font-semibold">
                     <AlertCircle size={12} />
                     Render failed — showing the first source clip as a preview
                   </p>
                   {mergeError && (
-                    <p className="text-[10px] text-red-400/70 mt-1 font-mono break-words leading-relaxed">
+                    <p className="text-3xs text-red-400/70 mt-1 font-mono break-words leading-relaxed">
                       {mergeError.length > 240 ? mergeError.slice(0, 240) + "…" : mergeError}
                     </p>
                   )}
                 </div>
               ) : (
                 <div className="px-4 py-2.5 border-t border-white/5">
-                  <p className="text-[11px] text-cyan-300/90 flex items-center gap-1.5">
+                  <p className="text-2xs text-cyan-300/90 flex items-center gap-1.5">
                     <Loader2 size={12} className="animate-spin" />
                     Rendering final video… this preview will swap to the finished MP4 when ready
                   </p>
@@ -1120,7 +1120,7 @@ export function VideoGenerateClient({
               )}
               {videoAttribution && (
                 <div className="px-4 py-2 border-t border-white/5">
-                  <p className="text-[10px] uppercase tracking-wider text-white/40 font-semibold">
+                  <p className="text-3xs uppercase tracking-wider text-white/40 font-semibold">
                     Stock footage ·{" "}
                     <span className="text-white/60 normal-case font-normal">
                       {videoAttribution}
@@ -1132,7 +1132,7 @@ export function VideoGenerateClient({
                 <div className="px-4 py-3 border-t border-white/5 space-y-2.5">
                   {audioUrl && (
                     <div>
-                      <p className="text-[10px] uppercase tracking-wider text-white/40 font-semibold mb-1.5 flex items-center gap-1.5">
+                      <p className="text-3xs uppercase tracking-wider text-white/40 font-semibold mb-1.5 flex items-center gap-1.5">
                         <Mic size={10} className="text-cyan-400" /> Narration (ElevenLabs)
                       </p>
                       <audio src={audioUrl} controls className="w-full h-8" />
@@ -1140,7 +1140,7 @@ export function VideoGenerateClient({
                   )}
                   {musicUrl && (
                     <div>
-                      <p className="text-[10px] uppercase tracking-wider text-white/40 font-semibold mb-1.5 flex items-center gap-1.5">
+                      <p className="text-3xs uppercase tracking-wider text-white/40 font-semibold mb-1.5 flex items-center gap-1.5">
                         <Music size={10} className="text-emerald-400" /> Music track
                         {musicTrack && (
                           <span className="text-white/60 normal-case font-normal ml-1">· {musicTrack}</span>
@@ -1154,13 +1154,13 @@ export function VideoGenerateClient({
               {seo && (
                 <div className="px-4 py-4 border-t border-white/5 space-y-3">
                   <div className="flex items-center justify-between">
-                    <p className="text-[10px] uppercase tracking-wider text-white/40 font-semibold flex items-center gap-1.5">
+                    <p className="text-3xs uppercase tracking-wider text-white/40 font-semibold flex items-center gap-1.5">
                       <Wand2 size={10} className="text-fuchsia-400" /> Post copy · ready to upload
                     </p>
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="gap-1 h-6 text-[11px] text-white/60 hover:text-white"
+                      className="gap-1 h-6 text-2xs text-white/60 hover:text-white"
                       onClick={() => {
                         const text =
                           `${seo.title}\n\n${seo.description}\n\n` +
@@ -1173,21 +1173,21 @@ export function VideoGenerateClient({
                     </Button>
                   </div>
                   <div>
-                    <p className="text-[10px] uppercase tracking-wider text-white/40 font-semibold mb-1">
+                    <p className="text-3xs uppercase tracking-wider text-white/40 font-semibold mb-1">
                       Title
                     </p>
                     <p className="text-sm text-white/90 leading-snug">{seo.title}</p>
                   </div>
                   <div>
-                    <p className="text-[10px] uppercase tracking-wider text-white/40 font-semibold mb-1">
+                    <p className="text-3xs uppercase tracking-wider text-white/40 font-semibold mb-1">
                       Description
                     </p>
-                    <p className="text-[13px] text-white/75 leading-relaxed whitespace-pre-wrap">
+                    <p className="text-sm text-white/75 leading-relaxed whitespace-pre-wrap">
                       {seo.description}
                     </p>
                   </div>
                   <div>
-                    <p className="text-[10px] uppercase tracking-wider text-white/40 font-semibold mb-1.5">
+                    <p className="text-3xs uppercase tracking-wider text-white/40 font-semibold mb-1.5">
                       Hashtags · {seo.hashtags.length}
                     </p>
                     <div className="flex flex-wrap gap-1.5">
@@ -1195,7 +1195,7 @@ export function VideoGenerateClient({
                         <Badge
                           key={tag}
                           variant="outline"
-                          className="text-[11px] py-0 px-1.5 h-5 border-white/10 bg-white/[0.03] text-white/70 font-normal"
+                          className="text-2xs py-0 px-1.5 h-5 border-white/10 bg-white/[0.03] text-white/70 font-normal"
                         >
                           #{tag}
                         </Badge>
@@ -1269,7 +1269,7 @@ export function VideoGenerateClient({
               <div className="flex items-center gap-2">
                 <span className="text-xs font-medium text-white/50">Pipeline Logs</span>
                 {logs.length > 0 && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold"
+                  <span className="text-3xs px-1.5 py-0.5 rounded-full font-bold"
                     style={{ background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.3)" }}>
                     {logs.length}
                   </span>
@@ -1285,7 +1285,7 @@ export function VideoGenerateClient({
             {showLogs && (
               <div
                 ref={logsRef}
-                className="overflow-y-auto px-4 pb-4 font-mono text-[10px] leading-relaxed space-y-0.5"
+                className="overflow-y-auto px-4 pb-4 font-mono text-3xs leading-relaxed space-y-0.5"
                 style={{ maxHeight: 260, borderTop: "1px solid rgba(255,255,255,0.05)" }}
               >
                 {logs.length === 0 ? (

@@ -424,19 +424,19 @@ export function ContentGenerateClient({
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-0.5">
-                      <span className="text-[10px] uppercase tracking-wider text-white/40 font-semibold">
+                      <span className="text-3xs uppercase tracking-wider text-white/40 font-semibold">
                         {cfg.label}
                       </span>
                       {isDone ? (
-                        <Badge variant="success" className="text-[9px] gap-1">
+                        <Badge variant="success" className="text-3xs gap-1">
                           <CheckCircle2 size={9} /> Ready
                         </Badge>
                       ) : isFailed ? (
-                        <Badge variant="destructive" className="text-[9px] gap-1">
+                        <Badge variant="destructive" className="text-3xs gap-1">
                           <AlertCircle size={9} /> Failed
                         </Badge>
                       ) : (
-                        <Badge variant="info" className="text-[9px] gap-1">
+                        <Badge variant="info" className="text-3xs gap-1">
                           <Loader2 size={9} className="animate-spin" /> {stepLabel}
                         </Badge>
                       )}
@@ -459,7 +459,7 @@ export function ContentGenerateClient({
                 {!isDone && !isFailed && (
                   <div className="mt-4">
                     <Progress value={progress} className="h-1.5" />
-                    <div className="flex items-center justify-between mt-1.5 text-[11px] text-white/40">
+                    <div className="flex items-center justify-between mt-1.5 text-2xs text-white/40">
                       <span>{stepLabel}</span>
                       <span>{progress}%</span>
                     </div>
@@ -480,13 +480,13 @@ export function ContentGenerateClient({
                     </div>
                     {item.engagement?.cta && (
                       <div className="mt-4 pt-4 border-t border-white/5">
-                        <p className="text-[10px] uppercase tracking-wider text-white/40 font-semibold mb-1">Suggested CTA</p>
+                        <p className="text-3xs uppercase tracking-wider text-white/40 font-semibold mb-1">Suggested CTA</p>
                         <p className="text-sm text-white/70">{item.engagement.cta}</p>
                       </div>
                     )}
                     {item.engagement?.hashtags && item.engagement.hashtags.length > 0 && (
                       <div className="mt-4 pt-4 border-t border-white/5">
-                        <p className="text-[10px] uppercase tracking-wider text-white/40 font-semibold mb-2">Hashtags</p>
+                        <p className="text-3xs uppercase tracking-wider text-white/40 font-semibold mb-2">Hashtags</p>
                         <div className="flex flex-wrap gap-1.5">
                           {item.engagement.hashtags.map((h) => (
                             <span key={h} className="text-xs px-2 py-1 rounded-full bg-white/5 text-white/60">
@@ -567,7 +567,7 @@ export function ContentGenerateClient({
               </span>
             </label>
             {brandId && (
-              <Link href={`/brands/${brandId}`} className="text-[11px] text-violet-300 hover:underline">
+              <Link href={`/brands/${brandId}`} className="text-2xs text-violet-300 hover:underline">
                 Manage ideas →
               </Link>
             )}
@@ -578,22 +578,22 @@ export function ContentGenerateClient({
             onChange={(e) => setTopicSearch(e.target.value)}
             placeholder="Search ideas…"
             disabled={topics.length === 0}
-            className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-3 py-2 text-[13px] text-white placeholder:text-white/25 focus:outline-none focus:border-violet-500/40 transition-colors mb-2"
+            className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-violet-500/40 transition-colors mb-2"
           />
           <div className="rounded-xl overflow-y-auto"
             style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", maxHeight: 220, minHeight: 72 }}>
             {topicsLoading ? (
-              <div className="p-4 text-[12px] text-white/50 flex items-center gap-2">
+              <div className="p-4 text-xs text-white/50 flex items-center gap-2">
                 <Loader2 size={11} className="animate-spin" /> Loading ideas…
               </div>
             ) : topics.length === 0 ? (
-              <div className="p-4 text-[12px] text-white/50">
+              <div className="p-4 text-xs text-white/50">
                 No researched ideas for this brand yet.{" "}
                 <Link href={`/brands/${brandId}`} className="text-violet-300 hover:underline">Generate ideas</Link>
                 {" "}or leave this blank for an open-ended post.
               </div>
             ) : filteredTopics.length === 0 ? (
-              <div className="p-4 text-[12px] text-white/50">No ideas match &ldquo;{topicSearch}&rdquo;</div>
+              <div className="p-4 text-xs text-white/50">No ideas match &ldquo;{topicSearch}&rdquo;</div>
             ) : (
               <div className="divide-y divide-white/[0.04]">
                 {/* Open-ended (no idea) option */}
@@ -602,7 +602,7 @@ export function ContentGenerateClient({
                   onClick={() => setSelectedTopicId(null)}
                   className={`w-full text-left px-3 py-2 transition-colors ${selectedTopicId === null ? "bg-violet-500/10" : "hover:bg-white/[0.03]"}`}
                 >
-                  <span className="text-[12px] text-white/55 italic">No idea — open-ended post from the brand profile</span>
+                  <span className="text-xs text-white/55 italic">No idea — open-ended post from the brand profile</span>
                 </button>
                 {filteredTopics.map((t) => (
                   <button
@@ -612,14 +612,14 @@ export function ContentGenerateClient({
                     className={`w-full text-left px-3 py-2.5 transition-colors ${selectedTopicId === t.id ? "bg-violet-500/10" : "hover:bg-white/[0.03]"}`}
                   >
                     <div className="flex items-center gap-1.5 mb-0.5">
-                      <p className="text-[13px] font-semibold text-white truncate">{t.title}</p>
+                      <p className="text-sm font-semibold text-white truncate">{t.title}</p>
                       {selectedTopicId === t.id && <CheckCircle2 size={11} className="text-violet-400 shrink-0" />}
                     </div>
                     {t.hook_angle && (
-                      <p className="text-[11px] text-white/55 italic truncate">&ldquo;{t.hook_angle}&rdquo;</p>
+                      <p className="text-2xs text-white/55 italic truncate">&ldquo;{t.hook_angle}&rdquo;</p>
                     )}
                     {t.category && (
-                      <Badge variant="purple" className="text-[9px] mt-1">{t.category}</Badge>
+                      <Badge variant="purple" className="text-3xs mt-1">{t.category}</Badge>
                     )}
                   </button>
                 ))}
@@ -657,7 +657,7 @@ export function ContentGenerateClient({
                     <p className="text-xs font-semibold truncate" style={{ color: selected ? p.color : "rgba(255,255,255,0.7)" }}>
                       {p.label}
                     </p>
-                    <p className="text-[10px] text-white/35 truncate">{p.hint}</p>
+                    <p className="text-3xs text-white/35 truncate">{p.hint}</p>
                   </div>
                   {selected && (
                     <CheckCircle2 size={13} style={{ color: p.color }} className="absolute top-1.5 right-1.5" />
@@ -666,7 +666,7 @@ export function ContentGenerateClient({
               );
             })}
           </div>
-          <p className="text-[11px] text-white/30 mt-1.5">
+          <p className="text-2xs text-white/30 mt-1.5">
             One post is generated per platform — each tuned to that platform&apos;s format.
           </p>
         </div>
@@ -683,7 +683,7 @@ export function ContentGenerateClient({
             rows={2}
             className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-violet-500/40 transition-colors resize-none"
           />
-          <p className="text-[11px] text-white/30 mt-1.5">{userPrompt.length}/500</p>
+          <p className="text-2xs text-white/30 mt-1.5">{userPrompt.length}/500</p>
         </div>
 
         {submitError && (
@@ -693,7 +693,7 @@ export function ContentGenerateClient({
         )}
 
         <div className="flex items-center justify-between pt-2">
-          <p className="text-[11px] text-white/30">Gemini Flash · ~50 credits per post</p>
+          <p className="text-2xs text-white/30">Gemini Flash · ~50 credits per post</p>
           <Button variant="gradient" onClick={handleSubmit} disabled={submitting || !brandId || platforms.size === 0} className="gap-1.5">
             {submitting ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
             {submitting

@@ -178,13 +178,13 @@ export function ContentPageClient({ items, kpis }: Props) {
                           {step.label}
                         </p>
                         {step.active && (
-                          <span className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold"
+                          <span className="text-3xs px-1.5 py-0.5 rounded-full font-semibold"
                             style={{ background: "rgba(124,58,237,0.2)", color: "#a78bfa" }}>
                             ACTIVE
                           </span>
                         )}
                       </div>
-                      <p className="text-[10px] text-white/30 mt-0.5">{step.desc}</p>
+                      <p className="text-3xs text-white/30 mt-0.5">{step.desc}</p>
                     </div>
                   </div>
                   {i < workflowSteps.length - 1 && (
@@ -236,7 +236,7 @@ export function ContentPageClient({ items, kpis }: Props) {
                   <button
                     key={f}
                     onClick={() => setActiveFilter(f)}
-                    className="text-[10px] font-medium px-2.5 py-1 rounded-full capitalize transition-all"
+                    className="text-3xs font-medium px-2.5 py-1 rounded-full capitalize transition-all"
                     style={{
                       background: activeFilter === f ? "rgba(124,58,237,0.15)" : "rgba(255,255,255,0.05)",
                       color: activeFilter === f ? "#a78bfa" : "rgba(255,255,255,0.4)",
@@ -293,14 +293,14 @@ export function ContentPageClient({ items, kpis }: Props) {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-start justify-between gap-2 mb-1">
                           <p className="text-sm font-medium text-white/80 leading-snug">{item.title}</p>
-                          <Badge variant={status.variant} className="text-[10px] flex-shrink-0">{status.label}</Badge>
+                          <Badge variant={status.variant} className="text-3xs flex-shrink-0">{status.label}</Badge>
                         </div>
                         <p className="text-xs text-white/40 line-clamp-2 leading-relaxed">{item.preview}</p>
                         <div className="flex items-center gap-3 mt-2">
-                          <span className="text-[10px] text-white/25">{formatRelative(item.created_at)}</span>
-                          <span className="text-[10px] text-white/25">{platform.label}</span>
+                          <span className="text-3xs text-white/25">{formatRelative(item.created_at)}</span>
+                          <span className="text-3xs text-white/25">{platform.label}</span>
                           {engagement?.likes && (
-                            <span className="text-[10px] text-emerald-400/70">
+                            <span className="text-3xs text-emerald-400/70">
                               {engagement.likes} likes · {engagement.shares} shares
                             </span>
                           )}

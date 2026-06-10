@@ -10,7 +10,7 @@ export default function BillingPage() {
           <h1 className="text-2xl font-bold text-white tracking-tight">Billing</h1>
           <p className="text-white/40 text-sm mt-1">Manage your plan and usage</p>
         </div>
-        <Badge variant="purple" className="text-[11px]">Coming soon</Badge>
+        <Badge variant="purple" className="text-2xs">Coming soon</Badge>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">

@@ -50,7 +50,7 @@ export default async function BrandsPage() {
                     </div>
                     <div className="min-w-0">
                       <h3 className="text-sm font-bold text-white truncate">{b.name}</h3>
-                      <p className="text-[11px] text-white/40 truncate">
+                      <p className="text-2xs text-white/40 truncate">
                         {b.industry ?? "—"}
                       </p>
                     </div>
@@ -59,7 +59,7 @@ export default async function BrandsPage() {
                 </div>
 
                 {b.website && (
-                  <div className="flex items-center gap-1.5 text-[11px] text-white/45 mb-3 truncate">
+                  <div className="flex items-center gap-1.5 text-2xs text-white/45 mb-3 truncate">
                     <Globe size={11} className="flex-shrink-0" />
                     <span className="truncate">{b.website.replace(/^https?:\/\//, "")}</span>
                   </div>
@@ -71,7 +71,7 @@ export default async function BrandsPage() {
                   </p>
                 )}
 
-                <div className="flex items-center justify-between text-[10px] text-white/35 pt-3 border-t border-white/[0.04]">
+                <div className="flex items-center justify-between text-3xs text-white/35 pt-3 border-t border-white/[0.04]">
                   <span>Updated {formatRelative(b.updated_at)}</span>
                   <ArrowRight size={11} />
                 </div>
@@ -88,28 +88,28 @@ function StatusBadge({ status }: { status: string }) {
   switch (status) {
     case "ready":
       return (
-        <Badge variant="success" className="text-[10px] gap-1">
+        <Badge variant="success" className="text-3xs gap-1">
           <CheckCircle2 size={9} />
           Ready
         </Badge>
       );
     case "researching":
       return (
-        <Badge variant="info" className="text-[10px] gap-1">
+        <Badge variant="info" className="text-3xs gap-1">
           <Loader2 size={9} className="animate-spin" />
           Researching
         </Badge>
       );
     case "failed":
       return (
-        <Badge variant="destructive" className="text-[10px] gap-1">
+        <Badge variant="destructive" className="text-3xs gap-1">
           <AlertTriangle size={9} />
           Failed
         </Badge>
       );
     default:
       return (
-        <Badge variant="secondary" className="text-[10px] gap-1">
+        <Badge variant="secondary" className="text-3xs gap-1">
           <Clock size={9} />
           Pending
         </Badge>

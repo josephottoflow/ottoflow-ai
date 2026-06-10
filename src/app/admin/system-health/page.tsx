@@ -169,7 +169,7 @@ export default async function SystemHealthPage() {
       <section className="space-y-2">
         <h2 className="text-sm font-bold text-white">BullMQ queues</h2>
         <div className="glass rounded-2xl p-4">
-          <table className="w-full text-[12px]">
+          <table className="w-full text-xs">
             <thead>
               <tr className="text-white/40 border-b border-white/[0.06]">
                 <th className="text-left font-semibold py-2 px-2">Queue</th>
@@ -190,7 +190,7 @@ export default async function SystemHealthPage() {
                     {q.failed < 0 ? (
                       "—"
                     ) : q.failed > 0 ? (
-                      <Badge variant="destructive" className="text-[10px]">
+                      <Badge variant="destructive" className="text-3xs">
                         {q.failed}
                       </Badge>
                     ) : (
@@ -213,23 +213,23 @@ export default async function SystemHealthPage() {
         <h2 className="text-sm font-bold text-white">Pipeline success (last 100)</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="glass rounded-2xl p-5">
-            <p className="text-[10px] uppercase tracking-wider text-white/40 font-semibold mb-2">
+            <p className="text-3xs uppercase tracking-wider text-white/40 font-semibold mb-2">
               Scene generation
             </p>
             <div className="flex items-baseline gap-3">
               <p className="text-3xl font-bold text-white">{sceneStats.ratePct}%</p>
-              <Badge variant={statusBadgeForRate(sceneStats.ratePct)} className="text-[10px]">
+              <Badge variant={statusBadgeForRate(sceneStats.ratePct)} className="text-3xs">
                 {sceneStats.success}/{sceneStats.total}
               </Badge>
             </div>
           </div>
           <div className="glass rounded-2xl p-5">
-            <p className="text-[10px] uppercase tracking-wider text-white/40 font-semibold mb-2">
+            <p className="text-3xs uppercase tracking-wider text-white/40 font-semibold mb-2">
               Merge upload
             </p>
             <div className="flex items-baseline gap-3">
               <p className="text-3xl font-bold text-white">{mergeStats.ratePct}%</p>
-              <Badge variant={statusBadgeForRate(mergeStats.ratePct)} className="text-[10px]">
+              <Badge variant={statusBadgeForRate(mergeStats.ratePct)} className="text-3xs">
                 {mergeStats.success}/{mergeStats.total}
               </Badge>
             </div>
@@ -250,7 +250,7 @@ export default async function SystemHealthPage() {
         </div>
       </section>
 
-      <p className="text-[10px] text-white/30">
+      <p className="text-3xs text-white/30">
         Last fetched · {new Date().toISOString()}
       </p>
     </div>
@@ -264,7 +264,7 @@ function FailureTile({ label, value }: { label: string; value: number }) {
       className="rounded-xl p-4"
       style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}
     >
-      <p className="text-[10px] uppercase tracking-wider text-white/40 font-semibold mb-1">{label}</p>
+      <p className="text-3xs uppercase tracking-wider text-white/40 font-semibold mb-1">{label}</p>
       <p className={`text-2xl font-bold ${color}`}>{value}</p>
     </div>
   );

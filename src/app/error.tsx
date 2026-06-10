@@ -65,7 +65,7 @@ export default function ErrorBoundary({
         </p>
 
         {error?.digest && (
-          <p className="text-[11px] text-white/35 mb-5 font-mono">
+          <p className="text-2xs text-white/35 mb-5 font-mono">
             Digest: <span className="text-white/55">{error.digest}</span>
           </p>
         )}

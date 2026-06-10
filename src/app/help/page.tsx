@@ -101,7 +101,7 @@ export default function HelpPage() {
             <BookOpen size={16} className="text-violet-400" />
             <div className="flex-1">
               <div className="text-xs font-medium text-white">Docs</div>
-              <div className="text-[11px] text-white/35">docs.ottoflow.ai</div>
+              <div className="text-2xs text-white/35">docs.ottoflow.ai</div>
             </div>
             <ExternalLink size={11} className="text-white/30" />
           </a>
@@ -114,7 +114,7 @@ export default function HelpPage() {
             <MessageSquare size={16} className="text-cyan-400" />
             <div className="flex-1">
               <div className="text-xs font-medium text-white">Community</div>
-              <div className="text-[11px] text-white/35">Discord</div>
+              <div className="text-2xs text-white/35">Discord</div>
             </div>
             <ExternalLink size={11} className="text-white/30" />
           </a>
@@ -125,7 +125,7 @@ export default function HelpPage() {
             <Mail size={16} className="text-emerald-400" />
             <div className="flex-1">
               <div className="text-xs font-medium text-white">Email support</div>
-              <div className="text-[11px] text-white/35">support@ottoflow.ai</div>
+              <div className="text-2xs text-white/35">support@ottoflow.ai</div>
             </div>
             <ExternalLink size={11} className="text-white/30" />
           </a>

@@ -159,7 +159,7 @@ export function VideoPageClient({ renderJobs, kpis }: Props) {
                       border: step.active ? "1px solid rgba(6,182,212,0.18)" : "1px solid transparent",
                     }}
                   >
-                    <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 text-[10px] font-bold"
+                    <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 text-3xs font-bold"
                       style={{
                         background: step.done ? "rgba(16,185,129,0.15)" : step.active ? "rgba(6,182,212,0.2)" : "rgba(255,255,255,0.05)",
                         color: step.done ? "#34d399" : step.active ? "#67e8f9" : "rgba(255,255,255,0.25)",
@@ -168,18 +168,18 @@ export function VideoPageClient({ renderJobs, kpis }: Props) {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <p className="text-[11px] font-semibold"
+                        <p className="text-2xs font-semibold"
                           style={{ color: step.active ? "#67e8f9" : step.done ? "rgba(255,255,255,0.65)" : "rgba(255,255,255,0.25)" }}>
                           {step.label}
                         </p>
                         {step.active && (
-                          <span className="text-[8px] px-1 py-0.5 rounded font-bold"
+                          <span className="text-3xs px-1 py-0.5 rounded font-bold"
                             style={{ background: "rgba(6,182,212,0.15)", color: "#67e8f9" }}>
                             ACTIVE
                           </span>
                         )}
                       </div>
-                      <p className="text-[9px] text-white/25">{step.desc}</p>
+                      <p className="text-3xs text-white/25">{step.desc}</p>
                     </div>
                   </div>
                   {i < videoPipelineSteps.length - 1 && (
@@ -192,7 +192,7 @@ export function VideoPageClient({ renderJobs, kpis }: Props) {
             <Button variant="gradient-cyan" className="w-full mt-4 gap-2 text-sm" size="sm" disabled title="Pipeline progression requires the video worker (v1)">
               <Play size={13} />
               Continue Pipeline
-              <Badge variant="info" className="text-[9px] ml-1">Soon</Badge>
+              <Badge variant="info" className="text-3xs ml-1">Soon</Badge>
             </Button>
           </div>
 
@@ -213,7 +213,7 @@ export function VideoPageClient({ renderJobs, kpis }: Props) {
                     style={{ background: p.color }} />
                   <div className="flex-1">
                     <span className="text-xs font-semibold text-white/70">{p.label}</span>
-                    <p className="text-[10px] text-white/30 mt-0.5">{p.desc}</p>
+                    <p className="text-3xs text-white/30 mt-0.5">{p.desc}</p>
                   </div>
                 </div>
               ))}
@@ -246,7 +246,7 @@ export function VideoPageClient({ renderJobs, kpis }: Props) {
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h2 className="text-sm font-semibold text-white">Render Queue</h2>
-                <p className="text-[11px] text-white/35 mt-0.5">
+                <p className="text-2xs text-white/35 mt-0.5">
                   {activeJobs} active · {pendingJobs - activeJobs} queued
                 </p>
               </div>
@@ -273,7 +273,7 @@ export function VideoPageClient({ renderJobs, kpis }: Props) {
           <div className="glass rounded-2xl p-5">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-sm font-semibold text-white">Completed Videos</h2>
-              <Badge variant="success" className="text-[10px]">{completedJobs.length} files</Badge>
+              <Badge variant="success" className="text-3xs">{completedJobs.length} files</Badge>
             </div>
 
             {completedJobs.length === 0 ? (
@@ -291,11 +291,11 @@ export function VideoPageClient({ renderJobs, kpis }: Props) {
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-medium text-white/75 truncate">{v.name}</p>
                       <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-[10px] text-white/35">{v.template}</span>
+                        <span className="text-3xs text-white/35">{v.template}</span>
                         {v.duration_ms && (
                           <>
-                            <span className="text-[10px] text-white/25">·</span>
-                            <span className="text-[10px] text-white/35">
+                            <span className="text-3xs text-white/25">·</span>
+                            <span className="text-3xs text-white/35">
                               {(v.duration_ms / 1000).toFixed(1)}s render
                             </span>
                           </>
@@ -324,7 +324,7 @@ export function VideoPageClient({ renderJobs, kpis }: Props) {
               <div className="flex items-center gap-2 mb-3">
                 <Wand2 size={14} className="text-cyan-400" />
                 <h3 className="text-sm font-semibold text-white">Quick Generate</h3>
-                <Badge variant="info" className="text-[10px] ml-auto">New</Badge>
+                <Badge variant="info" className="text-3xs ml-auto">New</Badge>
               </div>
               <p className="text-xs text-white/45 mb-4 leading-relaxed">
                 Generate a UGC video from a single prompt. AI handles script, storyboard, clips, voiceover, and captions automatically.

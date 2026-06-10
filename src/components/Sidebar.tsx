@@ -101,7 +101,7 @@ export function Sidebar() {
           </div>
           <div>
             <span className="text-sm font-bold text-white tracking-tight">Ottoflow</span>
-            <span className="text-[10px] text-violet-400 font-medium block -mt-0.5">
+            <span className="text-3xs text-violet-400 font-medium block -mt-0.5">
               AI Platform
             </span>
           </div>
@@ -132,7 +132,7 @@ export function Sidebar() {
                 {item.label}
                 {item.soon && (
                   <span
-                    className="ml-auto text-[8px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded"
+                    className="ml-auto text-3xs font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded"
                     style={{ background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.35)" }}
                   >
                     Soon
@@ -145,7 +145,7 @@ export function Sidebar() {
 
           {/* Quick actions */}
           <div className="pt-3 pb-1">
-            <p className="px-3 text-[10px] font-semibold uppercase tracking-widest text-white/25 mb-2">
+            <p className="px-3 text-3xs font-semibold uppercase tracking-widest text-white/25 mb-2">
               Quick Start
             </p>
             <Link
@@ -213,7 +213,7 @@ export function Sidebar() {
             />
             <div className="min-w-0 flex-1">
               <p className="text-xs font-medium text-white/80 truncate">{displayName}</p>
-              <p className="text-[10px] text-white/35 truncate">Pro Plan</p>
+              <p className="text-3xs text-white/35 truncate">Pro Plan</p>
             </div>
             <Bell size={13} className="text-white/30 flex-shrink-0" aria-label="Notifications" />
           </div>

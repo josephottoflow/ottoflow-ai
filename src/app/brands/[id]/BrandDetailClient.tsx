@@ -296,7 +296,7 @@ export function BrandDetailClient({
 function StatusPill({ status }: { status: string }) {
   if (status === "ready") {
     return (
-      <Badge variant="success" className="text-[11px] gap-1.5 px-3 py-1">
+      <Badge variant="success" className="text-2xs gap-1.5 px-3 py-1">
         <CheckCircle2 size={11} />
         Ready
       </Badge>
@@ -304,7 +304,7 @@ function StatusPill({ status }: { status: string }) {
   }
   if (status === "researching") {
     return (
-      <Badge variant="info" className="text-[11px] gap-1.5 px-3 py-1">
+      <Badge variant="info" className="text-2xs gap-1.5 px-3 py-1">
         <Loader2 size={11} className="animate-spin" />
         Researching
       </Badge>
@@ -312,14 +312,14 @@ function StatusPill({ status }: { status: string }) {
   }
   if (status === "failed") {
     return (
-      <Badge variant="destructive" className="text-[11px] gap-1.5 px-3 py-1">
+      <Badge variant="destructive" className="text-2xs gap-1.5 px-3 py-1">
         <AlertTriangle size={11} />
         Failed
       </Badge>
     );
   }
   return (
-    <Badge variant="secondary" className="text-[11px] gap-1.5 px-3 py-1">
+    <Badge variant="secondary" className="text-2xs gap-1.5 px-3 py-1">
       <Clock size={11} />
       Pending
     </Badge>
@@ -368,7 +368,7 @@ function LogRow({ log }: { log: ResearchLogEntry }) {
   return (
     <div className="flex items-start gap-2 text-xs">
       <div className={`w-1 h-1 rounded-full ${dot} mt-1.5 flex-shrink-0`} />
-      <span className="text-[10px] text-white/30 font-mono mt-0.5 flex-shrink-0">
+      <span className="text-3xs text-white/30 font-mono mt-0.5 flex-shrink-0">
         {new Date(log.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
       </span>
       <span className={color}>{log.message}</span>
@@ -438,7 +438,7 @@ function FailureCard({
               {retrying ? "Restarting…" : "Retry research"}
             </Button>
             {retryError && (
-              <span className="text-[11px] text-red-400/90">{retryError}</span>
+              <span className="text-2xs text-red-400/90">{retryError}</span>
             )}
           </div>
         </div>
@@ -456,7 +456,7 @@ function ProfileSection({ brand }: { brand: DbBrand }) {
       <p className="text-sm text-white/75 leading-relaxed mb-4">{p.summary}</p>
 
       <div className="rounded-xl p-4 mb-5" style={{ background: "rgba(124,58,237,0.06)", border: "1px solid rgba(124,58,237,0.15)" }}>
-        <p className="text-[10px] uppercase tracking-widest text-violet-300/70 font-semibold mb-1.5">
+        <p className="text-3xs uppercase tracking-widest text-violet-300/70 font-semibold mb-1.5">
           Positioning
         </p>
         <p className="text-sm text-white/85 leading-relaxed italic">
@@ -538,7 +538,7 @@ function ProfileSection({ brand }: { brand: DbBrand }) {
             {p.personas.map((per, i) => (
               <div key={i} className="rounded-lg p-3" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)" }}>
                 <p className="text-sm font-semibold text-white">{per.name}</p>
-                <p className="text-[11px] text-violet-300/80 mb-2">{per.role}</p>
+                <p className="text-2xs text-violet-300/80 mb-2">{per.role}</p>
                 <PillRow label="Goals" items={per.goals} muted />
                 <PillRow label="Pains" items={per.pain_points} muted />
                 <PillRow label="Channels" items={per.channels} muted />
@@ -568,7 +568,7 @@ function CompetitorsSection({ competitors }: { competitors: DbCompetitor[] }) {
             </div>
             {c.summary && <p className="text-xs text-white/60 leading-relaxed mb-2">{c.summary}</p>}
             {c.positioning && (
-              <p className="text-[11px] text-violet-300/70 italic mb-2">&ldquo;{c.positioning}&rdquo;</p>
+              <p className="text-2xs text-violet-300/70 italic mb-2">&ldquo;{c.positioning}&rdquo;</p>
             )}
             {c.strengths.length > 0 && <PillRow label="Strengths" items={c.strengths} muted />}
             {c.weaknesses.length > 0 && <PillRow label="Weaknesses" items={c.weaknesses} muted />}
@@ -585,7 +585,7 @@ function KeywordsSection({ keywords }: { keywords: DbKeyword[] }) {
       <SectionHeader icon={Key} label="Keywords" count={keywords.length} />
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
-          <thead className="text-white/45 text-[10px] uppercase tracking-wider">
+          <thead className="text-white/45 text-3xs uppercase tracking-wider">
             <tr className="border-b border-white/[0.05]">
               <th className="text-left font-semibold py-2 pr-3">Term</th>
               <th className="text-left font-semibold py-2 pr-3">Intent</th>
@@ -636,7 +636,7 @@ function PillarsSection({ pillars }: { pillars: DbContentPillar[] }) {
         {pillars.map((p) => (
           <div key={p.id} className="rounded-lg p-4" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)" }}>
             <div className="flex items-center gap-2 mb-1.5">
-              <Badge variant="purple" className="text-[10px]">P{p.priority}</Badge>
+              <Badge variant="purple" className="text-3xs">P{p.priority}</Badge>
               <p className="text-sm font-semibold text-white">{p.name}</p>
             </div>
             {p.description && <p className="text-xs text-white/60 leading-relaxed mb-2">{p.description}</p>}
@@ -700,12 +700,12 @@ function TopicsSection({
         <div className="flex items-center gap-2">
           <Sparkles size={14} className="text-fuchsia-400" />
           <h2 className="text-sm font-bold text-white">Content Topics</h2>
-          <span className="text-[10px] text-white/40 font-medium">({topics.length})</span>
+          <span className="text-3xs text-white/40 font-medium">({topics.length})</span>
         </div>
         <Button
           size="sm"
           variant="outline"
-          className="gap-1.5 h-7 text-[11px]"
+          className="gap-1.5 h-7 text-2xs"
           onClick={onRegenerate}
           disabled={isRegenerating}
         >
@@ -723,13 +723,13 @@ function TopicsSection({
       </div>
 
       {regenerateError && (
-        <div className="mb-3 rounded-md px-3 py-2 text-[11px] text-rose-300/90 border border-rose-500/20 bg-rose-500/5">
+        <div className="mb-3 rounded-md px-3 py-2 text-2xs text-rose-300/90 border border-rose-500/20 bg-rose-500/5">
           {regenerateError}
         </div>
       )}
 
       {topics.length === 0 && !isRegenerating && (
-        <p className="text-[12px] text-white/40">
+        <p className="text-xs text-white/40">
           No topics generated yet. Click <strong>Generate topics</strong> above
           to produce 40+ on-brand video ideas powered by the brand profile.
         </p>
@@ -741,11 +741,11 @@ function TopicsSection({
             <div className="flex items-center gap-2 mb-2">
               <Badge
                 variant={CATEGORY_BADGE_VARIANT[cat] ?? "purple"}
-                className="text-[10px] uppercase"
+                className="text-3xs uppercase"
               >
                 {CATEGORY_LABEL[cat] ?? cat}
               </Badge>
-              <span className="text-[10px] text-white/40">{list.length}</span>
+              <span className="text-3xs text-white/40">{list.length}</span>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               {list.map((t) => (
@@ -757,16 +757,16 @@ function TopicsSection({
                     border: "1px solid rgba(255,255,255,0.04)",
                   }}
                 >
-                  <p className="text-[13px] font-semibold text-white leading-snug">
+                  <p className="text-sm font-semibold text-white leading-snug">
                     {t.title}
                   </p>
                   {t.hook_angle && (
-                    <p className="text-[11px] text-white/55 mt-1 leading-relaxed italic">
+                    <p className="text-2xs text-white/55 mt-1 leading-relaxed italic">
                       &ldquo;{t.hook_angle}&rdquo;
                     </p>
                   )}
                   {t.description && (
-                    <p className="text-[11px] text-white/45 mt-1 leading-relaxed line-clamp-2">
+                    <p className="text-2xs text-white/45 mt-1 leading-relaxed line-clamp-2">
                       {t.description}
                     </p>
                   )}
@@ -775,13 +775,13 @@ function TopicsSection({
                   <div className="flex items-center gap-3 mt-2 pt-2 border-t border-white/[0.04]">
                     <Link
                       href={`/video/generate?brandId=${brandId}&topicId=${t.id}`}
-                      className="text-[10px] font-semibold text-fuchsia-300 hover:underline"
+                      className="text-3xs font-semibold text-fuchsia-300 hover:underline"
                     >
                       Generate video →
                     </Link>
                     <Link
                       href={`/content/generate?brandId=${brandId}&topicId=${t.id}`}
-                      className="text-[10px] font-semibold text-violet-300 hover:underline"
+                      className="text-3xs font-semibold text-violet-300 hover:underline"
                     >
                       Generate post →
                     </Link>
@@ -812,7 +812,7 @@ function SectionHeader({
       <Icon size={14} className="text-violet-400" />
       <h2 className="text-sm font-bold text-white">{label}</h2>
       {count != null && (
-        <span className="text-[10px] text-white/40 font-medium">({count})</span>
+        <span className="text-3xs text-white/40 font-medium">({count})</span>
       )}
     </div>
   );
@@ -841,12 +841,12 @@ function PillRow({ label, items, muted = false }: { label: string; items: string
   if (items.length === 0) return null;
   return (
     <div className="mb-2">
-      <p className="text-[10px] uppercase tracking-wider text-white/35 mb-1">{label}</p>
+      <p className="text-3xs uppercase tracking-wider text-white/35 mb-1">{label}</p>
       <div className="flex flex-wrap gap-1">
         {items.map((it, i) => (
           <span
             key={i}
-            className={`text-[10px] px-1.5 py-0.5 rounded-md ${
+            className={`text-3xs px-1.5 py-0.5 rounded-md ${
               muted
                 ? "bg-white/[0.04] text-white/55"
                 : "bg-violet-500/10 text-violet-300 border border-violet-500/15"

@@ -92,7 +92,7 @@ export default async function DashboardPage() {
           <div className="flex items-center gap-2 mb-4">
             <Sparkles size={15} className="text-violet-400" />
             <h2 className="text-sm font-bold text-white">Get started in 3 steps</h2>
-            <span className="text-[11px] text-white/35 ml-1">Turn a brand into ready-to-post content</span>
+            <span className="text-2xs text-white/35 ml-1">Turn a brand into ready-to-post content</span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {[
@@ -115,12 +115,12 @@ export default async function DashboardPage() {
                     {step.done
                       ? <CheckCircle2 size={16} className="text-emerald-400" />
                       : <Circle size={16} className="text-white/25" />}
-                    <span className="text-[13px] font-semibold text-white">{step.title}</span>
-                    {step.beta && <Badge variant="info" className="text-[9px] ml-auto">Beta</Badge>}
+                    <span className="text-sm font-semibold text-white">{step.title}</span>
+                    {step.beta && <Badge variant="info" className="text-3xs ml-auto">Beta</Badge>}
                   </div>
-                  <p className="text-[11px] text-white/45 leading-relaxed mb-3 flex-1">{step.desc}</p>
+                  <p className="text-2xs text-white/45 leading-relaxed mb-3 flex-1">{step.desc}</p>
                   {step.done ? (
-                    <span className="text-[11px] text-emerald-400/80 font-medium">Done</span>
+                    <span className="text-2xs text-emerald-400/80 font-medium">Done</span>
                   ) : (
                     <Link href={locked ? "/brands/new" : step.href}>
                       <Button variant={locked ? "outline" : "gradient"} size="sm" className="w-full gap-1.5 text-xs">
@@ -190,11 +190,11 @@ export default async function DashboardPage() {
                   <h3 className="text-sm font-bold text-white">Content Pipeline</h3>
                   <div className="flex items-center gap-1.5 mt-0.5">
                     <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 status-dot-live" />
-                    <span className="text-[10px] text-emerald-400 font-medium">Active · Basic Tier</span>
+                    <span className="text-3xs text-emerald-400 font-medium">Active · Basic Tier</span>
                   </div>
                 </div>
               </div>
-              <Badge variant="purple" className="text-[10px]">Gemini Flash Lite</Badge>
+              <Badge variant="purple" className="text-3xs">Gemini Flash Lite</Badge>
             </div>
 
             <div className="grid grid-cols-3 gap-3 mb-4">
@@ -205,7 +205,7 @@ export default async function DashboardPage() {
               ].map((s) => (
                 <div key={s.label} className="text-center p-2 rounded-lg" style={{ background: "rgba(255,255,255,0.02)" }}>
                   <div className="text-lg font-bold" style={{ color: s.color }}>{s.value}</div>
-                  <div className="text-[10px] text-white/40">{s.label}</div>
+                  <div className="text-3xs text-white/40">{s.label}</div>
                 </div>
               ))}
             </div>
@@ -213,7 +213,7 @@ export default async function DashboardPage() {
             <div className="flex items-center gap-1 mb-4 overflow-x-auto pb-1">
               {["Brief", "Research", "Strategy", "Generate", "Approve", "Publish"].map((step, i, arr) => (
                 <div key={step} className="flex items-center gap-1 flex-shrink-0">
-                  <div className="flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md"
+                  <div className="flex items-center gap-1 text-3xs font-medium px-2 py-1 rounded-md"
                     style={{
                       background: i < 4 ? "rgba(124,58,237,0.12)" : "rgba(255,255,255,0.04)",
                       color: i < 4 ? "#a78bfa" : "rgba(255,255,255,0.3)",
@@ -250,11 +250,11 @@ export default async function DashboardPage() {
                   <h3 className="text-sm font-bold text-white">Video Pipeline</h3>
                   <div className="flex items-center gap-1.5 mt-0.5">
                     <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                    <span className="text-[10px] text-amber-400 font-medium">Beta · render setup</span>
+                    <span className="text-3xs text-amber-400 font-medium">Beta · render setup</span>
                   </div>
                 </div>
               </div>
-              <Badge variant="warning" className="text-[10px]">Beta</Badge>
+              <Badge variant="warning" className="text-3xs">Beta</Badge>
             </div>
 
             <div className="grid grid-cols-3 gap-3 mb-4">
@@ -265,7 +265,7 @@ export default async function DashboardPage() {
               ].map((s) => (
                 <div key={s.label} className="text-center p-2 rounded-lg" style={{ background: "rgba(255,255,255,0.02)" }}>
                   <div className="text-lg font-bold" style={{ color: s.color }}>{s.value}</div>
-                  <div className="text-[10px] text-white/40">{s.label}</div>
+                  <div className="text-3xs text-white/40">{s.label}</div>
                 </div>
               ))}
             </div>
@@ -273,7 +273,7 @@ export default async function DashboardPage() {
             <div className="flex items-center gap-1 mb-4 overflow-x-auto pb-1">
               {["Brief", "Script", "Storyboard", "Clips", "Voice", "Captions", "Export"].map((step, i, arr) => (
                 <div key={step} className="flex items-center gap-1 flex-shrink-0">
-                  <div className="flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md"
+                  <div className="flex items-center gap-1 text-3xs font-medium px-2 py-1 rounded-md"
                     style={{
                       background: i < 5 ? "rgba(6,182,212,0.12)" : "rgba(255,255,255,0.04)",
                       color: i < 5 ? "#67e8f9" : "rgba(255,255,255,0.3)",
@@ -325,17 +325,17 @@ export default async function DashboardPage() {
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-white/80 truncate">{proj.name}</p>
                     <div className="flex items-center gap-3 mt-0.5">
-                      <span className="text-[10px] text-white/35">
+                      <span className="text-3xs text-white/35">
                         {proj.content_count > 0 ? `${proj.content_count} posts` : `${proj.video_count} videos`}
                       </span>
-                      <span className="text-[10px] text-white/25">
+                      <span className="text-3xs text-white/25">
                         {formatRelative(proj.updated_at)}
                       </span>
                     </div>
                   </div>
                   <div className="flex gap-1">
                     {(proj.tags ?? []).slice(0, 2).map((t: string) => (
-                      <span key={t} className="text-[9px] px-1.5 py-0.5 rounded-md font-medium"
+                      <span key={t} className="text-3xs px-1.5 py-0.5 rounded-md font-medium"
                         style={{ background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.35)" }}>
                         {t}
                       </span>
@@ -356,7 +356,7 @@ export default async function DashboardPage() {
             <h2 className="text-sm font-semibold text-white">Activity</h2>
             <div className="flex items-center gap-1.5">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 status-dot-live" />
-              <span className="text-[10px] text-emerald-400">Live</span>
+              <span className="text-3xs text-emerald-400">Live</span>
             </div>
           </div>
           <ActivityFeed items={activity} />
@@ -367,7 +367,7 @@ export default async function DashboardPage() {
           <div className="glass rounded-2xl p-4">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-semibold text-white">Usage</h2>
-              <div className="flex items-center gap-3 text-[10px] text-white/40">
+              <div className="flex items-center gap-3 text-3xs text-white/40">
                 <span className="flex items-center gap-1">
                   <div className="w-2 h-2 rounded-full bg-violet-500" />Content
                 </span>
@@ -382,7 +382,7 @@ export default async function DashboardPage() {
           <div className="glass rounded-2xl p-4">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-semibold text-white">Render Queue</h2>
-              <Badge variant="warning" className="text-[10px]">
+              <Badge variant="warning" className="text-3xs">
                 <Clock size={9} className="mr-1" />
                 {pendingJobs} pending
               </Badge>

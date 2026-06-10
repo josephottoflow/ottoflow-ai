@@ -49,12 +49,12 @@ export function RenderQueue({ jobs, className }: Props) {
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between gap-2 mb-1">
                 <p className="text-xs font-medium text-white/70 truncate">{job.name}</p>
-                <Badge variant={cfg.variant} className="text-[10px] px-1.5 py-0 flex-shrink-0">
+                <Badge variant={cfg.variant} className="text-3xs px-1.5 py-0 flex-shrink-0">
                   <Icon size={9} className={cn("mr-1", cfg.spin && "animate-spin")} />
                   {cfg.label}
                 </Badge>
               </div>
-              <p className="text-[10px] text-white/30 mb-1.5">{job.template}</p>
+              <p className="text-3xs text-white/30 mb-1.5">{job.template}</p>
               {job.status === "rendering" && (
                 <Progress value={job.progress} className="h-1" />
               )}

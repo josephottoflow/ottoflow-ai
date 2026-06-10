@@ -36,7 +36,7 @@ export default function UnauthorizedDomainPage({
           </p>
         )}
 
-        <p className="text-[11px] text-white/35 mb-6">
+        <p className="text-2xs text-white/35 mb-6">
           Allowed: {ALLOWED_EMAIL_DOMAINS.map((d) => `@${d}`).join(", ")}
         </p>
 

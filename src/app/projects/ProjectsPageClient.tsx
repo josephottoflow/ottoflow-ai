@@ -64,7 +64,7 @@ export function ProjectsPageClient({ projects }: Props) {
         <Button variant="gradient" size="sm" className="gap-1.5" disabled title="Project creation arrives with content/video pipelines">
           <Plus size={14} />
           New Project
-          <Badge variant="info" className="text-[9px] ml-1">Soon</Badge>
+          <Badge variant="info" className="text-3xs ml-1">Soon</Badge>
         </Button>
       </div>
 
@@ -85,7 +85,7 @@ export function ProjectsPageClient({ projects }: Props) {
               </div>
               <div>
                 <div className="text-xl font-bold text-white">{s.value}</div>
-                <div className="text-[10px] text-white/40">{s.label}</div>
+                <div className="text-3xs text-white/40">{s.label}</div>
               </div>
             </div>
           );
@@ -110,7 +110,7 @@ export function ProjectsPageClient({ projects }: Props) {
             <button
               key={f}
               onClick={() => setFilter(f)}
-              className="text-[11px] font-medium px-3 py-1.5 rounded-lg capitalize transition-all"
+              className="text-2xs font-medium px-3 py-1.5 rounded-lg capitalize transition-all"
               style={{
                 background: filter === f ? "rgba(124,58,237,0.15)" : "transparent",
                 color: filter === f ? "#a78bfa" : "rgba(255,255,255,0.4)",
@@ -162,7 +162,7 @@ export function ProjectsPageClient({ projects }: Props) {
                         : <FileText size={16} className="text-violet-400" />}
                     </div>
                     <div className="flex items-center gap-2">
-                      <Badge variant={status.variant} className="text-[10px]">{status.label}</Badge>
+                      <Badge variant={status.variant} className="text-3xs">{status.label}</Badge>
                       <button className="text-white/25 hover:text-white/50 transition-colors">
                         <MoreHorizontal size={14} />
                       </button>
@@ -172,7 +172,7 @@ export function ProjectsPageClient({ projects }: Props) {
                   <h3 className="text-sm font-bold text-white mb-1 line-clamp-1">{proj.name}</h3>
                   <div className="flex flex-wrap gap-1 mb-4">
                     {(proj.tags ?? []).map((t: string) => (
-                      <span key={t} className="text-[9px] px-1.5 py-0.5 rounded-md font-medium"
+                      <span key={t} className="text-3xs px-1.5 py-0.5 rounded-md font-medium"
                         style={{ background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.35)" }}>
                         {t}
                       </span>
@@ -200,7 +200,7 @@ export function ProjectsPageClient({ projects }: Props) {
 
                   <div className="flex items-center justify-between pt-3"
                     style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}>
-                    <div className="flex items-center gap-1 text-[10px] text-white/30">
+                    <div className="flex items-center gap-1 text-3xs text-white/30">
                       <Clock size={10} />
                       {formatRelative(proj.updated_at)}
                     </div>
@@ -218,7 +218,7 @@ export function ProjectsPageClient({ projects }: Props) {
               <Plus size={18} className="text-violet-500/60 group-hover:text-violet-400 transition-colors" />
             </div>
             <p className="text-sm font-medium text-white/30 group-hover:text-white/50 transition-colors">New Project</p>
-            <p className="text-[10px] text-white/20 mt-1">Content or Video pipeline</p>
+            <p className="text-3xs text-white/20 mt-1">Content or Video pipeline</p>
           </div>
         </div>
       ) : (
@@ -228,7 +228,7 @@ export function ProjectsPageClient({ projects }: Props) {
             <thead>
               <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
                 {["Name", "Type", "Status", "Content", "Videos", "Credits", "Updated"].map((h) => (
-                  <th key={h} className="text-left py-3 px-4 text-[10px] font-semibold uppercase tracking-wider text-white/30">
+                  <th key={h} className="text-left py-3 px-4 text-3xs font-semibold uppercase tracking-wider text-white/30">
                     {h}
                   </th>
                 ))}
@@ -257,7 +257,7 @@ export function ProjectsPageClient({ projects }: Props) {
                         <span className="text-xs text-white/45 capitalize">{proj.type}</span>
                       </td>
                       <td className="py-3 px-4">
-                        <Badge variant={status.variant} className="text-[10px]">{status.label}</Badge>
+                        <Badge variant={status.variant} className="text-3xs">{status.label}</Badge>
                       </td>
                       <td className="py-3 px-4">
                         <span className="text-xs text-white/45">{proj.content_count}</span>
