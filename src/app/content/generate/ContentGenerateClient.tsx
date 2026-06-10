@@ -256,6 +256,68 @@ export function ContentGenerateClient({
     };
   }, [supabase, generations]);
 
+  // ─── Polling fallback ───────────────────────────────────────────────────────
+  // Realtime UPDATE events for content_generation_jobs / content_items don't
+  // reliably reach the client in this project (the worker completes in ~10s but
+  // the UI can stay on "Generating…"). Poll every 2.5s until every job is
+  // terminal so results always show. Belt-and-suspenders with the Realtime sub.
+  useEffect(() => {
+    if (!supabase || generations.length === 0) return;
+    let stopped = false;
+    const jobIds = generations.map((g) => g.contentJobId);
+    const itemIds = generations.map((g) => g.contentItemId);
+
+    const poll = async () => {
+      if (stopped) return;
+      const [{ data: jobRows }, { data: itemRows }] = await Promise.all([
+        supabase
+          .from("content_generation_jobs")
+          .select("id, status, current_step, progress, error_message")
+          .in("id", jobIds),
+        supabase
+          .from("content_items")
+          .select("id, title, preview, body, platform, engagement")
+          .in("id", itemIds),
+      ]);
+      if (stopped) return;
+      if (jobRows) {
+        setJobs((m) => {
+          const n = { ...m };
+          for (const r of jobRows) n[(r as JobRow).id] = r as JobRow;
+          return n;
+        });
+      }
+      if (itemRows) {
+        setItems((m) => {
+          const n = { ...m };
+          for (const r of itemRows) n[(r as ContentItemRow).id] = r as ContentItemRow;
+          return n;
+        });
+      }
+      const allTerminal =
+        !!jobRows &&
+        jobRows.length === generations.length &&
+        jobRows.every((r) => {
+          const s = (r as JobRow).status;
+          return s === "done" || s === "failed";
+        });
+      if (allTerminal) {
+        clearInterval(interval);
+        clearTimeout(safety);
+      }
+    };
+
+    void poll(); // immediate first poll
+    const interval = setInterval(poll, 2500);
+    const safety = setTimeout(() => clearInterval(interval), 180_000); // give up after 3m
+
+    return () => {
+      stopped = true;
+      clearInterval(interval);
+      clearTimeout(safety);
+    };
+  }, [supabase, generations]);
+
   const handleGenerateAnother = () => {
     setGenerations([]);
     setJobs({});
