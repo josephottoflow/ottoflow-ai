@@ -174,11 +174,24 @@ function buildAudioChain(
   // Music linear gain from dB (fallback static volume in case sidechain
   // misbehaves — sidechaincompress overrides this dynamically).
   const musicLinear = Math.pow(10, duckingDb / 20);
+  // CRITICAL: normalize BOTH audio streams to an identical format
+  // (44.1kHz / fltp / stereo) before sidechaincompress + amix. ElevenLabs
+  // narration and Jamendo music MP3s arrive at different sample rates;
+  // sidechaincompress (and amix) error out when their inputs don't match.
+  // Some ffmpeg builds auto-insert aresample, others (the nixpacks Linux
+  // build on Railway) do NOT — which failed prod with `code=234` on the
+  // music input while passing locally. Explicit aformat makes the graph
+  // deterministic across builds.
+  //
+  // No looping: Jamendo tracks are full songs (minutes), always longer than
+  // a 30-60s video, so `amix=duration=first` already trims to the narration.
+  // The old `aloop=loop=-1:size=2e+09` allocated a multi-GB buffer for no
+  // benefit and risked OOM on the memory-capped worker.
+  const norm = "aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo";
   return {
     filter: [
-      `[${narrationInputIdx}:a]volume=1.0,asplit=2[narr_main][narr_key]`,
-      // Loop music indefinitely (aloop) then duck via sidechaincompress keyed on narration.
-      `[${musicInputIdx}:a]aloop=loop=-1:size=2e+09,volume=${musicLinear.toFixed(3)}[mus]`,
+      `[${narrationInputIdx}:a]${norm},volume=1.0,asplit=2[narr_main][narr_key]`,
+      `[${musicInputIdx}:a]${norm},volume=${musicLinear.toFixed(3)}[mus]`,
       `[mus][narr_key]sidechaincompress=threshold=0.05:ratio=8:attack=20:release=250[ducked]`,
       `[narr_main][ducked]amix=inputs=2:duration=first:dropout_transition=0[aout]`,
     ].join(";"),
