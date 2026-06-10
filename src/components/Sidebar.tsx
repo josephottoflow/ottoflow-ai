@@ -20,12 +20,19 @@ import {
   Briefcase,
 } from "lucide-react";
 
-const navItems = [
+const navItems: {
+  label: string;
+  href: string;
+  icon: typeof LayoutDashboard;
+  soon?: boolean;
+}[] = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
   { label: "Brands", href: "/brands", icon: Briefcase },
   { label: "Content Pipeline", href: "/content", icon: FileText },
   { label: "Video Pipeline", href: "/video", icon: Video },
-  { label: "Projects", href: "/projects", icon: FolderOpen },
+  // Projects isn't built yet (the page is an empty "New Project · Soon" stub) —
+  // flag it so users don't hit a dead end expecting a working feature.
+  { label: "Projects", href: "/projects", icon: FolderOpen, soon: true },
   { label: "Analytics", href: "/analytics", icon: BarChart3 },
 ];
 
@@ -77,7 +84,15 @@ export function Sidebar() {
             >
               <Icon size={15} />
               {item.label}
-              {active && <ChevronRight size={12} className="ml-auto opacity-50" />}
+              {item.soon && (
+                <span
+                  className="ml-auto text-[8px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded"
+                  style={{ background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.35)" }}
+                >
+                  Soon
+                </span>
+              )}
+              {active && !item.soon && <ChevronRight size={12} className="ml-auto opacity-50" />}
             </Link>
           );
         })}

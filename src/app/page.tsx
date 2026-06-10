@@ -6,31 +6,45 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatRelative, formatNumber } from "@/lib/utils";
 import { getKPISummary, getProjects, getActivity, getRenderJobs, getAnalyticsData } from "@/lib/db";
+import { listBrands } from "@/lib/db-brands";
 import {
   FileText,
   Video,
   Zap,
-  Plus,
   ArrowRight,
   FolderOpen,
   BarChart3,
   Clock,
+  Sparkles,
+  CheckCircle2,
+  Circle,
+  Briefcase,
 } from "lucide-react";
 import Link from "next/link";
 
 export const revalidate = 30; // ISR: refresh every 30 s
 
 export default async function DashboardPage() {
-  const [kpis, projects, activity, renderJobs, chartData] = await Promise.all([
+  const [kpis, projects, activity, renderJobs, chartData, brands] = await Promise.all([
     getKPISummary(),
     getProjects(),
     getActivity(6),
     getRenderJobs(undefined, 4),
     getAnalyticsData(14),
+    listBrands(),
   ]);
 
   const activeProjects = projects.filter((p) => p.status === "active");
   const pendingJobs = renderJobs.filter((j) => j.status !== "done").length;
+
+  // ─── First-run onboarding state ─────────────────────────────────────────────
+  // Guide brand-new users through the core loop (research → idea → post). We
+  // hide the checklist once they've completed it (a brand + at least one
+  // generated output) so it doesn't nag established users.
+  const hasBrand = brands.some((b) => b.status === "ready" && !!b.profile);
+  const hasPost = kpis.totalContent > 0;
+  const hasVideo = kpis.totalVideos > 0; // real, merged videos only
+  const showOnboarding = !hasBrand || (!hasPost && !hasVideo);
 
   return (
     <div className="p-6 max-w-[1400px] mx-auto">
@@ -59,14 +73,67 @@ export default async function DashboardPage() {
               Reports
             </Button>
           </Link>
-          <Link href="/projects">
+          {/* Lead with the action that actually delivers today — post
+              generation. (Video render is in beta; "New Project" was a dead
+              "Soon" stub.) */}
+          <Link href="/content/generate">
             <Button variant="gradient" size="sm" className="gap-1.5">
-              <Plus size={14} />
-              New Project
+              <Sparkles size={14} />
+              Generate Post
             </Button>
           </Link>
         </div>
       </div>
+
+      {/* First-run onboarding — guides new users through the core loop.
+          Hidden once they have a brand + at least one generated output. */}
+      {showOnboarding && (
+        <div className="glass rounded-2xl p-5 mb-6" style={{ border: "1px solid rgba(124,58,237,0.18)" }}>
+          <div className="flex items-center gap-2 mb-4">
+            <Sparkles size={15} className="text-violet-400" />
+            <h2 className="text-sm font-bold text-white">Get started in 3 steps</h2>
+            <span className="text-[11px] text-white/35 ml-1">Turn a brand into ready-to-post content</span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {[
+              { done: hasBrand, title: "Research a brand", desc: "AI learns its voice, audience & positioning.", href: "/brands/new", cta: "Research a brand", icon: Briefcase, beta: false, needsBrand: false },
+              { done: hasPost, title: "Generate a post", desc: "Turn a brand idea into an on-brand social post.", href: "/content/generate", cta: "Generate a post", icon: FileText, beta: false, needsBrand: true },
+              { done: hasVideo, title: "Generate a video", desc: "Script → footage → captions → MP4.", href: "/video/generate", cta: "Try video", icon: Video, beta: true, needsBrand: true },
+            ].map((step, i) => {
+              const StepIcon = step.icon;
+              const locked = step.needsBrand && !hasBrand;
+              return (
+                <div
+                  key={i}
+                  className="rounded-xl p-4 flex flex-col"
+                  style={{
+                    background: step.done ? "rgba(16,185,129,0.06)" : "rgba(255,255,255,0.02)",
+                    border: step.done ? "1px solid rgba(16,185,129,0.18)" : "1px solid rgba(255,255,255,0.06)",
+                  }}
+                >
+                  <div className="flex items-center gap-2 mb-1.5">
+                    {step.done
+                      ? <CheckCircle2 size={16} className="text-emerald-400" />
+                      : <Circle size={16} className="text-white/25" />}
+                    <span className="text-[13px] font-semibold text-white">{step.title}</span>
+                    {step.beta && <Badge variant="info" className="text-[9px] ml-auto">Beta</Badge>}
+                  </div>
+                  <p className="text-[11px] text-white/45 leading-relaxed mb-3 flex-1">{step.desc}</p>
+                  {step.done ? (
+                    <span className="text-[11px] text-emerald-400/80 font-medium">Done</span>
+                  ) : (
+                    <Link href={locked ? "/brands/new" : step.href}>
+                      <Button variant={locked ? "outline" : "gradient"} size="sm" className="w-full gap-1.5 text-xs">
+                        <StepIcon size={12} /> {locked ? "Research a brand first" : step.cta}
+                      </Button>
+                    </Link>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* KPI Grid */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
@@ -182,12 +249,12 @@ export default async function DashboardPage() {
                 <div>
                   <h3 className="text-sm font-bold text-white">Video Pipeline</h3>
                   <div className="flex items-center gap-1.5 mt-0.5">
-                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 status-dot-live" />
-                    <span className="text-[10px] text-emerald-400 font-medium">Active · Advanced Tier</span>
+                    <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                    <span className="text-[10px] text-amber-400 font-medium">Beta · render setup</span>
                   </div>
                 </div>
               </div>
-              <Badge variant="info" className="text-[10px]">Higgsfield + Veo 3</Badge>
+              <Badge variant="warning" className="text-[10px]">Beta</Badge>
             </div>
 
             <div className="grid grid-cols-3 gap-3 mb-4">

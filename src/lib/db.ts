@@ -273,10 +273,14 @@ export async function getKPISummary(): Promise<KPISummary> {
     const [contentRes, videoRes, projectRes, publishedRes, queueRes] =
       await Promise.all([
         sb.from("content_items").select("id", { count: "exact", head: true }),
+        // "Videos Rendered" = jobs that produced a REAL downloadable video.
+        // status="done" is set after the (cheap) planning phase even when the
+        // async worker render later fails, so it over-counts. merged_video_url
+        // is only set on a successful compose + upload — the honest signal.
         sb
           .from("render_jobs")
           .select("id", { count: "exact", head: true })
-          .eq("status", "done"),
+          .not("merged_video_url", "is", null),
         sb
           .from("projects")
           .select("id", { count: "exact", head: true })
@@ -335,10 +339,12 @@ export async function getAnalyticsData(days = 14): Promise<ChartPoint[]> {
       .from("content_items")
       .select("created_at")
       .gte("created_at", sinceIso),
+    // Count only jobs that produced a real video (merged_video_url set), not
+    // planning-completions — keeps the chart honest. See getKPISummary.
     sb
       .from("render_jobs")
-      .select("completed_at,status")
-      .eq("status", "done")
+      .select("completed_at")
+      .not("merged_video_url", "is", null)
       .gte("completed_at", sinceIso),
   ]);
 
