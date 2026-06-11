@@ -104,11 +104,11 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
  * Wrap a Gemini call with timeout + bounded retry on transient errors.
  * Returns on first success. Propagates the last error if all attempts fail.
  */
-async function callGemini<T>(label: string, fn: () => Promise<T>): Promise<T> {
+async function callGemini<T>(label: string, fn: (attempt: number) => Promise<T>): Promise<T> {
   let lastErr: unknown;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
-      return await withTimeout(fn(), TIMEOUT_MS, label);
+      return await withTimeout(fn(attempt), TIMEOUT_MS, label);
     } catch (err) {
       lastErr = err;
       const retryable = isRetryable(err);
@@ -338,9 +338,13 @@ ${schemaToHint(opts.schema)}`
     ? `${baseSystem} Always respond with a single JSON object matching the schema provided in the user message. Do not include explanations or code fences.`
     : `${baseSystem} Always return strictly valid JSON matching the requested schema.`;
 
-  const { seed, temperature } = entropy();
-  const resp = await callGemini(opts.label ?? "generateStructured", () =>
-    ai().models.generateContent({
+  const resp = await callGemini(opts.label ?? "generateStructured", (attempt) => {
+    // Phase 1A — temperature + seed jittered per-call (see entropy() above).
+    // Phase 1B (P1.5) — each retry draws a FRESH seed and bumps temperature
+    // +0.1 per attempt, so a retry explores instead of re-rolling the same
+    // flaky answer.
+    const { seed, temperature } = entropy();
+    return ai().models.generateContent({
       model: MODEL,
       contents: promptWithSchemaHint,
       config: {
@@ -349,12 +353,11 @@ ${schemaToHint(opts.schema)}`
         ...(usingTools
           ? { tools: opts.tools }
           : { responseMimeType: "application/json", responseSchema: opts.schema }),
-        // Phase 1A — temperature + seed jittered per-call (see entropy() above).
-        temperature,
+        temperature: Math.min(temperature + 0.1 * attempt, 1.0),
         seed,
       },
-    })
-  );
+    });
+  });
 
   const text = resp.text;
   if (!text) throw new Error("Gemini returned empty response");
@@ -689,12 +692,38 @@ const videoScriptSchema: Schema = {
   },
 } as Schema;
 
+// Phase 1B — VIDEO_VARIATION_AUDIT §P1.7. Without enforced rotation, Gemini
+// collapses to the same hook structure on every run (residual Jaccard ~0.5 on
+// hooks after Phase 1A — see PHASE_1A_VARIATION_REPORT). One archetype is
+// drawn per script so the opening pattern varies across generations.
+const HOOK_ARCHETYPES = [
+  'negative-charge question ("Why does everyone…")',
+  'outrageous claim ("Most X people don\'t know…")',
+  'specific-number stat ("73% of … never realize…")',
+  'pattern-interrupt scenario ("Picture this:…")',
+  'first-person confession ("I used to think… until…")',
+] as const;
+
+const CTA_ARCHETYPES = [
+  "link-in-bio direct ask",
+  "DM / comment-the-keyword prompt",
+  "scarcity or time pressure",
+  "social proof (\"join the X others who…\")",
+  "curiosity gap (tease what they'll find out)",
+] as const;
+
+function pick<T>(pool: readonly T[]): T {
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
 export async function generateVideoScript(input: {
   prompt: string;
   style: string;
   musicVibe: string;
   targetSeconds: number;
 }): Promise<VideoScript> {
+  const hookArchetype = pick(HOOK_ARCHETYPES);
+  const ctaArchetype = pick(CTA_ARCHETYPES);
   const prompt = `
 Write a tight, scroll-stopping narration for a ${input.targetSeconds}-second
 short-form ad video based on this brief.
@@ -704,11 +733,13 @@ STYLE: ${input.style}
 MUSIC VIBE: ${input.musicVibe}
 
 REQUIREMENTS:
-- hook: the first 3-5 seconds — a question, bold claim, or pattern interrupt.
+- hook: the first 3-5 seconds. Use this archetype: ${hookArchetype}.
+  Adapt it naturally to the brief — do not copy the example wording.
   No "Hey guys" or "Did you know" cliches.
 - body: the main message. 60-90 words. Specific, concrete. Should fit the
   remaining time after the hook.
-- cta: a single closing line that drives action. ~10-15 words.
+- cta: a single closing line that drives action. ~10-15 words. Use this
+  CTA archetype: ${ctaArchetype} — adapted to fit the brief.
 - estimatedDurationSec: your honest estimate of total spoken duration
 - voiceDirection: a short hint for TTS — energy, pace, gender-neutral tone
 
@@ -837,11 +868,31 @@ backlight from the left, hand reaching in from frame-right" is a shot.${industry
  * Throws if Imagen 3 isn't enabled on the API key. Caller should treat
  * this as best-effort and continue without it on failure.
  */
+// Phase 1B — VIDEO_VARIATION_AUDIT §P1.8. The old hard-coded "cinematic
+// composition, professional commercial photography" suffix gave every hero
+// frame the same magazine-stock aesthetic regardless of chosen style. A
+// rotated lens + lighting pair lets `style` carry the visual direction.
+const LENS_POOL = [
+  "35mm film",
+  "anamorphic widescreen",
+  "iPhone Pro vertical",
+  "Hasselblad medium format",
+  "Super 16mm grain",
+] as const;
+
+const LIGHT_POOL = [
+  "golden hour backlight",
+  "neon nightscape",
+  "soft window light",
+  "harsh midday sun",
+  "moody chiaroscuro",
+] as const;
+
 export async function generateHeroFrame(input: {
   prompt: string;
   style: string;
 }): Promise<string> {
-  const imagePrompt = `${input.style} style, ${input.prompt}, cinematic composition, professional commercial photography, high detail`;
+  const imagePrompt = `${input.style} style, ${input.prompt}, shot on ${pick(LENS_POOL)}, ${pick(LIGHT_POOL)}`;
 
   // Model name caveat: the Gemini v1beta API has shuffled Imagen names a
   // few times. `imagen-3.0-generate-002` returned 404 in production for our

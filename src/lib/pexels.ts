@@ -227,6 +227,23 @@ function extractKeywords(text: string): string[] {
  * still run as fallbacks so legacy callers without brand context aren't
  * affected.
  */
+// Phase 1B — VIDEO_VARIATION_AUDIT §P1.3. Fisher-Yates copy-shuffle; used to
+// rotate domain-override query order and to pick among the top relevance hits
+// instead of always taking the first.
+function shuffled<T>(arr: readonly T[]): T[] {
+  const out = [...arr];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+function pickTop<T>(arr: readonly T[], topN = 3): T | undefined {
+  if (arr.length === 0) return undefined;
+  return arr[Math.floor(Math.random() * Math.min(topN, arr.length))];
+}
+
 function buildQueries(
   prompt: string,
   hook?: string,
@@ -267,10 +284,13 @@ function buildQueries(
     }
   }
 
-  // 1. Domain overrides (hand-tuned regex hits — middle layer)
+  // 1. Domain overrides (hand-tuned regex hits — middle layer).
+  // Phase 1B (P1.3) — shuffled so the same domain doesn't always lead with
+  // the same query (first-hit selection made every video in a domain open
+  // on the identical stock clip).
   for (const { pattern, queries: q } of TOPIC_OVERRIDES) {
     if (pattern.test(prompt)) {
-      queries.push(...q);
+      queries.push(...shuffled(q));
       break; // one domain match is enough
     }
   }
@@ -429,7 +449,8 @@ export async function findStockPhotoByPrompt(input: {
       });
       if (!res.ok) continue;
       const data = (await res.json()) as PexelsPhotoSearchResp;
-      const photo = data.photos?.[0];
+      // Phase 1B (P1.3) — random among top 3, not always the first hit.
+      const photo = pickTop(data.photos ?? []);
       if (!photo) continue;
       return {
         id: photo.id,
@@ -487,8 +508,11 @@ export async function findStockVideoByPrompt(
         const usable = filterUsable(videos);
         if (usable.length === 0) continue;
 
-        // Pick the first usable hit — Pexels orders by relevance.
-        const video = usable[0];
+        // Phase 1B (P1.3) — Pexels orders by relevance, but always taking
+        // the first hit meant identical topic → identical clip. Random
+        // among the top 3 keeps relevance while breaking determinism.
+        const video = pickTop(usable);
+        if (!video) continue;
         const file = pickBestFile(video, orientation === "portrait");
         if (!file) continue;
 
