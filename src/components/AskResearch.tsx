@@ -8,7 +8,8 @@
  * by design (no conversation persistence in 2A) — each question stands alone.
  */
 import { useRef, useState } from "react";
-import { Loader2, Search, ChevronDown, ChevronUp, ExternalLink, BookOpenText } from "lucide-react";
+import Link from "next/link";
+import { Loader2, Search, ChevronDown, ChevronUp, ExternalLink, BookOpenText, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
@@ -201,6 +202,13 @@ export function AskResearch({ brandId, brandReady }: { brandId: string; brandRea
       <div className="flex items-center gap-2 mb-1">
         <BookOpenText size={16} className="text-violet-400" />
         <h2 className="text-base font-semibold text-white">Ask the research</h2>
+        <Link
+          href={`/brands/${brandId}/research`}
+          className="ml-auto inline-flex items-center gap-1 text-2xs text-white/45 hover:text-white/75 transition-colors"
+        >
+          Browse evidence
+          <ArrowRight size={11} />
+        </Link>
       </div>
       <p className="text-xs text-white/40 mb-4">
         Answers come only from this brand&apos;s stored research evidence — every claim is cited.

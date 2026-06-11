@@ -19,6 +19,8 @@ import type {
   DbCompetitor,
   DbKeyword,
   DbContentPillar,
+  DbResearchDocument,
+  DbResearchRun,
 } from "./types";
 
 async function safe<T>(label: string, fn: () => Promise<T>, fallback: T): Promise<T> {
@@ -140,5 +142,139 @@ export async function getBrandTopics(
     }
     const { data } = await q;
     return data ?? [];
+  }, []);
+}
+
+// ─── Research Workspace (V2 Phase 2B) ────────────────────────────────────────
+// Read-only views over the evidence layer (migrations 010/011). All RLS-scoped
+// via the Clerk-authenticated client — no admin client, no ownership checks.
+
+/** Evidence list row — everything except the heavy columns (content, embedding). */
+export type EvidenceListRow = Pick<
+  DbResearchDocument,
+  | "id"
+  | "source_id"
+  | "source_type"
+  | "url"
+  | "domain"
+  | "title"
+  | "summary"
+  | "entities"
+  | "keywords"
+  | "chunk_index"
+  | "captured_at"
+  | "run_id"
+>;
+
+export async function getBrandEvidence(brandId: string): Promise<EvidenceListRow[]> {
+  return safe("getBrandEvidence", async () => {
+    const sb = await createServerSupabaseClient();
+    const { data, error } = await sb
+      .from("research_documents")
+      .select(
+        "id, source_id, source_type, url, domain, title, summary, entities, keywords, chunk_index, captured_at, run_id",
+      )
+      .eq("brand_id", brandId)
+      .eq("deleted_by_user", false)
+      .order("captured_at", { ascending: false })
+      .limit(800);
+    if (error) {
+      console.error("[db-brands] getBrandEvidence:", error.message);
+      return [];
+    }
+    return (data ?? []) as EvidenceListRow[];
+  }, []);
+}
+
+export async function getBrandResearchRuns(brandId: string): Promise<DbResearchRun[]> {
+  return safe("getBrandResearchRuns", async () => {
+    const sb = await createServerSupabaseClient();
+    const { data, error } = await sb
+      .from("research_runs")
+      .select("*")
+      .eq("brand_id", brandId)
+      .order("started_at", { ascending: false })
+      .limit(50);
+    if (error) {
+      console.error("[db-brands] getBrandResearchRuns:", error.message);
+      return [];
+    }
+    return (data ?? []) as DbResearchRun[];
+  }, []);
+}
+
+/** Artifact stubs for the Grounding Inspector — id, label, and grounded_on only. */
+export interface GroundedArtifact {
+  id: string;
+  kind: "idea" | "post" | "video";
+  label: string;
+  sublabel: string | null;
+  status: string | null;
+  grounded_on: string[];
+  created_at: string;
+}
+
+export async function getBrandGroundedArtifacts(
+  brandId: string,
+): Promise<GroundedArtifact[]> {
+  return safe("getBrandGroundedArtifacts", async () => {
+    const sb = await createServerSupabaseClient();
+    const [topicsRes, postsRes, videosRes] = await Promise.all([
+      sb
+        .from("brand_topics")
+        .select("id, title, category, status, grounded_on, created_at")
+        .eq("brand_id", brandId)
+        .neq("status", "archived")
+        .order("created_at", { ascending: false })
+        .limit(80),
+      sb
+        .from("content_items")
+        .select("id, title, platform, status, grounded_on, created_at")
+        .eq("brand_id", brandId)
+        .order("created_at", { ascending: false })
+        .limit(60),
+      sb
+        .from("render_jobs")
+        .select("id, name, status, grounded_on, created_at")
+        .eq("brand_id", brandId)
+        .order("created_at", { ascending: false })
+        .limit(40),
+    ]);
+
+    const out: GroundedArtifact[] = [];
+    for (const t of topicsRes.data ?? []) {
+      out.push({
+        id: t.id as string,
+        kind: "idea",
+        label: t.title as string,
+        sublabel: (t.category as string | null) ?? null,
+        status: (t.status as string | null) ?? null,
+        grounded_on: (t.grounded_on as string[] | null) ?? [],
+        created_at: t.created_at as string,
+      });
+    }
+    for (const c of postsRes.data ?? []) {
+      out.push({
+        id: c.id as string,
+        kind: "post",
+        label: c.title as string,
+        sublabel: (c.platform as string | null) ?? null,
+        status: (c.status as string | null) ?? null,
+        grounded_on: (c.grounded_on as string[] | null) ?? [],
+        created_at: c.created_at as string,
+      });
+    }
+    for (const v of videosRes.data ?? []) {
+      out.push({
+        id: v.id as string,
+        kind: "video",
+        label: v.name as string,
+        sublabel: null,
+        status: (v.status as string | null) ?? null,
+        grounded_on: (v.grounded_on as string[] | null) ?? [],
+        created_at: v.created_at as string,
+      });
+    }
+    return out;
   }, []);
 }
