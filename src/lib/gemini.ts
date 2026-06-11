@@ -783,6 +783,13 @@ HARD RULES:
 - category: one of educational | storytelling | ugc | product-demo |
   listicle | problem-solution | founder-story
 - title ≤70 chars, creator-usable. hook_angle <20 words, scroll-stopping.
+- TITLE VARIETY (hard rule): use the brand name in AT MOST 3 titles total,
+  and never start two titles with the same word. Vary structures: questions,
+  bold claims, "vs" framings, numbers, second-person.
+- LENS DIVERSITY: cover as many of the four lenses as the evidence honestly
+  supports — if pain points or trends ARE present in the evidence, include
+  at least one of each. Never force a lens the evidence doesn't support,
+  and never relabel a competitor_gap as something else to fake variety.
 - AVOID duplicating these existing topics: ${
     input.existingTopicTitles.slice(0, 40).join(" | ") || "(none)"
   }
@@ -796,6 +803,86 @@ HARD RULES:
     label: "mineOpportunities",
     systemInstruction:
       "You are a content strategist who works ONLY from evidence. Every opportunity you surface is grounded in the supplied research, cited precisely, and explained plainly. You never pad the list with generic ideas.",
+  });
+}
+
+/**
+ * Batch enrichment (Hardening v1, P1) — one structured call enriches ALL of a
+ * run's search-claim sources (each is short), instead of per-source calls.
+ * Items are addressed by [n]; the caller maps n back to stored row ids.
+ */
+export interface BatchEnrichmentItem {
+  n: number;
+  domain: string | null;
+  title: string | null;
+  content: string;
+}
+
+const evidenceEnrichmentBatchSchema: Schema = {
+  type: Type.OBJECT,
+  required: ["enrichments"],
+  properties: {
+    enrichments: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        required: ["n", "summary", "entities", "keywords"],
+        properties: {
+          n: { type: Type.INTEGER },
+          summary: { type: Type.STRING },
+          entities: {
+            type: Type.OBJECT,
+            required: ["organizations", "people", "products", "locations"],
+            properties: {
+              organizations: stringArray,
+              people: stringArray,
+              products: stringArray,
+              locations: stringArray,
+            },
+          },
+          keywords: stringArray,
+        },
+      },
+    },
+  },
+} as Schema;
+
+export async function extractEvidenceEnrichmentBatch(
+  items: BatchEnrichmentItem[],
+): Promise<{
+  data: { enrichments: Array<EvidenceEnrichment & { n: number }> };
+  meta: GenerationMeta;
+}> {
+  const block = items
+    .slice(0, 40)
+    .map(
+      (it) =>
+        `[${it.n}] (${it.domain ?? "unknown"}${it.title ? ` · "${it.title}"` : ""})\n${it.content.slice(0, 800)}`,
+    )
+    .join("\n\n");
+
+  const prompt = `
+Catalogue these research evidence items. For EACH item [n] produce:
+- summary: ONE sentence — what this evidence claims, as an internal research
+  note (not marketing copy).
+- entities: proper nouns actually present in that item's text (empty arrays
+  are fine — never invent).
+- keywords: 3-6 short topical keywords/phrases the item is evidence for.
+
+ITEMS:
+${block}
+
+Return one enrichment per item, same [n] numbering, no items skipped.
+`.trim();
+
+  return generateStructuredFull<{
+    enrichments: Array<EvidenceEnrichment & { n: number }>;
+  }>({
+    prompt,
+    schema: evidenceEnrichmentBatchSchema,
+    label: "extractEvidenceEnrichmentBatch",
+    systemInstruction:
+      "You are a research librarian cataloguing evidence. Be precise and literal — extract only what is present in each item.",
   });
 }
 

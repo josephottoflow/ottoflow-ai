@@ -17,11 +17,13 @@ import {
   generateSEOBundleFull,
   generateBrandTopicsFull,
   extractEvidenceEnrichment,
+  extractEvidenceEnrichmentBatch,
   type GenerationMeta,
 } from "@/lib/gemini";
 import {
   storeEvidence,
   fetchPageText,
+  sanitizeGroundedClaim,
   type EvidenceInput,
   type StoredSourceRef,
 } from "@/lib/evidence";
@@ -271,19 +273,34 @@ export async function processBrandResearch(
     });
     addUsage(compMeta);
 
-    // Persist the Google Search grounding sources — which results backed the
-    // competitor analysis, with the supported text segments as snippets.
-    const searchSources: EvidenceInput[] = compMeta.sources
-      .filter((s) => s.sourceType === "search_result")
-      .map((s) => ({
-        sourceType: "search_result" as const,
+    // Persist the Google Search grounding sources. Hardening v1 (P0): the
+    // "snippet" is a slice of the model's own JSON output — sanitize it into
+    // readable claim text and DROP sources with no usable claim. Stored rows
+    // are labeled kind='grounded_claim' (a claim this source backed), never
+    // presented as raw source text.
+    const rawSearchSources = compMeta.sources.filter(
+      (s) => s.sourceType === "search_result",
+    );
+    const searchSources: EvidenceInput[] = [];
+    let droppedSearchSources = 0;
+    for (const s of rawSearchSources) {
+      const claim = s.snippet ? sanitizeGroundedClaim(s.snippet) : null;
+      if (!claim) {
+        droppedSearchSources++;
+        continue; // consulted, but no usable grounded claim — not evidence
+      }
+      searchSources.push({
+        sourceType: "search_result",
         url: s.url,
         title: s.title ?? null,
-        content:
-          s.snippet ??
-          `Google Search source consulted for competitor research: ${s.title ?? s.url}`,
-        metadata: { groundedCall: "findCompetitors", redirectUrl: true },
-      }));
+        content: claim,
+        metadata: {
+          groundedCall: "findCompetitors",
+          kind: "grounded_claim",
+          redirectUrl: true,
+        },
+      });
+    }
     if (searchSources.length > 0) {
       const stored = await storeEvidence(admin, {
         brandId,
@@ -292,6 +309,42 @@ export async function processBrandResearch(
       });
       searchDocIds.push(...stored.documentIds);
       addStore(stored);
+
+      // Hardening v1 (P1) — enrich ALL stored search claims in ONE batched
+      // call (sources align with searchSources by index). Best-effort.
+      try {
+        const items = stored.sources
+          .map((ref, i) => ({
+            ref,
+            item: {
+              n: i + 1,
+              domain: null as string | null,
+              title: searchSources[i]?.title ?? null,
+              content: searchSources[i]?.content ?? "",
+            },
+          }))
+          .filter((x) => x.ref.documentIds.length > 0 && x.item.content);
+        if (items.length > 0) {
+          const { data: batch, meta: enrichMeta } =
+            await extractEvidenceEnrichmentBatch(items.map((x) => x.item));
+          addUsage(enrichMeta);
+          const byN = new Map(batch.enrichments.map((e) => [e.n, e]));
+          for (const { ref, item } of items) {
+            const enr = byN.get(item.n);
+            if (!enr) continue;
+            await admin
+              .from("research_documents")
+              .update({
+                summary: enr.summary,
+                entities: enr.entities,
+                keywords: (enr.keywords ?? []).slice(0, 8),
+              })
+              .in("id", ref.documentIds);
+          }
+        }
+      } catch {
+        // enrichment is backfillable — never fails the run
+      }
     }
 
     if (competitors.length > 0) {
@@ -308,7 +361,7 @@ export async function processBrandResearch(
     }
     await finishStep(
       STEPS.finding_competitors,
-      `Found ${competitors.length} competitors (${searchSources.length} search sources persisted)`,
+      `Found ${competitors.length} competitors (${searchSources.length} grounded claims persisted, ${droppedSearchSources} unusable snippets dropped)`,
     );
 
     // ─── Step 4: SEO + content pillars ──────────────────────────────────────

@@ -178,6 +178,35 @@ export async function fetchPageText(
   }
 }
 
+// ─── Grounded-claim sanitation (Production Hardening v1, P0) ─────────────────
+// Google Search grounding "snippets" are groundingSupports.segment.text —
+// slices of the MODEL'S OWN structured-output JSON, not source text. The
+// first production corpus showed 24% of stored chunks were raw JSON shards
+// (`", "strengths": [` …). This cleaner turns a segment into readable claim
+// text or rejects it outright; rejected sources are NOT stored as evidence.
+
+export function sanitizeGroundedClaim(raw: string): string | null {
+  let t = raw
+    .replace(/[“”]/g, '"')
+    // JSON key labels → drop
+    .replace(/"[a-z_]{2,30}"\s*:\s*/gi, " ")
+    // array element boundaries → sentence breaks
+    .replace(/",\s*"/g, ". ")
+    // structural characters → space
+    .replace(/[{}[\]]/g, " ")
+    .replace(/"/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/\s+([.,;:])/g, "$1")
+    .trim()
+    // leading/trailing punctuation debris
+    .replace(/^[\s.,;:]+|[\s,;:]+$/g, "");
+
+  if (t.length < 80) return null; // too short to be evidence
+  const alnum = (t.match(/[a-z0-9]/gi) ?? []).length;
+  if (alnum / t.length < 0.7) return null; // punctuation-dominated shard
+  return t.slice(0, 1500);
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 export function domainOf(url: string | null | undefined): string | null {

@@ -11,11 +11,15 @@
  *   2. Evidence digests: first chunk per source (summary preferred), ≤50
  *   3. mineOpportunities (4 lenses, strict per-idea [n] citations)
  *   4. Validation: drop ideas with no valid evidence refs — grounded only
- *   5. Composite scoring → brand_topics.confidence:
- *        0.45·model_confidence  (is this real and distinct?)
- *      + 0.20·evidence factor   (min(refs/4, 1) — multi-source beats hunch)
+ *   5. Composite scoring → brand_topics.confidence (recalibrated in
+ *      Hardening v1 — the first production scan showed scores compressed
+ *      into 0.72-1.00 with single-source ideas at 0.74):
+ *        0.35·model_confidence  (is this real and distinct?)
+ *      + 0.30·evidence factor   (min(refs/4, 1) — multi-source beats hunch)
  *      + 0.15·freshness         (avg exp(-ageDays/45) over cited evidence)
  *      + 0.20·strategic fit     (alignment with positioning + pillars)
+ *      Single-source ideas are capped at 0.65; everything is capped at 0.99
+ *      (a displayed "100" promises certainty no system has).
  *   6. Insert + return rows; run accounting recorded in research_runs
  *      (trigger='manual', facets=['opportunities']).
  */
@@ -198,9 +202,10 @@ export async function POST(
         }, 0) / citedDocs.length;
       const model = Math.min(Math.max(opp.model_confidence ?? 0, 0), 1);
       const strategic = Math.min(Math.max(opp.strategic_relevance ?? 0, 0), 1);
-      const confidence = Number(
-        (0.45 * model + 0.2 * evidenceFactor + 0.15 * freshness + 0.2 * strategic).toFixed(3),
-      );
+      let confidence =
+        0.35 * model + 0.3 * evidenceFactor + 0.15 * freshness + 0.2 * strategic;
+      if (refs.length < 2) confidence = Math.min(confidence, 0.65); // single source ≠ high confidence
+      confidence = Number(Math.min(confidence, 0.99).toFixed(3));
 
       rows.push({
         brand_id: brandId,
