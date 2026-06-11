@@ -109,6 +109,10 @@ export interface DbContentItem {
     | { likes: number; shares: number; comments: number }
     | { hashtags?: string[]; cta?: string | null }
     | null;
+  // V2 Phase 1.5 — evidence grounding + idea lineage (migration 010/011).
+  // Optional: rows predating the migrations / non-idea-driven posts.
+  grounded_on?: string[];
+  topic_id?: string | null;
 }
 
 export interface DbRenderJob {
@@ -224,6 +228,10 @@ export interface DbResearchDocument {
   id: string;
   brand_id: string;
   run_id: string | null;
+  /** Groups all chunks of one captured source (Phase 1.5, migration 011). */
+  source_id: string | null;
+  /** BCP-47-ish language tag; drives FTS config choice (Phase 1.5). */
+  language: string;
   source_type: EvidenceSourceTypeDb;
   url: string | null;
   domain: string | null;
@@ -266,6 +274,20 @@ export interface DbCompetitor {
   positioning: string | null;
   strengths: string[];
   weaknesses: string[];
+  created_at: string;
+  /** Phase 1.5 — search evidence backing this competitor analysis. */
+  grounded_on?: string[];
+}
+
+/** Phase 1.5 — intelligence history: one snapshot per profile rewrite. */
+export interface DbBrandIntelligenceVersion {
+  id: string;
+  brand_id: string;
+  version: number;
+  run_id: string | null;
+  profile: BrandProfile;
+  citations: Record<string, string[]>;
+  source: "research" | "user_edit" | "optimizer";
   created_at: string;
 }
 

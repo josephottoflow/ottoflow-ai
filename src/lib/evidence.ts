@@ -15,7 +15,7 @@
  *    existing row ids so grounding stays correct across runs.
  *  - No new infrastructure: runs inline in the worker, plain Supabase writes.
  */
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { embedTexts, EMBEDDING_MODEL } from "./gemini";
 
@@ -41,9 +41,19 @@ export interface EvidenceInput {
   metadata?: Record<string, unknown>;
 }
 
+export interface StoredSourceRef {
+  /** Groups all chunks of one captured source (research_documents.source_id). */
+  sourceId: string;
+  url: string | null;
+  /** Ids of NEWLY inserted chunks for this source (empty if fully deduped). */
+  documentIds: string[];
+}
+
 export interface StoreEvidenceResult {
   /** ALL evidence row ids representing these sources (new + pre-existing dupes). */
   documentIds: string[];
+  /** Per-source breakdown of newly inserted rows (for enrichment passes). */
+  sources: StoredSourceRef[];
   sourcesCollected: number;
   chunksStored: number;   // newly inserted (post-dedupe)
   chunksEmbedded: number; // newly inserted with a non-null embedding
@@ -142,6 +152,10 @@ export async function fetchPageText(
       .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
       .replace(/<svg[\s\S]*?<\/svg>/gi, " ")
       .replace(/<!--[\s\S]*?-->/g, " ")
+      // Preserve document structure as markdown-ish markers — headings and
+      // list items carry retrieval-relevant semantics that flat text loses.
+      .replace(/<h[1-6][^>]*>/gi, "\n\n## ")
+      .replace(/<li[^>]*>/gi, "\n- ")
       .replace(/<(br|\/p|\/div|\/li|\/h[1-6]|\/tr)[^>]*>/gi, "\n")
       .replace(/<[^>]+>/g, " ")
       .replace(/&nbsp;/g, " ")
@@ -151,6 +165,8 @@ export async function fetchPageText(
       .replace(/&#39;|&apos;/g, "'")
       .replace(/&quot;/g, '"')
       .replace(/[ \t]+/g, " ")
+      // Empty list/heading markers from contentless tags are pure noise.
+      .replace(/^\s*(?:-|##)\s*$/gm, "")
       .replace(/\n\s*\n\s*/g, "\n\n")
       .trim()
       .slice(0, MAX_TEXT_CHARS);
@@ -171,6 +187,24 @@ export function domainOf(url: string | null | undefined): string | null {
   } catch {
     return null;
   }
+}
+
+const DOMAIN_LIKE = /^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/i;
+
+/**
+ * Google Search grounding URIs are opaque redirects through
+ * vertexaisearch.cloud.google.com — useless as a domain signal. The grounding
+ * chunk's `title` is usually the real domain; prefer it when the URL is a
+ * redirect. (Source-quality scoring depends on real domains.)
+ */
+function effectiveDomain(url: string | null | undefined, title: string | null | undefined): string | null {
+  const dom = domainOf(url);
+  const isRedirect =
+    dom === "vertexaisearch.cloud.google.com" || (url ?? "").includes("grounding-api-redirect");
+  if (isRedirect && title && DOMAIN_LIKE.test(title.trim())) {
+    return title.trim().replace(/^www\./, "").toLowerCase();
+  }
+  return dom;
 }
 
 function hashChunk(content: string): string {
@@ -197,6 +231,7 @@ export async function storeEvidence(
 ): Promise<StoreEvidenceResult> {
   const empty: StoreEvidenceResult = {
     documentIds: [],
+    sources: [],
     sourcesCollected: 0,
     chunksStored: 0,
     chunksEmbedded: 0,
@@ -205,27 +240,35 @@ export async function storeEvidence(
     const usable = args.sources.filter((s) => s.content && s.content.trim().length > 0);
     if (usable.length === 0) return empty;
 
-    // 1. Chunk every source.
+    // 1. Chunk every source. Each source gets a source_id grouping all of
+    //    its chunks (parent-document retrieval: chunk hit → whole source).
     interface PendingRow {
       hash: string;
+      sourceId: string;
       row: Record<string, unknown>;
     }
     const pending: PendingRow[] = [];
+    const sourceRefs: StoredSourceRef[] = [];
     for (const src of usable) {
+      const sourceId = randomUUID();
+      sourceRefs.push({ sourceId, url: src.url ?? null, documentIds: [] });
       const chunks = chunkText(src.content);
       chunks.forEach((chunk, idx) => {
         pending.push({
           hash: hashChunk(chunk),
+          sourceId,
           row: {
             brand_id: args.brandId,
             run_id: args.runId,
+            source_id: sourceId,
             source_type: src.sourceType,
             url: src.url ?? null,
-            domain: domainOf(src.url),
+            domain: effectiveDomain(src.url, src.title),
             title: src.title ?? null,
             content: chunk,
             chunk_index: idx,
             content_hash: hashChunk(chunk),
+            language: "en",
             metadata: src.metadata ?? {},
           },
         });
@@ -273,21 +316,29 @@ export async function storeEvidence(
     // 4. Insert (ignoreDuplicates guards the race where two runs insert the
     //    same hash concurrently).
     const insertedIds: string[] = [];
+    const refBySourceId = new Map(sourceRefs.map((r) => [r.sourceId, r]));
     for (let i = 0; i < fresh.length; i += 100) {
-      const slice = fresh.slice(i, i + 100).map((p) => p.row);
+      const slice = fresh.slice(i, i + 100);
       const { data, error } = await admin
         .from("research_documents")
-        .upsert(slice, { onConflict: "brand_id,content_hash", ignoreDuplicates: true })
-        .select("id");
+        .upsert(slice.map((p) => p.row), {
+          onConflict: "brand_id,content_hash",
+          ignoreDuplicates: true,
+        })
+        .select("id, source_id");
       if (error) {
         // Keep going — partial persistence beats none.
         continue;
       }
-      for (const row of data ?? []) insertedIds.push(row.id as string);
+      for (const row of data ?? []) {
+        insertedIds.push(row.id as string);
+        refBySourceId.get(row.source_id as string)?.documentIds.push(row.id as string);
+      }
     }
 
     return {
       documentIds: [...existing.values(), ...insertedIds],
+      sources: sourceRefs,
       sourcesCollected: usable.length,
       chunksStored: insertedIds.length,
       chunksEmbedded: embedded,

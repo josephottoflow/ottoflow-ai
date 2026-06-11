@@ -16,12 +16,14 @@ import {
   findCompetitorsFull,
   generateSEOBundleFull,
   generateBrandTopicsFull,
+  extractEvidenceEnrichment,
   type GenerationMeta,
 } from "@/lib/gemini";
 import {
   storeEvidence,
   fetchPageText,
   type EvidenceInput,
+  type StoredSourceRef,
 } from "@/lib/evidence";
 import type { BrandResearchJobData } from "@/lib/queue";
 import type { ResearchLogEntry } from "@/lib/types";
@@ -125,6 +127,31 @@ export async function processBrandResearch(
     chunksEmbedded += r.chunksEmbedded;
   };
 
+  // Phase 1.5 — fill summary/entities/keywords on a stored source's chunks
+  // at capture time (one cheap structured call per website source).
+  // Best-effort: enrichment failure never affects the run.
+  const enrichStoredSource = async (ref: StoredSourceRef, content: string, title: string | null) => {
+    if (ref.documentIds.length === 0) return; // fully deduped — already enriched
+    try {
+      const { data: enr, meta } = await extractEvidenceEnrichment({
+        title,
+        url: ref.url,
+        content,
+      });
+      addUsage(meta);
+      await admin
+        .from("research_documents")
+        .update({
+          summary: enr.summary,
+          entities: enr.entities,
+          keywords: enr.keywords.slice(0, 12),
+        })
+        .in("id", ref.documentIds);
+    } catch {
+      // taxonomy columns stay NULL for this source — backfillable later
+    }
+  };
+
   try {
     // ─── Create the research_runs row (traceability for this execution) ─────
     const { data: runRow } = await admin
@@ -163,6 +190,9 @@ export async function processBrandResearch(
       });
       websiteDocIds.push(...stored.documentIds);
       addStore(stored);
+      if (stored.sources[0]) {
+        await enrichStoredSource(stored.sources[0], homepage.text, homepage.title);
+      }
     }
     await finishStep(
       STEPS.fetching_site,
@@ -206,6 +236,14 @@ export async function processBrandResearch(
         const stored = await storeEvidence(admin, { brandId, runId, sources: pages });
         websiteDocIds.push(...stored.documentIds);
         addStore(stored);
+        // sources align with the pages array (storeEvidence preserves order)
+        for (let i = 0; i < stored.sources.length; i++) {
+          await enrichStoredSource(
+            stored.sources[i],
+            pages[i].content,
+            pages[i].title ?? null,
+          );
+        }
       }
     }
 
@@ -262,6 +300,9 @@ export async function processBrandResearch(
           ...c,
           brand_id: brandId,
           source: "google_search",
+          // Phase 1.5 — competitor claims link to the search evidence that
+          // produced them (coarse: the run's search source set).
+          grounded_on: searchDocIds.slice(0, 12),
         }))
       );
     }
@@ -370,18 +411,37 @@ export async function processBrandResearch(
       .single();
     const intelligenceVersion = ((brandRow?.profile_version as number) ?? 0) + 1;
 
+    const citations = {
+      profile: websiteDocIds,
+      competitors: searchDocIds,
+    };
+
     await admin
       .from("brands")
       .update({
         status: "ready",
         profile_version: intelligenceVersion,
-        profile_citations: {
-          profile: websiteDocIds,
-          competitors: searchDocIds,
-        },
+        profile_citations: citations,
         last_research_run_id: runId,
       })
       .eq("id", brandId);
+
+    // Phase 1.5 — snapshot the intelligence version. brands.profile is the
+    // "current" view; this table is the memory (re-research no longer
+    // destroys the previous profile + citations). Best-effort: snapshot
+    // failure must not fail a completed research run.
+    try {
+      await admin.from("brand_intelligence_versions").insert({
+        brand_id: brandId,
+        version: intelligenceVersion,
+        run_id: runId,
+        profile,
+        citations,
+        source: "research",
+      });
+    } catch {
+      // table may not exist pre-migration-011 — current view is still saved
+    }
 
     if (runId) {
       await admin

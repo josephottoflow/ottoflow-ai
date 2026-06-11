@@ -218,6 +218,9 @@ export async function POST(req: NextRequest) {
         status: "draft",
         user_prompt: effectiveUserPrompt ?? null,
         grounded_on: topicGrounding,
+        // Phase 1.5 — direct post→idea lineage (was only implicit in the
+        // prompt text; videos already carried topic_id on render_jobs).
+        topic_id: input.topicId ?? null,
       })
       .select("id")
       .single();

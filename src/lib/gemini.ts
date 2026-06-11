@@ -510,6 +510,72 @@ export async function embedTexts(texts: string[]): Promise<Array<number[] | null
   return out;
 }
 
+// ─── Evidence enrichment (V2 Phase 1.5) ──────────────────────────────────────
+// One cheap structured call per captured website source fills the taxonomy
+// columns (summary / entities / keywords) at capture time — without this the
+// columns stay NULL forever and entity-level features (competitor tracking,
+// gap analysis) have nothing to query.
+
+export interface EvidenceEnrichment {
+  summary: string;
+  entities: {
+    organizations: string[];
+    people: string[];
+    products: string[];
+    locations: string[];
+  };
+  keywords: string[];
+}
+
+const evidenceEnrichmentSchema: Schema = {
+  type: Type.OBJECT,
+  required: ["summary", "entities", "keywords"],
+  properties: {
+    summary: { type: Type.STRING },
+    entities: {
+      type: Type.OBJECT,
+      required: ["organizations", "people", "products", "locations"],
+      properties: {
+        organizations: stringArray,
+        people: stringArray,
+        products: stringArray,
+        locations: stringArray,
+      },
+    },
+    keywords: stringArray,
+  },
+} as Schema;
+
+export async function extractEvidenceEnrichment(input: {
+  title: string | null;
+  url: string | null;
+  content: string;
+}): Promise<{ data: EvidenceEnrichment; meta: GenerationMeta }> {
+  const prompt = `
+Analyze this captured research source and extract structured metadata.
+
+SOURCE: ${input.title ?? "(untitled)"}${input.url ? ` — ${input.url}` : ""}
+
+CONTENT:
+${input.content.slice(0, 6000)}
+
+Produce:
+- summary: 1-2 sentences. What this source IS and what it claims — written as
+  an internal research note, not marketing copy.
+- entities: proper nouns actually present in the content (empty arrays are
+  fine — do NOT invent).
+- keywords: 5-10 short topical keywords/phrases this source is evidence for.
+`.trim();
+
+  return generateStructuredFull<EvidenceEnrichment>({
+    prompt,
+    schema: evidenceEnrichmentSchema,
+    label: "extractEvidenceEnrichment",
+    systemInstruction:
+      "You are a research librarian cataloguing evidence. Be precise and literal — extract only what is present in the content.",
+  });
+}
+
 /** Embed a single query for retrieval (RETRIEVAL_QUERY task type). */
 export async function embedQuery(text: string): Promise<number[] | null> {
   try {
