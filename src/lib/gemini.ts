@@ -576,6 +576,88 @@ Produce:
   });
 }
 
+// ─── Ask-the-Research (V2 Phase 2A) ──────────────────────────────────────────
+// Answers a question STRICTLY from retrieved evidence chunks. Citations are
+// numeric indices into the evidence list the caller supplied — the caller
+// owns mapping them back to research_documents ids for the source viewer.
+
+export interface EvidenceForAnswer {
+  /** 1-based citation number shown to the model and the user. */
+  n: number;
+  sourceType: string;
+  title: string | null;
+  domain: string | null;
+  capturedAt: string;
+  content: string;
+}
+
+export interface ResearchAnswer {
+  /** Markdown answer with inline [n] citations. */
+  answer: string;
+  /** Which evidence numbers were actually used. */
+  cited: number[];
+  /** True when the evidence was insufficient to really answer. */
+  insufficient: boolean;
+}
+
+const researchAnswerSchema: Schema = {
+  type: Type.OBJECT,
+  required: ["answer", "cited", "insufficient"],
+  properties: {
+    answer: { type: Type.STRING },
+    cited: { type: Type.ARRAY, items: { type: Type.INTEGER } },
+    insufficient: { type: Type.BOOLEAN },
+  },
+} as Schema;
+
+export async function answerFromEvidence(input: {
+  brandName: string;
+  industry: string | null;
+  question: string;
+  evidence: EvidenceForAnswer[];
+}): Promise<{ data: ResearchAnswer; meta: GenerationMeta }> {
+  const evidenceBlock = input.evidence
+    .map(
+      (e) =>
+        `[${e.n}] (${e.sourceType}${e.domain ? ` · ${e.domain}` : ""}${
+          e.title ? ` · "${e.title}"` : ""
+        } · captured ${e.capturedAt.slice(0, 10)})\n${e.content}`,
+    )
+    .join("\n\n---\n\n");
+
+  const prompt = `
+You are answering a question about the brand "${input.brandName}"${
+    input.industry ? ` (${input.industry})` : ""
+  } using ONLY the research evidence below.
+
+QUESTION: ${input.question}
+
+EVIDENCE:
+${evidenceBlock}
+
+RULES:
+- Ground EVERY claim in the evidence. Cite with [n] immediately after the
+  claim it supports. Multiple citations like [1][3] are fine.
+- Do NOT use outside knowledge about the brand, market, or competitors.
+  General reasoning to connect evidence is fine; invented facts are not.
+- If the evidence only partially covers the question, answer what IS
+  covered, say plainly what is missing, and set insufficient=true.
+- If the evidence doesn't address the question at all, say so in one
+  sentence and set insufficient=true. Never fabricate.
+- Format: tight markdown. Lead with the direct answer; bullets for lists;
+  no preamble, no "based on the evidence provided".
+- cited: the list of [n] numbers you actually used.
+`.trim();
+
+  return generateStructuredFull<ResearchAnswer>({
+    prompt,
+    schema: researchAnswerSchema,
+    label: "answerFromEvidence",
+    systemInstruction:
+      "You are a rigorous brand research analyst. You answer only from supplied evidence, cite every claim, and clearly flag gaps. You never invent facts.",
+  });
+}
+
 /** Embed a single query for retrieval (RETRIEVAL_QUERY task type). */
 export async function embedQuery(text: string): Promise<number[] | null> {
   try {

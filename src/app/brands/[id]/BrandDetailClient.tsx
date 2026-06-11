@@ -34,6 +34,7 @@ import type {
 } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { AskResearch } from "@/components/AskResearch";
 
 interface Props {
   initialBrand: DbBrand;
@@ -236,6 +237,8 @@ export function BrandDetailClient({
       {isReady && brand.profile && (
         <div className="space-y-6">
           <ProfileSection brand={brand} />
+          {/* V2 Phase 2A — grounded Q&A over the brand's evidence store */}
+          <AskResearch brandId={brand.id} brandReady={!!isReady} />
           {competitors.length > 0 && <CompetitorsSection competitors={competitors} />}
           {keywords.length > 0 && <KeywordsSection keywords={keywords} />}
           {pillars.length > 0 && <PillarsSection pillars={pillars} />}
