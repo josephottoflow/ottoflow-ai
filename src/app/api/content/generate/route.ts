@@ -145,11 +145,14 @@ export async function POST(req: NextRequest) {
   // worker or schema change — the post comes out aligned to the idea's hook
   // and angle (same pattern as the video route).
   let topicTitle: string | null = null;
+  let topicGrounding: string[] = [];
   let effectiveUserPrompt = input.userPrompt?.trim() || undefined;
   if (input.topicId) {
     const { data: topic, error: topicErr } = await admin
       .from("brand_topics")
-      .select("id, brand_id, title, description, category, hook_angle, seed_keyword")
+      .select(
+        "id, brand_id, title, description, category, hook_angle, seed_keyword, grounded_on",
+      )
       .eq("id", input.topicId)
       .eq("brand_id", input.brandId)
       .maybeSingle();
@@ -160,6 +163,9 @@ export async function POST(req: NextRequest) {
       );
     }
     topicTitle = topic.title as string;
+    // V2 Phase 1 — artifacts inherit the idea's evidence grounding, so future
+    // analytics can attribute performance back to research sources.
+    topicGrounding = (topic.grounded_on as string[] | null) ?? [];
     const topicBlock = [
       `Topic: ${topic.title}.`,
       topic.hook_angle ? `Lead with this hook angle: "${topic.hook_angle}".` : "",
@@ -211,6 +217,7 @@ export async function POST(req: NextRequest) {
         body: null,
         status: "draft",
         user_prompt: effectiveUserPrompt ?? null,
+        grounded_on: topicGrounding,
       })
       .select("id")
       .single();

@@ -12,13 +12,29 @@
  */
 import { createAdminClient } from "@/lib/supabase";
 import {
-  extractBrandProfile,
-  findCompetitors,
-  generateSEOBundle,
-  generateBrandTopics,
+  extractBrandProfileFull,
+  findCompetitorsFull,
+  generateSEOBundleFull,
+  generateBrandTopicsFull,
+  type GenerationMeta,
 } from "@/lib/gemini";
+import {
+  storeEvidence,
+  fetchPageText,
+  type EvidenceInput,
+} from "@/lib/evidence";
 import type { BrandResearchJobData } from "@/lib/queue";
 import type { ResearchLogEntry } from "@/lib/types";
+
+// Cost-estimate constants for research_runs.cost_estimate_usd. Approximate
+// public Gemini 2.5 Flash pricing (USD per 1M tokens) — an ESTIMATE for ops
+// visibility, not billing.
+const COST_PER_M_INPUT_USD = 0.3;
+const COST_PER_M_OUTPUT_USD = 2.5;
+
+// How many urlContext-retrieved pages we re-fetch ourselves for full-text
+// evidence (beyond the homepage, which is always fetched).
+const MAX_EXTRA_PAGES = 3;
 
 type Reporter = (step: string, progress: number) => void;
 
@@ -83,24 +99,121 @@ export async function processBrandResearch(
     await admin.rpc("append_research_log", { job_id: researchJobId, entry });
   }
 
+  // ─── V2 Phase 1: run accounting + evidence state ──────────────────────────
+  // Declared outside the try so the catch can finalize the run row.
+  let runId: string | null = null;
+  const startedAt = Date.now();
+  let tokensInput = 0;
+  let tokensOutput = 0;
+  let sourcesCollected = 0;
+  let chunksStored = 0;
+  let chunksEmbedded = 0;
+  const websiteDocIds: string[] = [];
+  const searchDocIds: string[] = [];
+
+  const addUsage = (meta: GenerationMeta) => {
+    tokensInput += meta.tokensInput;
+    tokensOutput += meta.tokensOutput;
+  };
+  const addStore = (r: {
+    sourcesCollected: number;
+    chunksStored: number;
+    chunksEmbedded: number;
+  }) => {
+    sourcesCollected += r.sourcesCollected;
+    chunksStored += r.chunksStored;
+    chunksEmbedded += r.chunksEmbedded;
+  };
+
   try {
+    // ─── Create the research_runs row (traceability for this execution) ─────
+    const { data: runRow } = await admin
+      .from("research_runs")
+      .insert({
+        brand_id: brandId,
+        research_job_id: researchJobId,
+        trigger: data.trigger ?? "create",
+        status: "running",
+      })
+      .select("id")
+      .single();
+    runId = (runRow?.id as string) ?? null;
+
     // ─── Mark brand as researching ──────────────────────────────────────────
     await admin.from("brands").update({ status: "researching" }).eq("id", brandId);
 
-    // ─── Step 1+2: Fetch + extract profile (Gemini does the fetch via URL ctx) ─
+    // ─── Step 1: Fetch the homepage OURSELVES and persist it as evidence ────
+    // (Gemini also reads it via urlContext, but that fetch was invisible —
+    // this one is stored. Evidence is never lost again.)
     await startStep(STEPS.fetching_site);
-    await finishStep(STEPS.fetching_site, `Fetching ${data.website}`);
+    const homepage = await fetchPageText(data.website);
+    if (homepage) {
+      const stored = await storeEvidence(admin, {
+        brandId,
+        runId,
+        sources: [
+          {
+            sourceType: "website",
+            url: data.website,
+            title: homepage.title,
+            content: homepage.text,
+            metadata: { kind: "homepage" },
+          },
+        ],
+      });
+      websiteDocIds.push(...stored.documentIds);
+      addStore(stored);
+    }
+    await finishStep(
+      STEPS.fetching_site,
+      homepage
+        ? `Fetched ${data.website} — ${websiteDocIds.length} evidence chunks stored`
+        : `Fetching ${data.website} (page not directly fetchable — relying on Gemini URL context)`,
+    );
 
+    // ─── Step 2: Extract profile (grounded; urlContext fetches the site) ────
     await startStep(STEPS.extracting_profile);
-    const profile = await extractBrandProfile({
+    const { data: profile, meta: profileMeta } = await extractBrandProfileFull({
       name: data.name,
       website: data.website,
       industry: data.industry,
     });
+    addUsage(profileMeta);
+
+    // Persist any ADDITIONAL pages Gemini read via urlContext (About,
+    // Services, Pricing…) — fetch their full text ourselves.
+    const alreadyFetched = new Set([data.website.replace(/\/$/, "")]);
+    const extraUrls = profileMeta.sources
+      .filter((s) => s.sourceType === "website")
+      .map((s) => s.url.replace(/\/$/, ""))
+      .filter((u) => !alreadyFetched.has(u))
+      .slice(0, MAX_EXTRA_PAGES);
+    if (extraUrls.length > 0) {
+      const pages: EvidenceInput[] = [];
+      for (const url of extraUrls) {
+        const page = await fetchPageText(url);
+        if (page) {
+          pages.push({
+            sourceType: "website",
+            url,
+            title: page.title,
+            content: page.text,
+            metadata: { kind: "subpage", discoveredVia: "urlContext" },
+          });
+        }
+      }
+      if (pages.length > 0) {
+        const stored = await storeEvidence(admin, { brandId, runId, sources: pages });
+        websiteDocIds.push(...stored.documentIds);
+        addStore(stored);
+      }
+    }
+
     await finishStep(STEPS.extracting_profile, "Brand profile extracted", {
       services: profile.services.length,
       personas: profile.personas.length,
       seed_keywords: profile.seed_keywords.length,
+      evidence_chunks: websiteDocIds.length,
     });
 
     // Store profile early so the UI can preview it while later steps run.
@@ -109,15 +222,40 @@ export async function processBrandResearch(
       .update({ profile, name: data.name, industry: data.industry })
       .eq("id", brandId);
 
-    // ─── Step 3: Competitors ────────────────────────────────────────────────
+    // ─── Step 3: Competitors (grounded via Google Search) ───────────────────
     await startStep(STEPS.finding_competitors);
-    const competitors = await findCompetitors({
+    const { data: competitors, meta: compMeta } = await findCompetitorsFull({
       name: data.name,
       website: data.website,
       industry: data.industry,
       positioning: profile.positioning_statement,
       seedCompetitors: profile.seed_competitors,
     });
+    addUsage(compMeta);
+
+    // Persist the Google Search grounding sources — which results backed the
+    // competitor analysis, with the supported text segments as snippets.
+    const searchSources: EvidenceInput[] = compMeta.sources
+      .filter((s) => s.sourceType === "search_result")
+      .map((s) => ({
+        sourceType: "search_result" as const,
+        url: s.url,
+        title: s.title ?? null,
+        content:
+          s.snippet ??
+          `Google Search source consulted for competitor research: ${s.title ?? s.url}`,
+        metadata: { groundedCall: "findCompetitors", redirectUrl: true },
+      }));
+    if (searchSources.length > 0) {
+      const stored = await storeEvidence(admin, {
+        brandId,
+        runId,
+        sources: searchSources,
+      });
+      searchDocIds.push(...stored.documentIds);
+      addStore(stored);
+    }
+
     if (competitors.length > 0) {
       await admin.from("competitors").insert(
         competitors.map((c) => ({
@@ -127,11 +265,14 @@ export async function processBrandResearch(
         }))
       );
     }
-    await finishStep(STEPS.finding_competitors, `Found ${competitors.length} competitors`);
+    await finishStep(
+      STEPS.finding_competitors,
+      `Found ${competitors.length} competitors (${searchSources.length} search sources persisted)`,
+    );
 
     // ─── Step 4: SEO + content pillars ──────────────────────────────────────
     await startStep(STEPS.generating_seo);
-    const { keywords, pillars } = await generateSEOBundle({
+    const { data: seoBundle, meta: seoMeta } = await generateSEOBundleFull({
       name: data.name,
       industry: data.industry,
       positioning: profile.positioning_statement,
@@ -141,6 +282,9 @@ export async function processBrandResearch(
       services: profile.services,
       personas: profile.personas,
     });
+
+    addUsage(seoMeta);
+    const { keywords, pillars } = seoBundle;
 
     if (keywords.length > 0) {
       await admin
@@ -162,8 +306,12 @@ export async function processBrandResearch(
     // retry. We don't want a topic-generation hiccup to invalidate a 60s
     // research run.
     await startStep(STEPS.generating_topics);
+    // Ideas are grounded on the evidence that informed the profile +
+    // competitor analysis (coarse, run-level attribution — per-idea evidence
+    // mapping comes with the dedicated Ideation agent).
+    const topicGrounding = [...websiteDocIds.slice(0, 12), ...searchDocIds.slice(0, 8)];
     try {
-      const topicBundle = await generateBrandTopics({
+      const { data: topicBundle, meta: topicsMeta } = await generateBrandTopicsFull({
         brand: {
           name: data.name,
           industry: data.industry,
@@ -177,6 +325,7 @@ export async function processBrandResearch(
         })),
         targetCount: 40,
       });
+      addUsage(topicsMeta);
 
       if (topicBundle.topics.length > 0) {
         await admin.from("brand_topics").insert(
@@ -189,6 +338,7 @@ export async function processBrandResearch(
             hook_angle: t.hook_angle,
             source: "ai-generated",
             status: "draft",
+            grounded_on: topicGrounding,
           })),
         );
       }
@@ -210,7 +360,48 @@ export async function processBrandResearch(
 
     // ─── Finalize ───────────────────────────────────────────────────────────
     await startStep(STEPS.finalizing);
-    await admin.from("brands").update({ status: "ready" }).eq("id", brandId);
+
+    // Intelligence versioning + source attribution (coarse section→evidence
+    // map; same JSONB shape supports per-field paths later without migration).
+    const { data: brandRow } = await admin
+      .from("brands")
+      .select("profile_version")
+      .eq("id", brandId)
+      .single();
+    const intelligenceVersion = ((brandRow?.profile_version as number) ?? 0) + 1;
+
+    await admin
+      .from("brands")
+      .update({
+        status: "ready",
+        profile_version: intelligenceVersion,
+        profile_citations: {
+          profile: websiteDocIds,
+          competitors: searchDocIds,
+        },
+        last_research_run_id: runId,
+      })
+      .eq("id", brandId);
+
+    if (runId) {
+      await admin
+        .from("research_runs")
+        .update({
+          status: "done",
+          completed_at: new Date().toISOString(),
+          duration_ms: Date.now() - startedAt,
+          sources_collected: sourcesCollected,
+          chunks_stored: chunksStored,
+          chunks_embedded: chunksEmbedded,
+          tokens_input: tokensInput,
+          tokens_output: tokensOutput,
+          cost_estimate_usd:
+            (tokensInput * COST_PER_M_INPUT_USD + tokensOutput * COST_PER_M_OUTPUT_USD) /
+            1_000_000,
+          intelligence_version: intelligenceVersion,
+        })
+        .eq("id", runId);
+    }
     await admin
       .from("brand_research_jobs")
       .update({
@@ -247,6 +438,25 @@ export async function processBrandResearch(
       })
       .eq("id", researchJobId);
     await admin.from("brands").update({ status: "failed" }).eq("id", brandId);
+
+    // Close out the run row — evidence stored before the failure is KEPT
+    // (partial research is still accumulated knowledge).
+    if (runId) {
+      await admin
+        .from("research_runs")
+        .update({
+          status: "failed",
+          error_message: message,
+          completed_at: new Date().toISOString(),
+          duration_ms: Date.now() - startedAt,
+          sources_collected: sourcesCollected,
+          chunks_stored: chunksStored,
+          chunks_embedded: chunksEmbedded,
+          tokens_input: tokensInput,
+          tokens_output: tokensOutput,
+        })
+        .eq("id", runId);
+    }
 
     await admin.rpc("append_research_log", {
       job_id: researchJobId,

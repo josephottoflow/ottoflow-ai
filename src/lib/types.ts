@@ -175,6 +175,72 @@ export interface DbBrand {
   logo_url: string | null;
   created_at: string;
   updated_at: string;
+  // V2 Phase 1 — intelligence versioning + source attribution (migration 010)
+  profile_version: number;
+  /** Section → research_documents ids, e.g. { profile: [...], competitors: [...] } */
+  profile_citations: Record<string, string[]>;
+  last_research_run_id: string | null;
+}
+
+// ─── Research Evidence (V2 Phase 1 — migration 010) ─────────────────────────
+// The accumulating evidence store. One row per chunk of source material a
+// research run read. Embeddings power RAG; grounded_on arrays on artifacts
+// point back here.
+
+export type ResearchTrigger = "create" | "retry" | "refresh" | "manual" | "scheduled";
+export type ResearchRunStatus = "running" | "done" | "failed";
+export type EvidenceSourceTypeDb =
+  | "website"
+  | "search_result"
+  | "competitor"
+  | "industry"
+  | "keyword"
+  | "social"
+  | "news"
+  | "manual";
+
+export interface DbResearchRun {
+  id: string;
+  brand_id: string;
+  research_job_id: string | null;
+  trigger: ResearchTrigger;
+  facets: string[];
+  status: ResearchRunStatus;
+  started_at: string;
+  completed_at: string | null;
+  duration_ms: number | null;
+  sources_collected: number;
+  chunks_stored: number;
+  chunks_embedded: number;
+  tokens_input: number;
+  tokens_output: number;
+  cost_estimate_usd: number | null;
+  intelligence_version: number | null;
+  error_message: string | null;
+  created_at: string;
+}
+
+export interface DbResearchDocument {
+  id: string;
+  brand_id: string;
+  run_id: string | null;
+  source_type: EvidenceSourceTypeDb;
+  url: string | null;
+  domain: string | null;
+  title: string | null;
+  content: string;
+  chunk_index: number;
+  content_hash: string;
+  summary: string | null;
+  entities: Record<string, unknown> | null;
+  keywords: string[] | null;
+  /** Serialized vector — selected as string via PostgREST; null until embedded. */
+  embedding: string | null;
+  embedding_model: string | null;
+  captured_at: string;
+  freshness_ttl_days: number;
+  deleted_by_user: boolean;
+  metadata: Record<string, unknown>;
 }
 
 export interface DbBrandResearchJob {
@@ -257,6 +323,13 @@ export interface DbBrandTopic {
   created_at: string;
   used_at: string | null;
   use_count: number;
+  // V2 Phase 1 — ideas are the bridge between research and content
+  /** research_documents ids this idea was grounded on (coarse for now). */
+  grounded_on: string[];
+  /** Future Ideation-agent score (0-1); null = unscored. */
+  confidence: number | null;
+  /** Rolled-up performance of descendant artifacts (filled by Analyst later). */
+  performance: Record<string, unknown>;
 }
 
 // ─── Scene Generations (Phase 6) ─────────────────────────────────────────────

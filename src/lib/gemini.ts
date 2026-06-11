@@ -311,13 +311,96 @@ function unfence(text: string): string {
   return trimmed;
 }
 
-async function generateStructured<T>(opts: {
+// ─── Grounding metadata (V2 Phase 1 — evidence persistence) ─────────────────
+// Research calls run with tools (googleSearch / urlContext). The response
+// carries WHAT the model actually read: groundingMetadata.groundingChunks
+// (search results) + groundingSupports (which output text each chunk backs),
+// and urlContextMetadata (which URLs were fetched). Until Phase 1 all of it
+// was discarded here — only resp.text survived. generateStructuredFull now
+// surfaces it so the worker can persist evidence.
+
+export interface GroundedSource {
+  sourceType: "website" | "search_result";
+  url: string;
+  title?: string;
+  /** Concatenated output segments this source backed (search grounding only). */
+  snippet?: string;
+}
+
+export interface GenerationMeta {
+  sources: GroundedSource[];
+  tokensInput: number;
+  tokensOutput: number;
+}
+
+/** Pull grounded sources + token usage off a raw Gemini response. */
+function extractMeta(resp: unknown): GenerationMeta {
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const r = resp as any;
+  const sources: GroundedSource[] = [];
+
+  const cand = r?.candidates?.[0];
+  const gm = cand?.groundingMetadata;
+  if (gm?.groundingChunks?.length) {
+    // Map: chunk index → concatenated supported text segments.
+    const snippetByChunk = new Map<number, string[]>();
+    for (const sup of gm.groundingSupports ?? []) {
+      const text = sup?.segment?.text;
+      if (!text) continue;
+      for (const idx of sup.groundingChunkIndices ?? []) {
+        const arr = snippetByChunk.get(idx) ?? [];
+        arr.push(text);
+        snippetByChunk.set(idx, arr);
+      }
+    }
+    gm.groundingChunks.forEach((chunk: any, idx: number) => {
+      const web = chunk?.web;
+      if (!web?.uri) return;
+      sources.push({
+        sourceType: "search_result",
+        url: web.uri,
+        title: web.title ?? undefined,
+        snippet: snippetByChunk.get(idx)?.join("\n") || undefined,
+      });
+    });
+  }
+
+  // urlContext tool: which URLs Gemini fetched inline. Not in the 0.3 SDK
+  // typings, but present on the wire — read defensively.
+  const urlMeta =
+    cand?.urlContextMetadata?.urlMetadata ?? cand?.url_context_metadata?.url_metadata;
+  if (Array.isArray(urlMeta)) {
+    for (const m of urlMeta) {
+      const url = m?.retrievedUrl ?? m?.retrieved_url;
+      if (url) sources.push({ sourceType: "website", url });
+    }
+  }
+
+  const usage = r?.usageMetadata;
+  return {
+    sources,
+    tokensInput: usage?.promptTokenCount ?? 0,
+    tokensOutput: usage?.candidatesTokenCount ?? 0,
+  };
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+}
+
+interface StructuredOpts {
   prompt: string;
   schema: Schema;
   tools?: Array<{ urlContext?: object; googleSearch?: object }>;
   systemInstruction?: string;
   label?: string;
-}): Promise<T> {
+}
+
+async function generateStructured<T>(opts: StructuredOpts): Promise<T> {
+  const { data } = await generateStructuredFull<T>(opts);
+  return data;
+}
+
+async function generateStructuredFull<T>(
+  opts: StructuredOpts
+): Promise<{ data: T; meta: GenerationMeta }> {
   const usingTools = !!opts.tools && opts.tools.length > 0;
 
   const baseSystem =
@@ -366,11 +449,82 @@ ${schemaToHint(opts.schema)}`
   const cleaned = usingTools ? unfence(text) : text;
 
   try {
-    return JSON.parse(cleaned) as T;
+    return { data: JSON.parse(cleaned) as T, meta: extractMeta(resp) };
   } catch (err) {
     throw new Error(
       `Failed to parse Gemini JSON output: ${(err as Error).message}\n\nRaw: ${cleaned.slice(0, 500)}`
     );
+  }
+}
+
+// ─── Embeddings (V2 Phase 1 — vector memory) ─────────────────────────────────
+// gemini-embedding-001 (GA; verified available on this key — text-embedding-004
+// 404s on v1beta as of 2026-06) truncated to 768 dims via outputDimensionality,
+// matching research_documents.embedding vector(768) in migration 010.
+// Truncated Gemini embeddings are NOT pre-normalized → we L2-normalize before
+// storing (cosine ordering is scale-invariant, but normalized vectors keep
+// dot-product use cases open). Batched; failures degrade to null per text
+// (evidence rows are stored regardless — embeddings are backfillable).
+
+export const EMBEDDING_MODEL = "gemini-embedding-001";
+export const EMBEDDING_DIMS = 768;
+const EMBED_BATCH = 100; // API max per request
+
+function l2Normalize(v: number[]): number[] {
+  let norm = 0;
+  for (const x of v) norm += x * x;
+  norm = Math.sqrt(norm);
+  if (norm === 0) return v;
+  return v.map((x) => x / norm);
+}
+
+export async function embedTexts(texts: string[]): Promise<Array<number[] | null>> {
+  if (texts.length === 0) return [];
+  const out: Array<number[] | null> = [];
+  for (let i = 0; i < texts.length; i += EMBED_BATCH) {
+    const batch = texts.slice(i, i + EMBED_BATCH);
+    try {
+      const resp = await callGemini("embedTexts", () =>
+        ai().models.embedContent({
+          model: EMBEDDING_MODEL,
+          contents: batch,
+          config: { taskType: "RETRIEVAL_DOCUMENT", outputDimensionality: EMBEDDING_DIMS },
+        })
+      );
+      const embeddings = resp.embeddings ?? [];
+      for (let j = 0; j < batch.length; j++) {
+        const values = embeddings[j]?.values;
+        out.push(
+          values && values.length === EMBEDDING_DIMS ? l2Normalize(values) : null
+        );
+      }
+    } catch (err) {
+      // Best-effort: evidence persistence must NEVER fail on embedding errors.
+      captureFallback("gemini.embed.batch_failed", err, {
+        batchStart: i,
+        batchSize: batch.length,
+      });
+      for (let j = 0; j < batch.length; j++) out.push(null);
+    }
+  }
+  return out;
+}
+
+/** Embed a single query for retrieval (RETRIEVAL_QUERY task type). */
+export async function embedQuery(text: string): Promise<number[] | null> {
+  try {
+    const resp = await callGemini("embedQuery", () =>
+      ai().models.embedContent({
+        model: EMBEDDING_MODEL,
+        contents: text,
+        config: { taskType: "RETRIEVAL_QUERY", outputDimensionality: EMBEDDING_DIMS },
+      })
+    );
+    const values = resp.embeddings?.[0]?.values;
+    return values && values.length === EMBEDDING_DIMS ? l2Normalize(values) : null;
+  } catch (err) {
+    captureFallback("gemini.embed.query_failed", err, {});
+    return null;
   }
 }
 
@@ -381,6 +535,16 @@ export async function extractBrandProfile(input: {
   website: string;
   industry: string;
 }): Promise<BrandProfile> {
+  const { data } = await extractBrandProfileFull(input);
+  return data;
+}
+
+/** Grounded variant — also returns which URLs were read + token usage. */
+export async function extractBrandProfileFull(input: {
+  name: string;
+  website: string;
+  industry: string;
+}): Promise<{ data: BrandProfile; meta: GenerationMeta }> {
   const prompt = `
 Analyze this company and extract a complete brand profile.
 
@@ -400,7 +564,7 @@ Produce 3-5 personas, 5-10 seed keywords, and 3-6 named competitors you can
 identify from the site or its market.
 `.trim();
 
-  return generateStructured<BrandProfile>({
+  return generateStructuredFull<BrandProfile>({
     prompt,
     schema: brandProfileSchema,
     // urlContext lets Gemini fetch the website inline
@@ -415,6 +579,21 @@ export async function findCompetitors(input: {
   seedCompetitors: string[];
   positioning: string;
 }): Promise<Array<Omit<DbCompetitor, "id" | "brand_id" | "created_at" | "source">>> {
+  const { data } = await findCompetitorsFull(input);
+  return data;
+}
+
+/** Grounded variant — also returns the Google Search sources + token usage. */
+export async function findCompetitorsFull(input: {
+  name: string;
+  website: string;
+  industry: string;
+  seedCompetitors: string[];
+  positioning: string;
+}): Promise<{
+  data: Array<Omit<DbCompetitor, "id" | "brand_id" | "created_at" | "source">>;
+  meta: GenerationMeta;
+}> {
   const prompt = `
 You are doing competitor research for "${input.name}" (${input.website}),
 which positions itself as: "${input.positioning}"
@@ -431,7 +610,7 @@ relative to "${input.name}".
 Prefer direct competitors over adjacent products. Skip the focal brand itself.
 `.trim();
 
-  const result = await generateStructured<{
+  const { data: result, meta } = await generateStructuredFull<{
     competitors: Array<{
       name: string;
       website?: string;
@@ -446,14 +625,17 @@ Prefer direct competitors over adjacent products. Skip the focal brand itself.
     tools: [{ googleSearch: {} }],
   });
 
-  return result.competitors.map((c) => ({
-    name: c.name,
-    website: c.website ?? null,
-    summary: c.summary,
-    positioning: c.positioning ?? null,
-    strengths: c.strengths ?? [],
-    weaknesses: c.weaknesses ?? [],
-  }));
+  return {
+    data: result.competitors.map((c) => ({
+      name: c.name,
+      website: c.website ?? null,
+      summary: c.summary,
+      positioning: c.positioning ?? null,
+      strengths: c.strengths ?? [],
+      weaknesses: c.weaknesses ?? [],
+    })),
+    meta,
+  };
 }
 
 export async function generateSEOBundle(input: {
@@ -467,6 +649,26 @@ export async function generateSEOBundle(input: {
 }): Promise<{
   keywords: Array<Omit<DbKeyword, "id" | "brand_id" | "created_at">>;
   pillars: Array<Omit<DbContentPillar, "id" | "brand_id" | "created_at">>;
+}> {
+  const { data } = await generateSEOBundleFull(input);
+  return data;
+}
+
+/** Usage-tracking variant (no tools — meta carries token counts only). */
+export async function generateSEOBundleFull(input: {
+  name: string;
+  industry: string;
+  positioning: string;
+  audience: string;
+  seedKeywords: string[];
+  services: BrandProfileService[];
+  personas: BrandProfilePersona[];
+}): Promise<{
+  data: {
+    keywords: Array<Omit<DbKeyword, "id" | "brand_id" | "created_at">>;
+    pillars: Array<Omit<DbContentPillar, "id" | "brand_id" | "created_at">>;
+  };
+  meta: GenerationMeta;
 }> {
   const prompt = `
 Generate an SEO + content foundation for "${input.name}".
@@ -493,7 +695,7 @@ Be specific. Pillars should reflect the actual services/personas above, not
 generic "Industry Trends" filler.
 `.trim();
 
-  const result = await generateStructured<{
+  const { data: result, meta } = await generateStructuredFull<{
     keywords: Array<{
       term: string;
       intent: string;
@@ -515,22 +717,25 @@ generic "Industry Trends" filler.
   });
 
   return {
-    keywords: result.keywords.map((k) => ({
-      term: k.term,
-      intent: k.intent,
-      search_volume: k.search_volume ?? null,
-      competition_score: k.competition_score ?? null,
-      trend_score: null,
-      relevance_score: k.relevance_score,
-      opportunity_score: k.opportunity_score,
-    })),
-    pillars: result.content_pillars.map((p) => ({
-      name: p.name,
-      description: p.description,
-      content_types: p.content_types,
-      example_topics: p.example_topics,
-      priority: p.priority,
-    })),
+    data: {
+      keywords: result.keywords.map((k) => ({
+        term: k.term,
+        intent: k.intent,
+        search_volume: k.search_volume ?? null,
+        competition_score: k.competition_score ?? null,
+        trend_score: null,
+        relevance_score: k.relevance_score,
+        opportunity_score: k.opportunity_score,
+      })),
+      pillars: result.content_pillars.map((p) => ({
+        name: p.name,
+        description: p.description,
+        content_types: p.content_types,
+        example_topics: p.example_topics,
+        priority: p.priority,
+      })),
+    },
+    meta,
   };
 }
 
@@ -1054,6 +1259,22 @@ export async function generateBrandTopics(input: {
   pillarHints?: { name: string; example_topics: string[] }[];
   targetCount?: number;              // default 40 — produces a usable batch
 }): Promise<GeneratedBrandTopicBundle> {
+  const { data } = await generateBrandTopicsFull(input);
+  return data;
+}
+
+/** Usage-tracking variant (no tools — meta carries token counts only). */
+export async function generateBrandTopicsFull(input: {
+  brand: {
+    name: string;
+    industry: string | null;
+    profile: BrandProfile;
+  };
+  seedKeywords?: string[];
+  competitorNames?: string[];
+  pillarHints?: { name: string; example_topics: string[] }[];
+  targetCount?: number;
+}): Promise<{ data: GeneratedBrandTopicBundle; meta: GenerationMeta }> {
   const targetCount = input.targetCount ?? 40;
   const { brand } = input;
   const profile = brand.profile;
@@ -1119,7 +1340,7 @@ DO NOT:
 Generate ${targetCount} distinct topics now.
 `.trim();
 
-  return generateStructured<GeneratedBrandTopicBundle>({
+  return generateStructuredFull<GeneratedBrandTopicBundle>({
     prompt,
     schema: generatedBrandTopicBundleSchema,
     label: "generateBrandTopics",

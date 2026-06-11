@@ -410,11 +410,16 @@ export async function POST(req: NextRequest) {
   // as labeled fields instead of having to re-extract them from effectivePrompt.
   let brandForGen: { name: string; industry: string | null } | null = null;
   let topicForGen: { title: string; category: string | null } | null = null;
+  // V2 Phase 1 — videos inherit the idea's evidence grounding (research_documents
+  // ids) so performance can later be attributed back to research sources.
+  let topicGrounding: string[] = [];
 
   if (input.brandId && input.topicId) {
     const { data: topic, error: topicErr } = await admin
       .from("brand_topics")
-      .select("id, brand_id, title, description, category, hook_angle, seed_keyword")
+      .select(
+        "id, brand_id, title, description, category, hook_angle, seed_keyword, grounded_on",
+      )
       .eq("id", input.topicId)
       .eq("brand_id", input.brandId)
       .single();
@@ -469,6 +474,7 @@ export async function POST(req: NextRequest) {
 
     brandIdForJob = brand.id as string;
     topicIdForJob = topic.id as string;
+    topicGrounding = (topic.grounded_on as string[] | null) ?? [];
     // v2 P1 — capture structured brand + topic for downstream calls.
     brandForGen = {
       name: brand.name as string,
@@ -504,6 +510,7 @@ export async function POST(req: NextRequest) {
       status: "queued",
       progress: 0,
       template: provider,
+      grounded_on: topicGrounding,
     })
     .select("id")
     .single();

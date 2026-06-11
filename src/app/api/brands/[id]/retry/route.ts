@@ -173,6 +173,7 @@ export async function POST(
         name: brand.name,
         website: brand.website ?? "",
         industry: brand.industry ?? "",
+        trigger: "retry",
       },
       { jobId: researchJobId },
     );

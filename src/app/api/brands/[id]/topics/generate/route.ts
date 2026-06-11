@@ -153,6 +153,24 @@ export async function POST(
       .eq("status", "draft");
   }
 
+  // V2 Phase 1 — ground regenerated ideas on the brand's freshest website
+  // evidence (coarse, source-set level). Best-effort: brands researched
+  // before migration 010 have no evidence yet → empty grounding.
+  let topicGrounding: string[] = [];
+  try {
+    const { data: evidenceRows } = await admin
+      .from("research_documents")
+      .select("id")
+      .eq("brand_id", brandId)
+      .eq("source_type", "website")
+      .eq("deleted_by_user", false)
+      .order("captured_at", { ascending: false })
+      .limit(12);
+    topicGrounding = (evidenceRows ?? []).map((r) => r.id as string);
+  } catch {
+    // table may not exist yet pre-migration — grounding stays empty
+  }
+
   const { error: insertErr } = await admin.from("brand_topics").insert(
     topics.map((t) => ({
       brand_id: brandId,
@@ -163,6 +181,7 @@ export async function POST(
       hook_angle: t.hook_angle,
       source: "ai-generated",
       status: "draft",
+      grounded_on: topicGrounding,
     })),
   );
 

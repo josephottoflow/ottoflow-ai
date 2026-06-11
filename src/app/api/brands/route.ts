@@ -149,6 +149,7 @@ export async function POST(req: NextRequest) {
         name: brand.name,
         website: brand.website ?? input.website,
         industry: brand.industry ?? input.industry,
+        trigger: "create",
       },
       { jobId: job.id }
     );

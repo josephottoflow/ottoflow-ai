@@ -108,6 +108,9 @@ export interface BrandResearchJobData {
   name: string;
   website: string;
   industry: string;
+  // V2 Phase 1 — recorded on research_runs for traceability. Defaults to
+  // 'create' in the worker when absent (older queued jobs).
+  trigger?: "create" | "retry" | "refresh" | "manual";
 }
 
 export interface ContentGenerationJobData {
