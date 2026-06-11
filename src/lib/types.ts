@@ -338,7 +338,7 @@ export interface DbBrandTopic {
   title: string;
   description: string | null;
   category: BrandTopicCategory | null;
-  source: "ai-generated" | "manual" | "seo-keyword";
+  source: "ai-generated" | "manual" | "seo-keyword" | "evidence-mined";
   status: BrandTopicStatus;
   seed_keyword: string | null;
   hook_angle: string | null;
@@ -352,6 +352,11 @@ export interface DbBrandTopic {
   confidence: number | null;
   /** Rolled-up performance of descendant artifacts (filled by Analyst later). */
   performance: Record<string, unknown>;
+  // V2 Phase 2C — evidence-mined opportunities (migration 013)
+  /** Why this idea exists, written against the cited evidence. */
+  rationale?: string | null;
+  /** Detection lens: pain_point | theme | competitor_gap | trend. */
+  opportunity_kind?: "pain_point" | "theme" | "competitor_gap" | "trend" | null;
 }
 
 // ─── Scene Generations (Phase 6) ─────────────────────────────────────────────

@@ -658,6 +658,147 @@ RULES:
   });
 }
 
+// ─── Opportunity mining (V2 Phase 2C — Intelligence → Ideas) ─────────────────
+// Mines the evidence corpus for content opportunities through four lenses
+// (pain points, repeated themes, competitor gaps, emerging trends). Every
+// opportunity MUST cite the evidence digests [n] that support it — the
+// caller maps those back to research_documents ids and DROPS any idea
+// without valid citations ("grounded ideas only").
+
+export interface EvidenceDigest {
+  /** 1-based reference number shown to the model. */
+  n: number;
+  sourceType: string;
+  domain: string | null;
+  title: string | null;
+  capturedAt: string;
+  /** Summary if enriched, else a content excerpt. */
+  digest: string;
+}
+
+export type OpportunityKind = "pain_point" | "theme" | "competitor_gap" | "trend";
+
+export interface MinedOpportunity {
+  title: string;
+  description: string;
+  category: string;          // existing brand_topics category enum
+  opportunity_kind: OpportunityKind;
+  hook_angle: string;
+  seed_keyword: string;
+  /** Why this opportunity exists — written against the cited evidence. */
+  rationale: string;
+  /** Evidence digest numbers [n] supporting this idea. */
+  evidence_refs: number[];
+  /** Model's own confidence this is a real, distinct opportunity (0-1). */
+  model_confidence: number;
+  /** Alignment with the brand's pillars/positioning (0-1). */
+  strategic_relevance: number;
+}
+
+const minedOpportunitySchema: Schema = {
+  type: Type.OBJECT,
+  required: ["opportunities"],
+  properties: {
+    opportunities: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        required: [
+          "title",
+          "description",
+          "category",
+          "opportunity_kind",
+          "hook_angle",
+          "seed_keyword",
+          "rationale",
+          "evidence_refs",
+          "model_confidence",
+          "strategic_relevance",
+        ],
+        properties: {
+          title: { type: Type.STRING },
+          description: { type: Type.STRING },
+          category: { type: Type.STRING },
+          opportunity_kind: { type: Type.STRING },
+          hook_angle: { type: Type.STRING },
+          seed_keyword: { type: Type.STRING },
+          rationale: { type: Type.STRING },
+          evidence_refs: { type: Type.ARRAY, items: { type: Type.INTEGER } },
+          model_confidence: { type: Type.NUMBER },
+          strategic_relevance: { type: Type.NUMBER },
+        },
+      },
+    },
+  },
+} as Schema;
+
+export async function mineOpportunities(input: {
+  brandName: string;
+  industry: string | null;
+  positioning: string | null;
+  pillars: string[];
+  competitorNames: string[];
+  existingTopicTitles: string[];
+  evidence: EvidenceDigest[];
+  targetCount?: number;
+}): Promise<{ data: { opportunities: MinedOpportunity[] }; meta: GenerationMeta }> {
+  const target = input.targetCount ?? 10;
+  const evidenceBlock = input.evidence
+    .map(
+      (e) =>
+        `[${e.n}] (${e.sourceType}${e.domain ? ` · ${e.domain}` : ""}${
+          e.title ? ` · "${e.title}"` : ""
+        } · ${e.capturedAt.slice(0, 10)})\n${e.digest}`,
+    )
+    .join("\n\n");
+
+  const prompt = `
+Mine this brand's research evidence for the ${target} strongest CONTENT
+OPPORTUNITIES — specific, actionable angles the brand should publish about.
+
+BRAND: ${input.brandName}${input.industry ? ` (${input.industry})` : ""}
+${input.positioning ? `POSITIONING: ${input.positioning}` : ""}
+${input.pillars.length ? `CONTENT PILLARS: ${input.pillars.join(" · ")}` : ""}
+${input.competitorNames.length ? `KNOWN COMPETITORS: ${input.competitorNames.join(", ")}` : ""}
+
+EVIDENCE (each item is one captured research source):
+${evidenceBlock}
+
+DETECTION LENSES — classify each opportunity as exactly one opportunity_kind:
+- pain_point:     a customer pain/objection/frustration visible in the evidence
+- theme:          a message or subject that REPEATS across multiple sources
+- competitor_gap: something competitors don't say/cover that this brand can own
+- trend:          an emerging shift, change, or rising subject in the evidence
+
+HARD RULES:
+- evidence_refs: the [n] numbers that ACTUALLY support the opportunity.
+  Minimum 1. An opportunity you cannot ground in the evidence must not be
+  emitted at all. Prefer 2-4 refs; never list refs that don't support it.
+- rationale: 1-2 sentences explaining WHY this opportunity exists, written
+  against the cited evidence ("Three sources mention X…", "Competitors
+  emphasize Y but never Z…"). No generic filler.
+- model_confidence: how sure you are this is a real, distinct, non-generic
+  opportunity (0.0-1.0). Be honest — a weak single-source hunch is ≤0.4.
+- strategic_relevance: fit with the brand's positioning + pillars (0.0-1.0).
+- category: one of educational | storytelling | ugc | product-demo |
+  listicle | problem-solution | founder-story
+- title ≤70 chars, creator-usable. hook_angle <20 words, scroll-stopping.
+- AVOID duplicating these existing topics: ${
+    input.existingTopicTitles.slice(0, 40).join(" | ") || "(none)"
+  }
+- Quality over quantity: if the evidence only supports 5 strong
+  opportunities, return 5.
+`.trim();
+
+  return generateStructuredFull<{ opportunities: MinedOpportunity[] }>({
+    prompt,
+    schema: minedOpportunitySchema,
+    label: "mineOpportunities",
+    systemInstruction:
+      "You are a content strategist who works ONLY from evidence. Every opportunity you surface is grounded in the supplied research, cited precisely, and explained plainly. You never pad the list with generic ideas.",
+  });
+}
+
 /** Embed a single query for retrieval (RETRIEVAL_QUERY task type). */
 export async function embedQuery(text: string): Promise<number[] | null> {
   try {

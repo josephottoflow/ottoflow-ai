@@ -35,6 +35,7 @@ import type {
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { AskResearch } from "@/components/AskResearch";
+import { OpportunityFeed } from "@/components/OpportunityFeed";
 
 interface Props {
   initialBrand: DbBrand;
@@ -239,6 +240,12 @@ export function BrandDetailClient({
           <ProfileSection brand={brand} />
           {/* V2 Phase 2A — grounded Q&A over the brand's evidence store */}
           <AskResearch brandId={brand.id} brandReady={!!isReady} />
+          {/* V2 Phase 2C — evidence-mined content opportunities */}
+          <OpportunityFeed
+            brandId={brand.id}
+            topics={topics}
+            onNewIdeas={(ideas) => setTopics((prev) => [...ideas, ...prev])}
+          />
           {competitors.length > 0 && <CompetitorsSection competitors={competitors} />}
           {keywords.length > 0 && <KeywordsSection keywords={keywords} />}
           {pillars.length > 0 && <PillarsSection pillars={pillars} />}
