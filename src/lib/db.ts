@@ -552,3 +552,169 @@ export async function getAIBurnSeries(
     [],
   );
 }
+
+// ─── Content Performance (Analytics Ingestion v1) ────────────────────────────
+// Published items + latest metric snapshots, joined to the intelligence graph
+// (topics → lenses, grounded_on → evidence domains). Aggregation happens in
+// JS — at current volumes (≤200 published items) this beats adding SQL
+// surface. RLS scopes everything via the Clerk-authenticated client.
+
+export interface PerfItem {
+  id: string;
+  title: string;
+  platform: string;
+  brandName: string | null;
+  publishedAt: string | null;
+  publishedUrl: string | null;
+  impressions: number | null;
+  engagementRate: number | null;
+  likes: number | null;
+  comments: number | null;
+  shares: number | null;
+  clicks: number | null;
+  topicTitle: string | null;
+  opportunityKind: string | null;
+}
+
+export interface PerfGroup {
+  key: string;
+  posts: number;
+  withMetrics: number;
+  totalImpressions: number;
+  avgER: number | null;
+}
+
+export interface ContentPerformanceData {
+  items: PerfItem[];
+  byBrand: PerfGroup[];
+  byPlatform: PerfGroup[];
+  byTopic: PerfGroup[];
+  byLens: PerfGroup[];
+  byEvidenceDomain: PerfGroup[];
+}
+
+const EMPTY_PERF: ContentPerformanceData = {
+  items: [],
+  byBrand: [],
+  byPlatform: [],
+  byTopic: [],
+  byLens: [],
+  byEvidenceDomain: [],
+};
+
+export async function getContentPerformance(): Promise<ContentPerformanceData> {
+  return safe("getContentPerformance", async () => {
+    const sb = await createServerSupabaseClient();
+
+    const [{ data: items }, { data: brands }, { data: metrics }] = await Promise.all([
+      sb
+        .from("content_items")
+        .select("id, title, platform, brand_id, topic_id, grounded_on, published_at, published_url")
+        .eq("status", "published")
+        .order("published_at", { ascending: false })
+        .limit(200),
+      sb.from("brands").select("id, name"),
+      sb.from("content_latest_metrics").select("*"),
+    ]);
+    if (!items || items.length === 0) return EMPTY_PERF;
+
+    const brandName = new Map((brands ?? []).map((b) => [b.id as string, b.name as string]));
+    const metric = new Map(
+      ((metrics ?? []) as Array<Record<string, unknown>>).map((m) => [
+        m.content_item_id as string,
+        m,
+      ]),
+    );
+
+    // Topic + lens lookups for the published set
+    const topicIds = [...new Set(items.map((i) => i.topic_id).filter(Boolean))] as string[];
+    const topicById = new Map<string, { title: string; kind: string | null }>();
+    if (topicIds.length > 0) {
+      const { data: topics } = await sb
+        .from("brand_topics")
+        .select("id, title, opportunity_kind")
+        .in("id", topicIds);
+      for (const t of topics ?? []) {
+        topicById.set(t.id as string, {
+          title: t.title as string,
+          kind: (t.opportunity_kind as string | null) ?? null,
+        });
+      }
+    }
+
+    // Evidence domains for the union of grounded_on ids (capped)
+    const evidenceIds = [
+      ...new Set(items.flatMap((i) => ((i.grounded_on as string[] | null) ?? []))),
+    ].slice(0, 400);
+    const domainByDoc = new Map<string, string>();
+    if (evidenceIds.length > 0) {
+      const { data: docs } = await sb
+        .from("research_documents")
+        .select("id, domain")
+        .in("id", evidenceIds);
+      for (const d of docs ?? []) {
+        if (d.domain) domainByDoc.set(d.id as string, d.domain as string);
+      }
+    }
+
+    const perf: PerfItem[] = items.map((i) => {
+      const m = metric.get(i.id as string);
+      const topic = i.topic_id ? topicById.get(i.topic_id as string) : undefined;
+      return {
+        id: i.id as string,
+        title: i.title as string,
+        platform: (i.platform as string) ?? "unknown",
+        brandName: i.brand_id ? (brandName.get(i.brand_id as string) ?? null) : null,
+        publishedAt: (i.published_at as string | null) ?? null,
+        publishedUrl: (i.published_url as string | null) ?? null,
+        impressions: (m?.impressions as number | null) ?? null,
+        engagementRate: m?.engagement_rate != null ? Number(m.engagement_rate) : null,
+        likes: (m?.likes as number | null) ?? null,
+        comments: (m?.comments as number | null) ?? null,
+        shares: (m?.shares as number | null) ?? null,
+        clicks: (m?.clicks as number | null) ?? null,
+        topicTitle: topic?.title ?? null,
+        opportunityKind: topic?.kind ?? null,
+      };
+    });
+
+    function rollup(keyFn: (p: PerfItem) => Array<string | null>): PerfGroup[] {
+      const groups = new Map<string, { posts: number; withMetrics: number; imp: number; ers: number[] }>();
+      for (const p of perf) {
+        for (const key of keyFn(p)) {
+          if (!key) continue;
+          const g = groups.get(key) ?? { posts: 0, withMetrics: 0, imp: 0, ers: [] };
+          g.posts++;
+          if (p.engagementRate != null || p.impressions != null) g.withMetrics++;
+          g.imp += p.impressions ?? 0;
+          if (p.engagementRate != null) g.ers.push(p.engagementRate);
+          groups.set(key, g);
+        }
+      }
+      return [...groups.entries()]
+        .map(([key, g]) => ({
+          key,
+          posts: g.posts,
+          withMetrics: g.withMetrics,
+          totalImpressions: g.imp,
+          avgER: g.ers.length
+            ? Number((g.ers.reduce((a, b) => a + b, 0) / g.ers.length).toFixed(4))
+            : null,
+        }))
+        .sort((a, b) => (b.avgER ?? -1) - (a.avgER ?? -1));
+    }
+
+    return {
+      items: perf,
+      byBrand: rollup((p) => [p.brandName]),
+      byPlatform: rollup((p) => [p.platform]),
+      byTopic: rollup((p) => [p.topicTitle]),
+      byLens: rollup((p) => [p.opportunityKind]),
+      byEvidenceDomain: rollup((p) => {
+        const item = items.find((i) => i.id === p.id);
+        const ids = (item?.grounded_on as string[] | null) ?? [];
+        return [...new Set(ids.map((id) => domainByDoc.get(id) ?? null))];
+      }),
+    };
+  }, EMPTY_PERF);
+}

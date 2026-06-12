@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export default async function PublishingQueuePage() {
   const sb = await createServerSupabaseClient();
 
-  const [{ data: items }, { data: brands }] = await Promise.all([
+  const [{ data: items }, { data: brands }, { data: latestMetrics }] = await Promise.all([
     sb
       .from("content_items")
       .select(
@@ -20,7 +20,17 @@ export default async function PublishingQueuePage() {
       .order("created_at", { ascending: false })
       .limit(200),
     sb.from("brands").select("id, name"),
+    // Analytics v1 — latest snapshot per item (security_invoker view, mig 016).
+    // Best-effort: pre-migration this select fails → metrics simply absent.
+    sb.from("content_latest_metrics").select("*"),
   ]);
+
+  const metricsByItem = new Map<string, Record<string, unknown>>(
+    ((latestMetrics ?? []) as Array<Record<string, unknown>>).map((m) => [
+      m.content_item_id as string,
+      m,
+    ]),
+  );
 
   const brandNames = new Map<string, string>(
     (brands ?? []).map((b) => [b.id as string, b.name as string]),
@@ -40,6 +50,18 @@ export default async function PublishingQueuePage() {
     publishedUrl: (i.published_url as string | null) ?? null,
     publishingMethod: (i.publishing_method as string | null) ?? null,
     createdAt: i.created_at as string,
+    metrics: (() => {
+      const m = metricsByItem.get(i.id as string);
+      if (!m) return null;
+      return {
+        impressions: (m.impressions as number | null) ?? null,
+        likes: (m.likes as number | null) ?? null,
+        comments: (m.comments as number | null) ?? null,
+        shares: (m.shares as number | null) ?? null,
+        engagementRate: (m.engagement_rate as number | null) ?? null,
+        capturedAt: m.captured_at as string,
+      };
+    })(),
   }));
 
   return <PublishingQueueClient initialItems={publishItems} />;

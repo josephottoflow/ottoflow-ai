@@ -1,10 +1,13 @@
 import { KPICard } from "@/components/KPICard";
 import { UsageChart } from "@/components/UsageChart";
+import { MetricsQuickEntry } from "@/components/MetricsQuickEntry";
 import {
   getAnalyticsData,
   getKPISummary,
   getProviderAnalytics,
   getAIBurnSeries,
+  getContentPerformance,
+  type PerfGroup,
 } from "@/lib/db";
 import { formatNumber } from "@/lib/utils";
 import {
@@ -39,12 +42,20 @@ function statusBadgeForRate(rate: number) {
 }
 
 export default async function AnalyticsPage() {
-  const [kpis, chartData, providerStats, burnSeries] = await Promise.all([
+  const [kpis, chartData, providerStats, burnSeries, perf] = await Promise.all([
     getKPISummary(),
     getAnalyticsData(14),
     getProviderAnalytics(14),
     getAIBurnSeries(14),
+    getContentPerformance(),
   ]);
+
+  const withER = perf.items.filter((i) => i.engagementRate != null);
+  const topPosts = [...withER].sort((a, b) => b.engagementRate! - a.engagementRate!).slice(0, 5);
+  const bottomPosts =
+    withER.length > 1
+      ? [...withER].sort((a, b) => a.engagementRate! - b.engagementRate!).slice(0, Math.min(5, withER.length - 1))
+      : [];
 
   const totalContent14d = chartData.reduce((acc, p) => acc + p.content, 0);
   const totalVideos14d  = chartData.reduce((acc, p) => acc + p.videos,  0);
@@ -273,6 +284,141 @@ export default async function AnalyticsPage() {
           </div>
         )}
       </div>
+
+      {/* ─── Content Performance (Analytics Ingestion v1) ─────────────── */}
+      <div className="mt-8 mb-4 flex items-center gap-2">
+        <h2 className="text-lg font-bold text-white">Content performance</h2>
+        <span className="text-2xs text-white/40">
+          {perf.items.length} published · {withER.length} with metrics
+        </span>
+      </div>
+
+      <div className="mb-5">
+        <MetricsQuickEntry />
+      </div>
+
+      {perf.items.length === 0 ? (
+        <div className="glass rounded-2xl p-6 text-xs text-white/40">
+          Nothing published yet — publish posts from the Publishing queue, then record
+          their metrics here.
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 mb-5">
+            <PostList title="Top performing posts" items={topPosts} emptyHint="Record metrics on a published post to rank it here." />
+            <PostList title="Lowest performing posts" items={bottomPosts} emptyHint="Needs at least two posts with metrics." />
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 mb-5">
+            <GroupTable title="Performance by brand" groups={perf.byBrand} keyLabel="Brand" />
+            <GroupTable title="Performance by platform" groups={perf.byPlatform} keyLabel="Platform" />
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+            <GroupTable title="Best topics" groups={perf.byTopic.slice(0, 6)} keyLabel="Topic" compact />
+            <GroupTable title="Best opportunity lenses" groups={perf.byLens.slice(0, 6)} keyLabel="Lens" compact />
+            <GroupTable title="Best evidence sources" groups={perf.byEvidenceDomain.slice(0, 6)} keyLabel="Source domain" compact />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Content-performance presentation helpers ────────────────────────────────
+
+function PostList({
+  title,
+  items,
+  emptyHint,
+}: {
+  title: string;
+  items: Array<{
+    id: string;
+    title: string;
+    platform: string;
+    brandName: string | null;
+    impressions: number | null;
+    engagementRate: number | null;
+  }>;
+  emptyHint: string;
+}) {
+  return (
+    <div className="glass rounded-2xl p-5">
+      <h3 className="text-sm font-semibold text-white mb-3">{title}</h3>
+      {items.length === 0 ? (
+        <p className="text-xs text-white/35 py-4">{emptyHint}</p>
+      ) : (
+        <div className="space-y-2">
+          {items.map((p) => (
+            <div key={p.id} className="flex items-center gap-2.5 rounded-lg bg-white/[0.02] border border-white/5 px-3 py-2">
+              <Badge variant="outline" className="text-3xs shrink-0">{p.platform}</Badge>
+              <span className="text-xs text-white/75 truncate flex-1">{p.title}</span>
+              {p.brandName && <span className="text-3xs text-white/30 shrink-0">{p.brandName}</span>}
+              {p.impressions != null && (
+                <span className="text-3xs text-white/45 shrink-0">{formatNumber(p.impressions)} imp</span>
+              )}
+              <span className="text-xs font-semibold text-emerald-400 shrink-0">
+                {p.engagementRate != null ? `${(p.engagementRate * 100).toFixed(2)}%` : "—"}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GroupTable({
+  title,
+  groups,
+  keyLabel,
+  compact,
+}: {
+  title: string;
+  groups: PerfGroup[];
+  keyLabel: string;
+  compact?: boolean;
+}) {
+  const rows = groups.filter((g) => g.posts > 0);
+  return (
+    <div className="glass rounded-2xl p-5">
+      <h3 className="text-sm font-semibold text-white mb-3">{title}</h3>
+      {rows.length === 0 ? (
+        <p className="text-xs text-white/35 py-4">No data yet.</p>
+      ) : (
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-white/40 border-b border-white/[0.06]">
+              <th className="text-left font-semibold py-1.5 pr-2">{keyLabel}</th>
+              <th className="text-right font-semibold py-1.5 px-2">Posts</th>
+              {!compact && <th className="text-right font-semibold py-1.5 px-2">Impressions</th>}
+              <th className="text-right font-semibold py-1.5 pl-2">Avg ER</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((g) => (
+              <tr key={g.key} className="border-b border-white/[0.03]">
+                <td className="py-1.5 pr-2 text-white/75 truncate max-w-[180px]">{g.key}</td>
+                <td className="text-right py-1.5 px-2 text-white/60">
+                  {g.posts}
+                  {g.withMetrics < g.posts && (
+                    <span className="text-white/25"> ({g.withMetrics}✓)</span>
+                  )}
+                </td>
+                {!compact && (
+                  <td className="text-right py-1.5 px-2 text-white/60">
+                    {formatNumber(g.totalImpressions)}
+                  </td>
+                )}
+                <td className="text-right py-1.5 pl-2 font-medium text-emerald-400">
+                  {g.avgER != null ? `${(g.avgER * 100).toFixed(2)}%` : "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }

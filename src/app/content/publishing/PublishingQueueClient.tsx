@@ -22,9 +22,19 @@ import {
   ChevronDown,
   ChevronUp,
   Loader2,
+  BarChart3,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+
+export interface ItemMetrics {
+  impressions: number | null;
+  likes: number | null;
+  comments: number | null;
+  shares: number | null;
+  engagementRate: number | null;
+  capturedAt: string;
+}
 
 export interface PublishItem {
   id: string;
@@ -40,6 +50,130 @@ export interface PublishItem {
   publishedUrl: string | null;
   publishingMethod: string | null;
   createdAt: string;
+  metrics: ItemMetrics | null;
+}
+
+const METRIC_FIELDS = [
+  "impressions",
+  "reach",
+  "likes",
+  "comments",
+  "shares",
+  "saves",
+  "clicks",
+] as const;
+
+/** Inline manual metrics entry for a published item (Analytics v1). */
+function MetricsEntry({
+  itemId,
+  onSaved,
+}: {
+  itemId: string;
+  onSaved: (m: ItemMetrics) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [vals, setVals] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    const payload: Record<string, number> = {};
+    for (const f of METRIC_FIELDS) {
+      const v = vals[f]?.trim();
+      if (v) {
+        const n = Number(v);
+        if (!Number.isInteger(n) || n < 0) {
+          setError(`${f} must be a non-negative whole number`);
+          return;
+        }
+        payload[f] = n;
+      }
+    }
+    if (Object.keys(payload).length === 0) {
+      setError("Enter at least one metric.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/content/${itemId}/metrics`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError((data as { error?: string }).error ?? "Failed to save");
+        return;
+      }
+      onSaved({
+        impressions: payload.impressions ?? null,
+        likes: payload.likes ?? null,
+        comments: payload.comments ?? null,
+        shares: payload.shares ?? null,
+        engagementRate:
+          (data.snapshot as { engagement_rate: number | null })?.engagement_rate ?? null,
+        capturedAt: new Date().toISOString(),
+      });
+      setOpen(false);
+      setVals({});
+    } catch {
+      setError("Network error — try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => setOpen(true)}
+        className="h-7 gap-1 text-2xs"
+      >
+        <BarChart3 size={11} />
+        Add metrics
+      </Button>
+    );
+  }
+  return (
+    <div className="w-full mt-1">
+      <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5 mb-2">
+        {METRIC_FIELDS.map((f) => (
+          <div key={f}>
+            <label className="block text-3xs text-white/35 capitalize mb-0.5" htmlFor={`m-${itemId}-${f}`}>
+              {f}
+            </label>
+            <input
+              id={`m-${itemId}-${f}`}
+              type="number"
+              min={0}
+              value={vals[f] ?? ""}
+              onChange={(e) => setVals((p) => ({ ...p, [f]: e.target.value }))}
+              className="w-full rounded-md bg-white/[0.04] border border-white/10 px-1.5 py-1 text-2xs text-white focus:outline-none focus:border-violet-500/50"
+            />
+          </div>
+        ))}
+      </div>
+      {error && <p className="text-2xs text-red-400 mb-1.5">{error}</p>}
+      <div className="flex items-center gap-2">
+        <Button size="sm" onClick={() => void save()} disabled={busy} className="h-7 text-2xs">
+          {busy ? <Loader2 size={11} className="animate-spin" /> : "Save metrics"}
+        </Button>
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(false);
+            setError(null);
+          }}
+          className="text-2xs text-white/40 hover:text-white/70"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
 }
 
 const PLATFORM_LABEL: Record<string, string> = {
@@ -75,12 +209,14 @@ function fmtDateTime(iso: string | null): string {
 function ItemCard({
   item,
   onAction,
+  onMetricsSaved,
 }: {
   item: PublishItem;
   onAction: (
     id: string,
     body: Record<string, unknown>,
   ) => Promise<string | null>;
+  onMetricsSaved: (id: string, m: ItemMetrics) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -211,6 +347,26 @@ function ItemCard({
               {item.hashtags.map((h) => `#${h.replace(/^#/, "")}`).join(" ")}
             </p>
           )}
+        </div>
+      )}
+
+      {item.status === "published" && (
+        <div className="mt-3 border-t border-white/5 pt-3">
+          {item.metrics && (
+            <p className="text-2xs text-white/55 mb-2">
+              <span className="text-white/30">Latest metrics: </span>
+              {item.metrics.impressions != null && `${item.metrics.impressions.toLocaleString()} impressions · `}
+              {item.metrics.likes != null && `${item.metrics.likes} likes · `}
+              {item.metrics.comments != null && `${item.metrics.comments} comments · `}
+              {item.metrics.shares != null && `${item.metrics.shares} shares · `}
+              {item.metrics.engagementRate != null && (
+                <span className="text-emerald-400">
+                  {(item.metrics.engagementRate * 100).toFixed(2)}% ER
+                </span>
+              )}
+            </p>
+          )}
+          <MetricsEntry itemId={item.id} onSaved={(m) => onMetricsSaved(item.id, m)} />
         </div>
       )}
 
@@ -436,7 +592,14 @@ export function PublishingQueueClient({ initialItems }: { initialItems: PublishI
       ) : (
         <div className="space-y-2.5">
           {visible.map((item) => (
-            <ItemCard key={item.id} item={item} onAction={onAction} />
+            <ItemCard
+              key={item.id}
+              item={item}
+              onAction={onAction}
+              onMetricsSaved={(id, m) =>
+                setItems((prev) => prev.map((i) => (i.id === id ? { ...i, metrics: m } : i)))
+              }
+            />
           ))}
         </div>
       )}
