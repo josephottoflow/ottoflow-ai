@@ -26,6 +26,7 @@ import {
   Sparkles,
   RefreshCw,
   Settings2,
+  ClipboardCheck,
 } from "lucide-react";
 
 const workflowSteps = [
@@ -90,6 +91,13 @@ export function ContentPageClient({ items, kpis }: Props) {
             <Button variant="outline" size="sm" className="gap-1.5">
               <Settings2 size={14} />
               Configure
+            </Button>
+          </Link>
+          {/* Review Queue (V2 Phase 2) — generated posts land there for approval */}
+          <Link href="/content/review">
+            <Button variant="outline" size="sm" className="gap-1.5">
+              <ClipboardCheck size={14} />
+              Review Queue
             </Button>
           </Link>
           <Link href="/content/generate">

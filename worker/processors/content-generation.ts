@@ -186,6 +186,17 @@ export async function processContentGeneration(
           hashtags: generated.hashtags ?? [],
           cta: generated.cta ?? null,
         },
+        // Review Queue (migration 014): a successfully generated post enters
+        // the queue automatically — generation IS the submission.
+        status: "in_review",
+        status_history: [
+          {
+            from: "draft",
+            to: "in_review",
+            at: new Date().toISOString(),
+            by: "worker",
+          },
+        ],
       })
       .eq("id", contentItemId);
 

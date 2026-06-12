@@ -2,7 +2,23 @@
 
 export type ProjectStatus = "active" | "completed" | "draft" | "paused";
 export type PipelineType = "content" | "video";
-export type ContentStatus = "draft" | "approved" | "published" | "scheduled";
+// Review Queue (migration 014): draft → in_review → approved/rejected;
+// scheduled/published are reserved for the future publisher.
+export type ContentStatus =
+  | "draft"
+  | "in_review"
+  | "approved"
+  | "rejected"
+  | "scheduled"
+  | "published";
+
+export interface StatusHistoryEntry {
+  from: string;
+  to: string;
+  at: string;
+  by: "user" | "worker" | "system";
+  note?: string;
+}
 export type RenderStatus = "queued" | "rendering" | "done" | "failed";
 export type ContentPlatform =
   | "linkedin"
@@ -113,6 +129,10 @@ export interface DbContentItem {
   // Optional: rows predating the migrations / non-idea-driven posts.
   grounded_on?: string[];
   topic_id?: string | null;
+  // Review Queue (migration 014)
+  review_note?: string | null;
+  reviewed_at?: string | null;
+  status_history?: StatusHistoryEntry[];
 }
 
 export interface DbRenderJob {
