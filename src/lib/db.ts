@@ -718,3 +718,37 @@ export async function getContentPerformance(): Promise<ContentPerformanceData> {
     };
   }, EMPTY_PERF);
 }
+
+// ─── Lens inventory (Optimization Recommendations v1) ────────────────────────
+// Mined-opportunity pool by detection lens: how many ideas exist per lens and
+// how many are still unused — feeds the "underused high-performing lens" rule.
+
+import type { LensInventoryRow } from "./recommendations";
+
+export async function getLensInventory(): Promise<LensInventoryRow[]> {
+  return safe("getLensInventory", async () => {
+    const sb = await createServerSupabaseClient();
+    const { data: topics } = await sb
+      .from("brand_topics")
+      .select("title, opportunity_kind, status, use_count")
+      .eq("source", "evidence-mined")
+      .neq("status", "archived")
+      .limit(500);
+
+    const byKind = new Map<string, LensInventoryRow>();
+    for (const t of topics ?? []) {
+      const kind = (t.opportunity_kind as string | null) ?? "theme";
+      const row =
+        byKind.get(kind) ?? { kind, total: 0, used: 0, unused: 0, unusedSamples: [] };
+      row.total++;
+      const used = (t.use_count as number | null ?? 0) > 0 || t.status === "used";
+      if (used) row.used++;
+      else {
+        row.unused++;
+        if (row.unusedSamples.length < 3) row.unusedSamples.push(t.title as string);
+      }
+      byKind.set(kind, row);
+    }
+    return [...byKind.values()];
+  }, []);
+}

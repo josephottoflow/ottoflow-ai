@@ -7,8 +7,10 @@ import {
   getProviderAnalytics,
   getAIBurnSeries,
   getContentPerformance,
+  getLensInventory,
   type PerfGroup,
 } from "@/lib/db";
+import { generateRecommendations, type Recommendation } from "@/lib/recommendations";
 import { formatNumber } from "@/lib/utils";
 import {
   TrendingUp,
@@ -42,13 +44,17 @@ function statusBadgeForRate(rate: number) {
 }
 
 export default async function AnalyticsPage() {
-  const [kpis, chartData, providerStats, burnSeries, perf] = await Promise.all([
-    getKPISummary(),
-    getAnalyticsData(14),
-    getProviderAnalytics(14),
-    getAIBurnSeries(14),
-    getContentPerformance(),
-  ]);
+  const [kpis, chartData, providerStats, burnSeries, perf, lensInventory] =
+    await Promise.all([
+      getKPISummary(),
+      getAnalyticsData(14),
+      getProviderAnalytics(14),
+      getAIBurnSeries(14),
+      getContentPerformance(),
+      getLensInventory(),
+    ]);
+
+  const recommendations = generateRecommendations(perf, lensInventory);
 
   const withER = perf.items.filter((i) => i.engagementRate != null);
   const topPosts = [...withER].sort((a, b) => b.engagementRate! - a.engagementRate!).slice(0, 5);
@@ -297,6 +303,27 @@ export default async function AnalyticsPage() {
         <MetricsQuickEntry />
       </div>
 
+      {/* Optimization Recommendations v1 — rule-based, recomputed per load */}
+      {recommendations.length > 0 && (
+        <div className="glass rounded-2xl p-5 mb-5">
+          <div className="flex items-center gap-2 mb-1">
+            <h3 className="text-sm font-semibold text-white">Recommendations</h3>
+            <span className="text-3xs text-white/30">
+              derived from your performance data · refreshed on every visit
+            </span>
+          </div>
+          <p className="text-2xs text-white/35 mb-4">
+            Each recommendation shows its reasoning and the data behind it. “Early signal”
+            means the sample is still small — treat it as a hint, not a verdict.
+          </p>
+          <div className="space-y-3">
+            {recommendations.map((rec) => (
+              <RecCard key={rec.id} rec={rec} />
+            ))}
+          </div>
+        </div>
+      )}
+
       {perf.items.length === 0 ? (
         <div className="glass rounded-2xl p-6 text-xs text-white/40">
           Nothing published yet — publish posts from the Publishing queue, then record
@@ -326,6 +353,59 @@ export default async function AnalyticsPage() {
 }
 
 // ─── Content-performance presentation helpers ────────────────────────────────
+
+const REC_KIND_META: Record<Recommendation["kind"], { label: string; className: string }> = {
+  topic: { label: "Topic", className: "text-violet-300 border-violet-500/40 bg-violet-500/10" },
+  lens: { label: "Opportunity lens", className: "text-amber-300 border-amber-500/40 bg-amber-500/10" },
+  evidence: { label: "Evidence", className: "text-cyan-300 border-cyan-500/40 bg-cyan-500/10" },
+  platform: { label: "Platform", className: "text-emerald-300 border-emerald-500/40 bg-emerald-500/10" },
+  hygiene: { label: "Data quality", className: "text-white/50 border-white/15 bg-white/5" },
+};
+
+function RecCard({ rec }: { rec: Recommendation }) {
+  const meta = REC_KIND_META[rec.kind];
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3.5">
+      <div className="flex items-center gap-2 flex-wrap mb-1">
+        <span className={`rounded-full border px-2 py-0.5 text-3xs font-medium ${meta.className}`}>
+          {meta.label}
+        </span>
+        {rec.earlySignal && (
+          <span className="rounded-full border border-white/15 px-2 py-0.5 text-3xs text-white/40">
+            early signal
+          </span>
+        )}
+      </div>
+      <p className="text-sm font-medium text-white/90">{rec.action}</p>
+      <p className="text-xs text-white/55 leading-relaxed mt-1">
+        <span className="text-white/30">Why: </span>
+        {rec.why}
+      </p>
+      {rec.metrics.length > 0 && (
+        <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+          {rec.metrics.map((m) => (
+            <span key={m.label} className="text-2xs text-white/45">
+              <span className="text-white/30">{m.label}:</span>{" "}
+              <span className="text-white/70">{m.value}</span>
+            </span>
+          ))}
+        </div>
+      )}
+      {rec.examples.length > 0 && (
+        <div className="mt-2 space-y-1">
+          {rec.examples.map((e, i) => (
+            <p key={i} className="text-2xs text-white/40 truncate">
+              · {e.title}
+              {e.er != null && (
+                <span className="text-emerald-400/80"> — {(e.er * 100).toFixed(2)}% ER</span>
+              )}
+            </p>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function PostList({
   title,
