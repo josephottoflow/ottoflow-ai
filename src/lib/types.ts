@@ -133,6 +133,13 @@ export interface DbContentItem {
   review_note?: string | null;
   reviewed_at?: string | null;
   status_history?: StatusHistoryEntry[];
+  // Publisher Foundation v1 (migration 015)
+  scheduled_for?: string | null;
+  published_at?: string | null;
+  published_url?: string | null;
+  platform_post_id?: string | null;
+  /** 'manual' in v1; 'linkedin_api' | 'x_api' | 'facebook_api' | … later. */
+  publishing_method?: string | null;
 }
 
 export interface DbRenderJob {

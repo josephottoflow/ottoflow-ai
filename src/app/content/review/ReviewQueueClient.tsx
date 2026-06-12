@@ -12,6 +12,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
+  ArrowRight,
   Check,
   X,
   Undo2,
@@ -296,6 +297,13 @@ export function ReviewQueueClient({ initialItems }: { initialItems: ReviewItem[]
       <div className="flex items-center gap-2 mb-1">
         <ClipboardCheck size={18} className="text-emerald-400" />
         <h1 className="text-2xl font-bold text-white tracking-tight">Review Queue</h1>
+        <Link
+          href="/content/publishing"
+          className="ml-auto inline-flex items-center gap-1 text-2xs text-white/45 hover:text-white/75 transition-colors"
+        >
+          Publishing
+          <ArrowRight size={11} />
+        </Link>
       </div>
       <p className="text-sm text-white/40 mb-6">
         Every generated post lands here. Approve it, reject it, or send it back with a note —
