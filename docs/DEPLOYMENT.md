@@ -254,4 +254,58 @@ These come in subsequent remediation steps:
 - **Sentry / observability wiring** (M1 — Phase 5)
 - **Rate limiting** (H2 — Phase 4)
 - **Clerk webhooks for user-delete cleanup** (H10 — Phase 4)
-- **Final deployment checklist + rollback plan** (Phase 6)
+- **Final deployment checklist + rollback plan** (Phase 6) → now exists: see below + RELEASE_CHECKLIST.md
+
+---
+
+# Operational procedures (added 2026-06-13, infra-hardening pass)
+
+Companion docs: [ACCESS.md](./ACCESS.md) (credentials/access matrix) ·
+[RELEASE_CHECKLIST.md](./RELEASE_CHECKLIST.md) (the codified release order).
+
+## Release flow
+
+```
+git push origin feat/ffmpeg-multi-agent-pipeline && git push origin HEAD:main
+ ├─► Vercel  — app          ~2-4 min to READY (verify via API: state READY + SHA)
+ └─► Railway — worker+Redis  ~5-15+ min (verify: service card ACTIVE = new commit
+                             message + "Deployment successful" BEFORE functional tests —
+                             a job picked up mid-swap runs on the OLD worker)
+```
+⚠️ Every push to main triggers a Railway build (burns credits) — batch doc-only
+changes with feature pushes while on metered credits.
+
+## Migration workflow
+
+**Target (after ACCESS.md one-time setup):** `npx supabase db push` — applies
+`supabase/migrations/*` in order; no dashboard involved.
+**Interim:** dashboard SQL editor (paste file → Run; the "destructive operation"
+modal is expected when the only DROPs are `DROP POLICY/CONSTRAINT IF EXISTS`
+idempotency guards).
+**Break-glass:** node + `pg` (installed in repo root) against `SUPABASE_DB_URL`.
+
+Rules (learned in production):
+1. Migrations are idempotent (`IF NOT EXISTS` / `OR REPLACE` / guarded `DO`) and additive-only.
+2. **Migrate BEFORE pushing** whenever code WRITES new columns/values (e.g. 014:
+   worker writes `in_review`; 010: brands finalize-update). Exception: purely
+   additive columns nothing existing writes (e.g. 015) — code-first is safe;
+   only the new feature's actions fail until the migration lands.
+3. Schema verification without dashboard: anon-key REST probes —
+   `GET /rest/v1/<table>?select=<col>&limit=1` → 200 exists · PGRST205 no table ·
+   42703 no column; RPCs: PGRST202 = missing.
+
+## Rollback
+
+- **Code:** `git revert <sha>` + push (never force-push main); Vercel also offers
+  instant rollback to a prior deployment; Railway: deployment History → Redeploy.
+- **Migrations:** never rolled back (additive-only rule) — unused columns are
+  inert; reverting code is sufficient.
+
+## Known platform behaviors
+
+- Supabase dashboard can hard-fail (2026-06-13: assets 200, zero API calls, blank
+  body) — the reason ACCESS.md's CLI/token setup is mandatory.
+- Supabase Realtime unreliable on content tables → UIs use 2.5s polling fallbacks.
+- Local `next build` fails at env collection (expected — no NEXT_PUBLIC_* locally);
+  local gates are `npx tsc --noEmit` + `npm run build:worker`. Ignore the known
+  tsc error in untracked `scripts/create-sentry-alert-rules.ts`.
