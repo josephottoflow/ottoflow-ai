@@ -35,6 +35,7 @@ import type {
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { AskResearch } from "@/components/AskResearch";
+import { BrandAssets } from "@/components/BrandAssets";
 import { OpportunityFeed } from "@/components/OpportunityFeed";
 
 interface Props {
@@ -203,6 +204,12 @@ export function BrandDetailClient({
           </div>
         </div>
         <StatusPill status={brand.status} />
+      </div>
+
+      {/* Brand asset library (Creative Orchestrator Phase A) — independent of
+          research state, so it renders for pending/researching brands too. */}
+      <div className="mb-6">
+        <BrandAssets brandId={brand.id} />
       </div>
 
       {/* Live progress card */}

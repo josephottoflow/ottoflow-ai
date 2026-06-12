@@ -49,6 +49,7 @@
     "react-dom": "^19.0.0",
     "recharts": "^2.13.3",
     "remotion": "^4.0.455",
+    "sharp": "^0.35.1",
     "tailwind-merge": "^2.5.4",
     "tailwindcss-animate": "^1.0.7",
     "zod": "^3.23.8"

@@ -213,6 +213,29 @@ export interface DbBrand {
   last_research_run_id: string | null;
 }
 
+// ─── Brand Assets (Creative Orchestrator Phase A — migration 017) ───────────
+// User-uploaded LOCKED assets. Bytes are immutable, never sent to AI models,
+// and the compositor may only resize/crop/mask/position them (see migration
+// 017 header for the full safety contract).
+
+export type BrandAssetKind = "logo" | "headshot" | "product";
+
+export interface DbBrandAsset {
+  id: string;
+  brand_id: string;
+  kind: BrandAssetKind;
+  /** For headshots this carries the person's display name (e.g. "Jane Doe — Founder"). */
+  label: string | null;
+  storage_path: string;
+  public_url: string;
+  mime_type: string;
+  byte_size: number;
+  width: number | null;
+  height: number | null;
+  has_alpha: boolean | null;
+  created_at: string;
+}
+
 // ─── Research Evidence (V2 Phase 1 — migration 010) ─────────────────────────
 // The accumulating evidence store. One row per chunk of source material a
 // research run read. Embeddings power RAG; grounded_on arrays on artifacts
