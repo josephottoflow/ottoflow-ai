@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { CreativePanel } from "@/components/CreativePanel";
 import type { DbContentItem } from "@/lib/types";
 
 const platformConfig: Record<
@@ -235,6 +236,9 @@ export function ContentItemDetailClient({ item, brandName }: Props) {
           </div>
         )}
       </div>
+
+      {/* Creative Orchestrator (Phase B) — brief → approval gate → image */}
+      <CreativePanel contentItemId={item.id} />
 
       {/* Footer actions */}
       <div className="flex items-center justify-between text-2xs text-white/30">

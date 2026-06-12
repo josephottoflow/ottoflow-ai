@@ -1948,3 +1948,130 @@ Generate one entry per scene with sceneIndex matching the scene number.
       "You are a video editor who has cut clips for top creator brands. You design overlays that reinforce — never compete with — what's happening on screen. You think in 3-beat scene rhythms: setup, hit, payoff.",
   });
 }
+
+// ─── Creative concept (Brand Creative Orchestrator Phase B) ──────────────────
+//
+// One structured call composes the REVIEWABLE creative thinking for a chosen
+// hierarchy: visual concept, rationale, headline, CTA, and the Imagen
+// background prompt. The hierarchy itself is selected in code
+// (src/lib/creative/hierarchy.ts) — the model executes the strategy, it
+// doesn't pick it. model_confidence is the model's honest self-assessment of
+// how well this hierarchy fits the content; it feeds 30% of the blended
+// confidence shown at the approval gate.
+//
+// SAFETY: this call receives asset DESCRIPTIONS (kind + label + dimensions),
+// never asset bytes. The background prompt it returns must describe a
+// background only — no logos, no readable text, no people/faces (those are
+// composited deterministically in Phase C). The caller validates the prompt
+// against a forbidden-token list and recomposes on violation.
+
+export interface CreativeConcept {
+  visual_concept: string;
+  visual_rationale: string;
+  headline: string;
+  cta: string;
+  background_prompt: string;
+  /** Model's self-assessed fit of this hierarchy for this content (0-1). */
+  model_confidence: number;
+}
+
+const creativeConceptSchema: Schema = {
+  type: Type.OBJECT,
+  required: [
+    "visual_concept",
+    "visual_rationale",
+    "headline",
+    "cta",
+    "background_prompt",
+    "model_confidence",
+  ],
+  properties: {
+    visual_concept: { type: Type.STRING },
+    visual_rationale: { type: Type.STRING },
+    headline: { type: Type.STRING },
+    cta: { type: Type.STRING },
+    background_prompt: { type: Type.STRING },
+    model_confidence: { type: Type.NUMBER },
+  },
+} as Schema;
+
+const HIERARCHY_DIRECTION: Record<string, string> = {
+  founder_led:
+    "FOUNDER-LED: the founder's (real, composited) headshot is the visual anchor. The background must leave clear space on one side for the portrait. Headline speaks in a personal, first-person-adjacent voice.",
+  brand_led:
+    "BRAND-LED: the brand identity is the hero — palette-driven background, confident headline in the brand's voice, logo prominently composited. The background is a branded canvas, not a scene.",
+  data_led:
+    "DATA-LED: one number from the content is the hero. The headline IS the stat (or frames it). Background is abstract and quiet so the figure dominates. Do not put the number in the background prompt — it is rendered as crisp text later.",
+  quote_led:
+    "QUOTE-LED: a short, punchy quote lifted or distilled from the content is the hero. The headline IS the quote (≤ 80 chars, no surrounding quote marks needed). Background is textural and calm — the words carry the design.",
+};
+
+export async function generateCreativeConcept(input: {
+  brand: {
+    name: string;
+    industry: string | null;
+    positioning: string | null;
+    voiceTone: string;
+  };
+  hierarchy: string;
+  platform: string;
+  aspectRatio: string;
+  palette: { primary?: string; secondary?: string; accent?: string };
+  content: { title: string; preview: string | null; bodyExcerpt: string };
+  topic: { title: string; hookAngle: string | null; kind: string | null } | null;
+  founderName: string | null;
+  assetSummary: string; // e.g. "logo (transparent PNG 800×200), headshot (\"Jane Doe — Founder\", 1200×1200)"
+}): Promise<{ data: CreativeConcept; meta: GenerationMeta }> {
+  const direction = HIERARCHY_DIRECTION[input.hierarchy] ?? HIERARCHY_DIRECTION.brand_led;
+  const paletteLine = [input.palette.primary, input.palette.secondary, input.palette.accent]
+    .filter(Boolean)
+    .join(", ");
+
+  const prompt = `
+Design the creative strategy for a single ${input.platform} image creative
+(aspect ratio ${input.aspectRatio}) that accompanies the post below.
+
+BRAND: ${input.brand.name}${input.brand.industry ? ` (${input.brand.industry})` : ""}
+${input.brand.positioning ? `POSITIONING: ${input.brand.positioning}` : ""}
+VOICE: ${input.brand.voiceTone}
+${paletteLine ? `BRAND PALETTE: ${paletteLine}` : ""}
+${input.founderName ? `FOUNDER: ${input.founderName}` : ""}
+AVAILABLE LOCKED ASSETS (composited later, never generated): ${input.assetSummary || "(none)"}
+
+POST TITLE: ${input.content.title}
+${input.content.preview ? `POST HOOK: ${input.content.preview}` : ""}
+POST BODY (excerpt):
+${input.content.bodyExcerpt}
+
+${input.topic ? `SOURCE IDEA: ${input.topic.title}${input.topic.kind ? ` (${input.topic.kind})` : ""}${input.topic.hookAngle ? ` — hook: "${input.topic.hookAngle}"` : ""}` : ""}
+
+CREATIVE HIERARCHY (decided — execute it, don't change it):
+${direction}
+
+Produce:
+- visual_concept: 2-3 sentences. What the finished creative looks like —
+  composition, mood, where the eye lands. Concrete, not generic.
+- visual_rationale: 2-3 sentences. WHY this works for this brand, this idea,
+  and ${input.platform} specifically. Reference the actual content.
+- headline: the overlay text (≤ 80 chars). Rendered as crisp typography
+  later — make every word earn its place.
+- cta: short action line (≤ 60 chars), platform-appropriate.
+- background_prompt: an image-generation prompt for the BACKGROUND ONLY.
+  HARD RULES: describe abstract scenes, environments, gradients, textures,
+  or objects — NEVER logos, brand marks, watermarks, text, letters, words,
+  signs, people, faces, or portraits (all of those are composited or
+  rendered separately from locked assets). Include palette, lighting, and
+  mood. Leave compositional quiet space where the headline and assets land.
+- model_confidence: 0.0-1.0 — your honest assessment of how well THIS
+  hierarchy fits THIS content. A mismatch (e.g. quote-led on a stats post)
+  should score ≤ 0.5. Don't flatter.
+`.trim();
+
+  return generateStructuredFull<CreativeConcept>({
+    prompt,
+    schema: creativeConceptSchema,
+    label: "generateCreativeConcept",
+    systemInstruction:
+      "You are a senior brand art director. You design platform-native social creatives that feel intentionally designed — never like generic AI output. You follow asset-safety rules exactly: backgrounds never contain logos, text, or faces.",
+  });
+}

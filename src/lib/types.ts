@@ -211,6 +211,13 @@ export interface DbBrand {
   /** Section → research_documents ids, e.g. { profile: [...], competitors: [...] } */
   profile_citations: Record<string, string[]>;
   last_research_run_id: string | null;
+  /**
+   * Creative Orchestrator (migration 018) — learning structure, READ-ONLY v1.
+   * Shape documented in the migration: preferred_hierarchy /
+   * platform_hierarchy / avoid_hierarchies / notes. Optional: rows predate
+   * the migration until it's applied.
+   */
+  creative_preferences?: Record<string, unknown>;
 }
 
 // ─── Brand Assets (Creative Orchestrator Phase A — migration 017) ───────────
@@ -234,6 +241,33 @@ export interface DbBrandAsset {
   height: number | null;
   has_alpha: boolean | null;
   created_at: string;
+}
+
+// ─── Content Creatives (Creative Orchestrator Phase B — migration 018) ──────
+// One row per composed creative. creative_brief jsonb is the source of truth
+// (shape: src/lib/creative/types.ts); hierarchy + confidence are denormalized
+// for Phase D attribution. Status machine = the Creative Approval Gate:
+// brief_ready → approved → generating → ready | failed, or brief_ready →
+// rejected. Image generation is only reachable FROM 'approved'.
+
+export interface DbContentCreative {
+  id: string;
+  content_item_id: string;
+  brand_id: string;
+  status: "brief_ready" | "approved" | "generating" | "ready" | "failed" | "rejected";
+  /** CreativeBrief (src/lib/creative/types.ts) — kept loose here to avoid a client/server type dependency cycle. */
+  creative_brief: Record<string, unknown>;
+  creative_hierarchy: "founder_led" | "brand_led" | "data_led" | "quote_led" | "product_led";
+  creative_confidence: number;
+  platform: string;
+  background_url: string | null;
+  image_url: string | null;
+  generation_error: string | null;
+  generated_at: string | null;
+  regen_count: number;
+  status_history: StatusHistoryEntry[];
+  created_at: string;
+  updated_at: string;
 }
 
 // ─── Research Evidence (V2 Phase 1 — migration 010) ─────────────────────────
