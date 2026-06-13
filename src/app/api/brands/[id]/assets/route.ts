@@ -6,7 +6,7 @@
  *
  * POST fields:
  *   file   File   required — png / jpeg / webp, ≤ 4 MB (Vercel body cap is 4.5)
- *   kind   string required — 'logo' | 'headshot' | 'product'
+ *   kind   string required — 'logo' | 'founder_headshot' | 'team_headshot'
  *   label  string optional — ≤ 120 chars; for headshots, the person's name
  *
  * SAFETY CONTRACT (migration 017 header): the uploaded bytes are stored
@@ -25,7 +25,7 @@ import type { BrandAssetKind } from "@/lib/types";
 
 export const runtime = "nodejs";
 
-const KINDS = new Set<BrandAssetKind>(["logo", "headshot", "product"]);
+const KINDS = new Set<BrandAssetKind>(["logo", "founder_headshot", "team_headshot"]);
 const ALLOWED_MIME: Record<string, string> = {
   "image/png": "png",
   "image/jpeg": "jpg",
@@ -111,7 +111,7 @@ export async function POST(
   const kind = String(form.get("kind") ?? "");
   if (!KINDS.has(kind as BrandAssetKind)) {
     return NextResponse.json(
-      { error: "kind must be logo | headshot | product" },
+      { error: "kind must be logo | founder_headshot | team_headshot" },
       { status: 400 },
     );
   }
@@ -204,6 +204,9 @@ export async function POST(
       public_url: publicUrl,
       mime_type: file.type,
       byte_size: file.size,
+      // Locked on every insert and never flipped — the data-layer encoding of
+      // the safety contract (uploaded bytes are immutable, never AI-modified).
+      locked: true,
       width,
       height,
       has_alpha: hasAlpha,

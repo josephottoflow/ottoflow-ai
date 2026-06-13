@@ -3,9 +3,10 @@
 -- Additive only. One table + one storage bucket.
 --
 -- brand_assets stores user-uploaded LOCKED assets (logos, founder headshots,
--- product shots). Safety contract enforced in code, recorded here for the
+-- team headshots). Safety contract enforced in code, recorded here for the
 -- next reader:
---   1. Original bytes are IMMUTABLE — never modified after upload.
+--   1. Original bytes are IMMUTABLE — never modified after upload (locked=true
+--      always; there is no API path that mutates the bytes).
 --   2. Asset bytes are NEVER sent to any AI model.
 --   3. The Phase C compositor may only resize/crop/mask/position them —
 --      no enhancement, recoloring, stylization, or regeneration.
@@ -15,9 +16,9 @@
 CREATE TABLE IF NOT EXISTS brand_assets (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   brand_id      UUID NOT NULL REFERENCES brands(id) ON DELETE CASCADE,
-  -- 'product' exists for the deferred product_led hierarchy; uploads are
-  -- accepted now so the library is ready when that hierarchy lands.
-  kind          TEXT NOT NULL CHECK (kind IN ('logo','headshot','product')),
+  -- 'team_headshot' is future-ready: accepted + stored now, but no v1
+  -- creative hierarchy consumes it (founder_led uses 'founder_headshot').
+  kind          TEXT NOT NULL CHECK (kind IN ('logo','founder_headshot','team_headshot')),
   -- Free-text label, e.g. "Primary logo (dark bg)" or "Jane Doe — Founder".
   -- For headshots the label is the source of the person's display name used
   -- in creative briefs (founder_name_usage).
@@ -29,6 +30,10 @@ CREATE TABLE IF NOT EXISTS brand_assets (
   width         INTEGER,
   height        INTEGER,
   has_alpha     BOOLEAN,
+  -- Immutability flag — set true on every insert and never flipped. Encodes
+  -- the safety contract at the data layer (Rules #1/#2: uploaded bytes are
+  -- never regenerated/enhanced/recolored/stylized/recreated).
+  locked        BOOLEAN NOT NULL DEFAULT true,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

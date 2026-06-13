@@ -225,7 +225,8 @@ export interface DbBrand {
 // and the compositor may only resize/crop/mask/position them (see migration
 // 017 header for the full safety contract).
 
-export type BrandAssetKind = "logo" | "headshot" | "product";
+// 'team_headshot' is future-ready (stored, but not consumed by v1 hierarchies).
+export type BrandAssetKind = "logo" | "founder_headshot" | "team_headshot";
 
 export interface DbBrandAsset {
   id: string;
@@ -240,6 +241,8 @@ export interface DbBrandAsset {
   width: number | null;
   height: number | null;
   has_alpha: boolean | null;
+  /** Immutability flag — always true; uploaded bytes are never modified. */
+  locked: boolean;
   created_at: string;
 }
 

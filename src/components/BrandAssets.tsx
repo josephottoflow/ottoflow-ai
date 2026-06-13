@@ -16,7 +16,7 @@ import {
   Trash2,
   Upload,
   User,
-  Package,
+  Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -28,12 +28,16 @@ const KIND_META: Record<
   { label: string; icon: typeof ImageIcon; hint: string }
 > = {
   logo: { label: "Logo", icon: ImageIcon, hint: "Transparent PNG works best" },
-  headshot: {
-    label: "Headshot",
+  founder_headshot: {
+    label: "Founder headshot",
     icon: User,
-    hint: "Label it with the person's name (e.g. “Jane Doe — Founder”)",
+    hint: "Label it with the founder's name (e.g. “Jane Doe — Founder”)",
   },
-  product: { label: "Product", icon: Package, hint: "Product photo (future use)" },
+  team_headshot: {
+    label: "Team headshot",
+    icon: Users,
+    hint: "Stored for future use — not yet placed by v1 creatives",
+  },
 };
 
 export function BrandAssets({ brandId }: { brandId: string }) {
@@ -141,7 +145,7 @@ export function BrandAssets({ brandId }: { brandId: string }) {
           type="text"
           value={label}
           onChange={(e) => setLabel(e.target.value)}
-          placeholder={kind === "headshot" ? "Person's name + role" : "Label (optional)"}
+          placeholder={kind.endsWith("headshot") ? "Person's name + role" : "Label (optional)"}
           maxLength={120}
           className="h-8 flex-1 min-w-[160px] rounded-md bg-white/[0.04] border border-white/10 text-xs text-white/80 px-2 placeholder:text-white/25 focus:outline-none"
         />
