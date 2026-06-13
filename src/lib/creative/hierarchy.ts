@@ -114,7 +114,10 @@ export function selectAssets(assets: DbBrandAsset[]): {
 } {
   return {
     logo: pickAsset(assets, "logo"),
-    headshot: pickAsset(assets, "headshot"),
+    // founder_led / quote_led use the FOUNDER headshot specifically. A real
+    // founder face is non-negotiable (faces are never synthesized).
+    // 'team_headshot' is future-ready and intentionally not consumed in v1.
+    headshot: pickAsset(assets, "founder_headshot"),
   };
 }
 
