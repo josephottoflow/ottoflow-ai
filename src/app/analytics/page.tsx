@@ -8,7 +8,9 @@ import {
   getAIBurnSeries,
   getContentPerformance,
   getLensInventory,
+  getCreativeHierarchyPerformance,
   type PerfGroup,
+  type HierarchyGroup,
 } from "@/lib/db";
 import { generateRecommendations, type Recommendation } from "@/lib/recommendations";
 import { formatNumber } from "@/lib/utils";
@@ -44,7 +46,7 @@ function statusBadgeForRate(rate: number) {
 }
 
 export default async function AnalyticsPage() {
-  const [kpis, chartData, providerStats, burnSeries, perf, lensInventory] =
+  const [kpis, chartData, providerStats, burnSeries, perf, lensInventory, hierarchyPerf] =
     await Promise.all([
       getKPISummary(),
       getAnalyticsData(14),
@@ -52,9 +54,10 @@ export default async function AnalyticsPage() {
       getAIBurnSeries(14),
       getContentPerformance(),
       getLensInventory(),
+      getCreativeHierarchyPerformance(),
     ]);
 
-  const recommendations = generateRecommendations(perf, lensInventory);
+  const recommendations = generateRecommendations(perf, lensInventory, hierarchyPerf);
 
   const withER = perf.items.filter((i) => i.engagementRate != null);
   const topPosts = [...withER].sort((a, b) => b.engagementRate! - a.engagementRate!).slice(0, 5);
@@ -348,6 +351,132 @@ export default async function AnalyticsPage() {
           </div>
         </>
       )}
+
+      {/* ─── Creative hierarchy performance (Creative Orchestrator Phase D) ─── */}
+      {hierarchyPerf.totalCreatives > 0 && (
+        <>
+          <div className="mt-8 mb-4 flex items-center gap-2">
+            <Layers size={16} className="text-fuchsia-400" />
+            <h2 className="text-lg font-bold text-white">Creative hierarchy performance</h2>
+            <span className="text-2xs text-white/40">
+              {hierarchyPerf.totalCreatives} generated creative
+              {hierarchyPerf.totalCreatives === 1 ? "" : "s"} on published posts
+            </span>
+          </div>
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+            <HierarchyTable title="Overall — which hierarchy wins" rows={hierarchyPerf.overall} />
+            <HierarchyDimTable
+              title="Best hierarchy per platform"
+              dims={hierarchyPerf.byPlatform.slice(0, 6)}
+              dimLabel="Platform"
+            />
+            <HierarchyDimTable
+              title="Best hierarchy per brand"
+              dims={hierarchyPerf.byBrand.slice(0, 6)}
+              dimLabel="Brand"
+            />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Creative hierarchy presentation (Phase D) ───────────────────────────────
+
+const HIERARCHY_LABEL: Record<string, string> = {
+  founder_led: "Founder-led",
+  brand_led: "Brand-led",
+  data_led: "Data-led",
+  quote_led: "Quote-led",
+  product_led: "Product-led",
+};
+
+function erText(v: number | null): string {
+  return v != null ? `${(v * 100).toFixed(1)}%` : "—";
+}
+
+function HierarchyTable({ title, rows }: { title: string; rows: HierarchyGroup[] }) {
+  return (
+    <div className="glass rounded-2xl p-5">
+      <h3 className="text-sm font-semibold text-white mb-3">{title}</h3>
+      {rows.length === 0 ? (
+        <p className="text-xs text-white/35 py-4">No data yet.</p>
+      ) : (
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-white/40 border-b border-white/[0.06]">
+              <th className="text-left font-semibold py-1.5 pr-2">Hierarchy</th>
+              <th className="text-right font-semibold py-1.5 px-2">Creatives</th>
+              <th className="text-right font-semibold py-1.5 pl-2">Avg ER</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.key} className="border-b border-white/[0.03]">
+                <td className="py-1.5 pr-2 text-white/80">
+                  {HIERARCHY_LABEL[r.key] ?? r.key}
+                </td>
+                <td className="py-1.5 px-2 text-right text-white/50">
+                  {r.withMetrics}/{r.posts}
+                </td>
+                <td className="py-1.5 pl-2 text-right font-semibold text-emerald-400">
+                  {erText(r.avgER)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+function HierarchyDimTable({
+  title,
+  dims,
+  dimLabel,
+}: {
+  title: string;
+  dims: Array<{ dim: string; rows: HierarchyGroup[] }>;
+  dimLabel: string;
+}) {
+  const withWinner = dims.filter((d) => d.rows.some((r) => r.avgER != null));
+  return (
+    <div className="glass rounded-2xl p-5">
+      <h3 className="text-sm font-semibold text-white mb-3">{title}</h3>
+      {withWinner.length === 0 ? (
+        <p className="text-xs text-white/35 py-4">
+          No measured creatives yet — record metrics on published posts that
+          have a generated creative.
+        </p>
+      ) : (
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-white/40 border-b border-white/[0.06]">
+              <th className="text-left font-semibold py-1.5 pr-2">{dimLabel}</th>
+              <th className="text-left font-semibold py-1.5 px-2">Best hierarchy</th>
+              <th className="text-right font-semibold py-1.5 pl-2">Avg ER</th>
+            </tr>
+          </thead>
+          <tbody>
+            {withWinner.map((d) => {
+              const best = d.rows.find((r) => r.avgER != null)!;
+              return (
+                <tr key={d.dim} className="border-b border-white/[0.03]">
+                  <td className="py-1.5 pr-2 text-white/75 truncate max-w-[120px]">{d.dim}</td>
+                  <td className="py-1.5 px-2 text-white/80">
+                    {HIERARCHY_LABEL[best.key] ?? best.key}
+                  </td>
+                  <td className="py-1.5 pl-2 text-right font-semibold text-emerald-400">
+                    {erText(best.avgER)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }
@@ -359,6 +488,7 @@ const REC_KIND_META: Record<Recommendation["kind"], { label: string; className: 
   lens: { label: "Opportunity lens", className: "text-amber-300 border-amber-500/40 bg-amber-500/10" },
   evidence: { label: "Evidence", className: "text-cyan-300 border-cyan-500/40 bg-cyan-500/10" },
   platform: { label: "Platform", className: "text-emerald-300 border-emerald-500/40 bg-emerald-500/10" },
+  creative: { label: "Creative", className: "text-fuchsia-300 border-fuchsia-500/40 bg-fuchsia-500/10" },
   hygiene: { label: "Data quality", className: "text-white/50 border-white/15 bg-white/5" },
 };
 

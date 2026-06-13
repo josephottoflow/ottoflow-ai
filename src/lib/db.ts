@@ -752,3 +752,131 @@ export async function getLensInventory(): Promise<LensInventoryRow[]> {
     return [...byKind.values()];
   }, []);
 }
+
+// ─── Creative hierarchy performance (Creative Orchestrator Phase D) ───────────
+// Attribution for the intelligence loop: join READY creatives to their
+// published content item's engagement, then roll up by hierarchy — overall,
+// per platform, and per brand. Answers the design's three questions:
+//   which creative hierarchy performs best? per brand? per platform?
+// Same RLS-scoped, JS-aggregated approach as getContentPerformance.
+
+export interface HierarchyGroup {
+  key: string;            // hierarchy, e.g. "founder_led"
+  posts: number;          // ready creatives on published items
+  withMetrics: number;    // of those, how many have an engagement rate
+  avgER: number | null;   // mean engagement rate across measured posts
+}
+
+export interface HierarchyDimGroup {
+  /** Dimension value (platform name or brand name). */
+  dim: string;
+  rows: HierarchyGroup[]; // hierarchies within this dimension, best-first
+}
+
+export interface CreativeHierarchyPerformance {
+  overall: HierarchyGroup[];
+  byPlatform: HierarchyDimGroup[];
+  byBrand: HierarchyDimGroup[];
+  /** Total ready creatives considered (published items only). */
+  totalCreatives: number;
+}
+
+const EMPTY_HIERARCHY_PERF: CreativeHierarchyPerformance = {
+  overall: [],
+  byPlatform: [],
+  byBrand: [],
+  totalCreatives: 0,
+};
+
+export async function getCreativeHierarchyPerformance(): Promise<CreativeHierarchyPerformance> {
+  return safe("getCreativeHierarchyPerformance", async () => {
+    const sb = await createServerSupabaseClient();
+
+    const [{ data: creatives }, { data: publishedItems }, { data: metrics }, { data: brands }] =
+      await Promise.all([
+        sb
+          .from("content_creatives")
+          .select("content_item_id, creative_hierarchy, platform, brand_id, created_at")
+          .eq("status", "ready")
+          .order("created_at", { ascending: false })
+          .limit(500),
+        sb.from("content_items").select("id").eq("status", "published").limit(500),
+        sb.from("content_latest_metrics").select("content_item_id, engagement_rate"),
+        sb.from("brands").select("id, name"),
+      ]);
+
+    if (!creatives || creatives.length === 0) return EMPTY_HIERARCHY_PERF;
+
+    const publishedIds = new Set((publishedItems ?? []).map((i) => i.id as string));
+    const erByItem = new Map(
+      ((metrics ?? []) as Array<Record<string, unknown>>).map((m) => [
+        m.content_item_id as string,
+        m.engagement_rate != null ? Number(m.engagement_rate) : null,
+      ]),
+    );
+    const brandName = new Map((brands ?? []).map((b) => [b.id as string, b.name as string]));
+
+    // One record per published item — latest ready creative wins (creatives
+    // arrive newest-first, so first-seen per item is the most recent).
+    interface Rec {
+      hierarchy: string;
+      platform: string;
+      brand: string;
+      er: number | null;
+    }
+    const seen = new Set<string>();
+    const records: Rec[] = [];
+    for (const c of creatives) {
+      const itemId = c.content_item_id as string;
+      if (!publishedIds.has(itemId) || seen.has(itemId)) continue;
+      seen.add(itemId);
+      records.push({
+        hierarchy: c.creative_hierarchy as string,
+        platform: (c.platform as string) ?? "unknown",
+        brand: c.brand_id ? (brandName.get(c.brand_id as string) ?? "—") : "—",
+        er: erByItem.get(itemId) ?? null,
+      });
+    }
+    if (records.length === 0) return EMPTY_HIERARCHY_PERF;
+
+    function rollup(recs: Rec[]): HierarchyGroup[] {
+      const groups = new Map<string, { posts: number; ers: number[] }>();
+      for (const r of recs) {
+        const g = groups.get(r.hierarchy) ?? { posts: 0, ers: [] };
+        g.posts++;
+        if (r.er != null) g.ers.push(r.er);
+        groups.set(r.hierarchy, g);
+      }
+      return [...groups.entries()]
+        .map(([key, g]) => ({
+          key,
+          posts: g.posts,
+          withMetrics: g.ers.length,
+          avgER: g.ers.length
+            ? Number((g.ers.reduce((a, b) => a + b, 0) / g.ers.length).toFixed(4))
+            : null,
+        }))
+        .sort((a, b) => (b.avgER ?? -1) - (a.avgER ?? -1));
+    }
+
+    function rollupByDim(recs: Rec[], dimKey: (r: Rec) => string): HierarchyDimGroup[] {
+      const byDim = new Map<string, Rec[]>();
+      for (const r of recs) {
+        const k = dimKey(r);
+        const arr = byDim.get(k) ?? [];
+        arr.push(r);
+        byDim.set(k, arr);
+      }
+      return [...byDim.entries()]
+        .map(([dim, rs]) => ({ dim, rows: rollup(rs) }))
+        .sort((a, b) => (b.rows[0]?.avgER ?? -1) - (a.rows[0]?.avgER ?? -1));
+    }
+
+    return {
+      overall: rollup(records),
+      byPlatform: rollupByDim(records, (r) => r.platform),
+      byBrand: rollupByDim(records, (r) => r.brand),
+      totalCreatives: records.length,
+    };
+  }, EMPTY_HIERARCHY_PERF);
+}

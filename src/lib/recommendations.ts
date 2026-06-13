@@ -9,7 +9,20 @@
  *  - minimum-sample guards per rule; thin data is labeled "early signal"
  *  - silence is a valid output — no padding when data doesn't support advice
  */
-import type { ContentPerformanceData, PerfGroup, PerfItem } from "./db";
+import type {
+  ContentPerformanceData,
+  CreativeHierarchyPerformance,
+  PerfGroup,
+  PerfItem,
+} from "./db";
+
+const HIERARCHY_LABEL: Record<string, string> = {
+  founder_led: "founder-led",
+  brand_led: "brand-led",
+  data_led: "data-led",
+  quote_led: "quote-led",
+  product_led: "product-led",
+};
 
 export interface LensInventoryRow {
   kind: string;
@@ -32,7 +45,7 @@ export interface RecExample {
 
 export interface Recommendation {
   id: string;
-  kind: "topic" | "lens" | "evidence" | "platform" | "hygiene";
+  kind: "topic" | "lens" | "evidence" | "platform" | "creative" | "hygiene";
   action: string;       // imperative headline
   why: string;          // plain-language reasoning
   metrics: RecMetric[];
@@ -60,6 +73,7 @@ function examplesFor(items: PerfItem[], filter: (i: PerfItem) => boolean, n = 2)
 export function generateRecommendations(
   perf: ContentPerformanceData,
   lensInventory: LensInventoryRow[],
+  hierarchyPerf?: CreativeHierarchyPerformance,
 ): Recommendation[] {
   const recs: Recommendation[] = [];
   const avg = overallAvgER(perf.items);
@@ -214,13 +228,54 @@ export function generateRecommendations(
     });
   }
 
+  // ── 8. Creative hierarchy: which visual strategy earns engagement ─────────
+  // Attribution from the Creative Orchestrator (Phase D). Mirrors the lens
+  // rule: surface the best hierarchy when it clearly beats the runner-up, and
+  // name the strongest platform pairing when one stands out.
+  if (hierarchyPerf) {
+    const measured = hierarchyPerf.overall.filter(
+      (h) => h.avgER != null && h.withMetrics >= 1,
+    );
+    if (measured.length >= 2) {
+      const [best, ...rest] = measured;
+      const runnerUp = rest[0];
+      if (best.avgER! > runnerUp.avgER! * 1.2) {
+        const bestLabel = HIERARCHY_LABEL[best.key] ?? best.key;
+        const runnerLabel = HIERARCHY_LABEL[runnerUp.key] ?? runnerUp.key;
+        // Platform pairing: where does the winning hierarchy do best?
+        const platformPick = hierarchyPerf.byPlatform
+          .map((d) => ({ dim: d.dim, row: d.rows.find((r) => r.key === best.key) }))
+          .filter((x) => x.row?.avgER != null)
+          .sort((a, b) => (b.row!.avgER ?? -1) - (a.row!.avgER ?? -1))[0];
+        recs.push({
+          id: `creative-best:${best.key}`,
+          kind: "creative",
+          action: `Lead with ${bestLabel} creatives`,
+          why:
+            `${bestLabel} creatives average ${pct(best.avgER!)} engagement vs ${pct(runnerUp.avgER!)} for ${runnerLabel} — your strongest creative hierarchy so far.` +
+            (platformPick
+              ? ` They perform best on ${platformPick.dim} (${pct(platformPick.row!.avgER!)}).`
+              : ""),
+          metrics: [
+            { label: `${bestLabel} avg ER`, value: pct(best.avgER!) },
+            { label: `${runnerLabel} avg ER`, value: pct(runnerUp.avgER!) },
+            { label: "Creatives measured", value: String(best.withMetrics) },
+          ],
+          examples: [],
+          earlySignal: best.withMetrics < 3,
+        });
+      }
+    }
+  }
+
   // Stable ordering: actionable growth first, hygiene last.
   const order: Record<Recommendation["kind"], number> = {
     topic: 0,
     lens: 1,
-    evidence: 2,
-    platform: 3,
-    hygiene: 4,
+    creative: 2,
+    evidence: 3,
+    platform: 4,
+    hygiene: 5,
   };
   return recs.sort((a, b) => order[a.kind] - order[b.kind]);
 }
