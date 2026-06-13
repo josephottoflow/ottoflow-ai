@@ -8,6 +8,12 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "avatars.githubusercontent.com" },
     ],
   },
+  // sharp ships a native libvips addon; let Next require it from node_modules
+  // at runtime instead of bundling it into the route Lambda (which broke the
+  // brand_assets upload route with "Could not load the sharp module"). Pairs
+  // with the @img/sharp-linux-x64 lockfile entry so Vercel installs the
+  // linux glibc binary.
+  serverExternalPackages: ["sharp"],
 };
 
 /**
