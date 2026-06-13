@@ -97,6 +97,12 @@ export const QUEUE_NAMES = {
   // (QC) + storage upload in the worker. Payload is the frozen Agents 1-10
   // CompositionPlan.
   ffmpegCompose: "ffmpeg-compose",
+  // Brand Creative Orchestrator Phase C — Imagen background + sharp
+  // composite for an APPROVED creative brief. The Creative Approval Gate
+  // contract: jobs are only enqueued from /api/creatives/[id]/review
+  // (approve) and /api/creatives/[id]/regenerate; the processor refuses any
+  // creative whose status isn't approved/generating.
+  creativeGeneration: "creative-generation",
 } as const;
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
 
@@ -244,11 +250,24 @@ export interface FfmpegComposeJobData {
   gdriveAccessToken?: string | null;
 }
 
+/**
+ * Creative Orchestrator Phase C — payload is intentionally tiny: the worker
+ * re-reads the creative row + brief from Postgres so a stale queue entry can
+ * never generate from an outdated brief.
+ */
+export interface CreativeGenerationJobData {
+  creativeId: string;
+  brandId: string;
+  /** True when enqueued by the regenerate flow (diagnostics only). */
+  regen?: boolean;
+}
+
 export interface JobPayloads {
   "brand-research": BrandResearchJobData;
   "content-generation": ContentGenerationJobData;
   "video-merge": VideoMergeJobData;
   "ffmpeg-compose": FfmpegComposeJobData;
+  "creative-generation": CreativeGenerationJobData;
 }
 
 // ─── Queue accessors ──────────────────────────────────────────────────────────
@@ -279,3 +298,4 @@ export const brandResearchQueue = () => getQueue(QUEUE_NAMES.brandResearch);
 export const contentGenerationQueue = () => getQueue(QUEUE_NAMES.contentGeneration);
 export const videoMergeQueue = () => getQueue(QUEUE_NAMES.videoMerge);
 export const ffmpegComposeQueue = () => getQueue(QUEUE_NAMES.ffmpegCompose);
+export const creativeGenerationQueue = () => getQueue(QUEUE_NAMES.creativeGeneration);

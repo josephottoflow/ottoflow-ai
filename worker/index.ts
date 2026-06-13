@@ -45,12 +45,14 @@ import {
   type ContentGenerationJobData,
   type VideoMergeJobData,
   type FfmpegComposeJobData,
+  type CreativeGenerationJobData,
 } from "@/lib/queue";
 import { createAdminClient } from "@/lib/supabase";
 import { processBrandResearch } from "./processors/brand-research";
 import { processContentGeneration } from "./processors/content-generation";
 import { processVideoMerge } from "./processors/video-merge";
 import { processFfmpegCompose } from "./processors/ffmpeg-compose";
+import { processCreativeGeneration } from "./processors/creative-generation";
 import { recoverStuckJobsAtBoot, markJobFailedFromStall, schedulePeriodicSweep } from "./recovery";
 
 // ─── Logging ─────────────────────────────────────────────────────────────────
@@ -474,6 +476,78 @@ ffmpegComposeWorker.on("error", (err) => {
   logError("ffmpeg-compose", "worker.error", { error: err.message });
 });
 
+// ─── Step 6e: Creative Generation worker (Creative Orchestrator Phase C) ──────
+// Fifth Worker instance. Consumes an APPROVED creative brief → Imagen
+// background (validated) + deterministic sharp composite → storage. Imagen +
+// sharp are lighter than ffmpeg, but image work is still CPU/IO-bound, so it
+// shares the reduced (half) concurrency budget with the video queues.
+const creativeGenerationWorker = new Worker<CreativeGenerationJobData>(
+  QUEUE_NAMES.creativeGeneration,
+  async (job: Job<CreativeGenerationJobData>) => {
+    log("creative-generation", "job.start", {
+      jobId: job.id,
+      creativeId: job.data.creativeId,
+      brandId: job.data.brandId,
+      regen: !!job.data.regen,
+    });
+    const result = await processCreativeGeneration(job.data, (step, progress) => {
+      job.updateProgress(progress).catch(() => {});
+      log("creative-generation", "step", { jobId: job.id, step, progress });
+    });
+    log("creative-generation", "job.done", {
+      jobId: job.id,
+      creativeId: job.data.creativeId,
+      imageUrl: result.imageUrl,
+    });
+    return result;
+  },
+  {
+    connection: getRedis(),
+    concurrency: Math.max(1, Math.floor(workerEnv.WORKER_CONCURRENCY / 2)),
+  },
+);
+
+creativeGenerationWorker.on("active", (job) => {
+  log("creative-generation", "job.active", {
+    jobId: job.id,
+    creativeId: job.data.creativeId,
+  });
+});
+
+creativeGenerationWorker.on("completed", (job) => {
+  log("creative-generation", "job.completed", {
+    jobId: job.id,
+    creativeId: job.data?.creativeId,
+    durationMs:
+      job.finishedOn && job.processedOn ? job.finishedOn - job.processedOn : null,
+  });
+});
+
+creativeGenerationWorker.on("failed", (job, err) => {
+  logError("creative-generation", "job.failed", {
+    jobId: job?.id,
+    creativeId: job?.data?.creativeId,
+    attemptsMade: job?.attemptsMade,
+    error: err?.message,
+  });
+  Sentry.withScope((scope) => {
+    scope.setTag("queue", QUEUE_NAMES.creativeGeneration);
+    if (job?.id) scope.setTag("job.id", String(job.id));
+    if (job?.data?.creativeId) scope.setTag("creative.id", String(job.data.creativeId));
+    scope.setContext("job", {
+      id: job?.id,
+      creativeId: job?.data?.creativeId,
+      brandId: job?.data?.brandId,
+      attemptsMade: job?.attemptsMade,
+    });
+    Sentry.captureException(err ?? new Error("creative-generation job.failed with no error"));
+  });
+});
+
+creativeGenerationWorker.on("error", (err) => {
+  logError("creative-generation", "worker.error", { error: err.message });
+});
+
 // ─── Step 7: Graceful shutdown with hard cap ─────────────────────────────────
 // Railway sends SIGTERM during a deploy and waits for a grace period before
 // SIGKILL. We try a graceful close (lets active jobs finish) but cap at a
@@ -506,6 +580,7 @@ async function shutdown(signal: string): Promise<never> {
     contentGenerationWorker.close(),
     videoMergeWorker.close(),
     ffmpegComposeWorker.close(),
+    creativeGenerationWorker.close(),
   ]);
   const deadline = new Promise<"timeout">((resolve) =>
     setTimeout(() => resolve("timeout"), GRACEFUL_SHUTDOWN_TIMEOUT_MS)
@@ -535,6 +610,9 @@ async function shutdown(signal: string): Promise<never> {
       }),
       ffmpegComposeWorker.close(true).catch((err) => {
         logError("worker", "shutdown.force_close_failed", { error: err?.message, queue: "ffmpeg-compose" });
+      }),
+      creativeGenerationWorker.close(true).catch((err) => {
+        logError("worker", "shutdown.force_close_failed", { error: err?.message, queue: "creative-generation" });
       }),
     ]);
   } else {

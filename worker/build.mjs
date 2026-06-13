@@ -82,6 +82,10 @@ await build({
     "react-dom",
     // Zod — already used by Sentry + Remotion schemas; safer external.
     "zod",
+    // sharp — native bindings (libvips .node). esbuild can't bundle the
+    // native addon; resolve from node_modules at runtime (Creative
+    // Orchestrator Phase C compositor).
+    "sharp",
   ],
   // BullMQ's Lua scripts and JSON imports are handled by esbuild's
   // default loaders.

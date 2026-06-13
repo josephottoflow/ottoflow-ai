@@ -1,0 +1,309 @@
+/**
+ * Deterministic creative compositor (Phase C). Server/worker only.
+ *
+ * OPERATION WHITELIST — the ONLY things this module does to LOCKED assets
+ * (logos, headshots):
+ *   resize    sharp().resize() — proportional, no enlargement beyond source
+ *   crop      resize fit:'cover' (center/attention crop)
+ *   mask      circular alpha mask via dest-in composite (headshots)
+ *   position  placement onto the canvas at computed coordinates
+ *
+ * Explicitly NOT done, by design (Creative Orchestrator safety rules):
+ * no enhancement, no recoloring, no beautification, no stylization, no
+ * recreation, no regeneration. Asset bytes never reach an AI model — this
+ * module receives raw buffers fetched from storage and composites them
+ * pixel-for-pixel.
+ *
+ * Headline / CTA / wordmark / attribution are rendered as SVG text layers —
+ * deterministic typography, NOT asset modification (and the reason generated
+ * backgrounds must never contain text: all words on a creative come from the
+ * approved brief, crisply rendered here).
+ *
+ * A legibility scrim (translucent gradient) is applied to the AI-GENERATED
+ * background only — backgrounds aren't locked assets.
+ */
+import sharp from "sharp";
+import type { CreativeBrief, Placement } from "./types";
+
+export interface CompositeInput {
+  brief: CreativeBrief;
+  /** AI-generated background (validated: no text/logos/faces). */
+  background: Buffer;
+  /** Locked asset bytes — pass-through pixels only. */
+  logo: Buffer | null;
+  headshot: Buffer | null;
+  brandName: string;
+  founderName: string | null;
+}
+
+const CANVAS: Record<CreativeBrief["aspect_ratio"], { w: number; h: number }> = {
+  "1:1": { w: 1080, h: 1080 },
+  "3:4": { w: 1080, h: 1350 }, // Instagram portrait (4:5 canvas; 3:4 bg cover-crops)
+  "16:9": { w: 1280, h: 720 },
+  "9:16": { w: 1080, h: 1920 },
+};
+
+const FONT_STACK = "DejaVu Sans, Arial, Helvetica, sans-serif";
+
+function esc(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+/** Allow hex / simple named colors only — anything else falls back. */
+function safeColor(c: string | undefined, fallback: string): string {
+  if (c && /^#?[0-9a-zA-Z]{1,20}$/.test(c)) return c.startsWith("#") || /^[a-zA-Z]+$/.test(c) ? c : `#${c}`;
+  return fallback;
+}
+
+/** Greedy word wrap from an average-glyph-width estimate. */
+function wrapText(text: string, fontSize: number, maxWidthPx: number): string[] {
+  const charW = fontSize * 0.56;
+  const maxChars = Math.max(8, Math.floor(maxWidthPx / charW));
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let line = "";
+  for (const w of words) {
+    const candidate = line ? `${line} ${w}` : w;
+    if (candidate.length > maxChars && line) {
+      lines.push(line);
+      line = w;
+    } else {
+      line = candidate;
+    }
+  }
+  if (line) lines.push(line);
+  return lines.slice(0, 5); // hard cap — briefs limit headline to 80 chars anyway
+}
+
+function placementXY(
+  placement: Placement,
+  elemW: number,
+  elemH: number,
+  W: number,
+  H: number,
+  m: number,
+): { x: number; y: number } {
+  switch (placement) {
+    case "top_left": return { x: m, y: m };
+    case "top_right": return { x: W - elemW - m, y: m };
+    case "bottom_left": return { x: m, y: H - elemH - m };
+    case "bottom_right": return { x: W - elemW - m, y: H - elemH - m };
+    case "center": return { x: Math.round((W - elemW) / 2), y: Math.round((H - elemH) / 2) };
+    case "left_third": return { x: m, y: Math.round((H - elemH) / 2) };
+    case "right_third": return { x: W - elemW - m, y: Math.round((H - elemH) / 2) };
+    case "bottom_bar": return { x: m, y: H - elemH - m };
+  }
+}
+
+interface TextBlock {
+  svg: string;
+  height: number;
+}
+
+function headlineBlock(
+  text: string,
+  fontSize: number,
+  maxWidth: number,
+  x: number,
+  startY: number,
+  anchor: "start" | "middle",
+  quote = false,
+): TextBlock {
+  const lines = wrapText(text, fontSize, maxWidth);
+  const lineH = Math.round(fontSize * 1.18);
+  const body = lines
+    .map(
+      (ln, i) =>
+        `<text x="${x}" y="${startY + (i + 1) * lineH}" text-anchor="${anchor}" ` +
+        `font-family="${FONT_STACK}" font-size="${fontSize}" font-weight="800" ` +
+        `fill="#ffffff" style="paint-order:stroke" stroke="rgba(0,0,0,0.25)" stroke-width="2">${esc(ln)}</text>`,
+    )
+    .join("");
+  const quoteMark = quote
+    ? `<text x="${x}" y="${startY}" text-anchor="${anchor}" font-family="${FONT_STACK}" ` +
+      `font-size="${fontSize * 1.6}" font-weight="800" fill="rgba(255,255,255,0.45)">“</text>`
+    : "";
+  return { svg: quoteMark + body, height: lines.length * lineH + (quote ? fontSize : 0) };
+}
+
+function ctaPill(
+  text: string,
+  fontSize: number,
+  centerX: number,
+  topY: number,
+  accent: string,
+): TextBlock {
+  const padX = Math.round(fontSize * 1.2);
+  const w = Math.round(text.length * fontSize * 0.56 + padX * 2);
+  const h = Math.round(fontSize * 2.1);
+  const x = Math.round(centerX - w / 2);
+  return {
+    svg:
+      `<rect x="${x}" y="${topY}" width="${w}" height="${h}" rx="${h / 2}" fill="${accent}"/>` +
+      `<text x="${centerX}" y="${topY + h / 2 + fontSize * 0.36}" text-anchor="middle" ` +
+      `font-family="${FONT_STACK}" font-size="${fontSize}" font-weight="700" fill="#ffffff">${esc(text)}</text>`,
+    height: h,
+  };
+}
+
+/**
+ * Composite the final creative. Returns PNG bytes.
+ */
+export async function compositeCreative(input: CompositeInput): Promise<Buffer> {
+  const { brief } = input;
+  const { w: W, h: H } = CANVAS[brief.aspect_ratio];
+  const m = Math.round(Math.min(W, H) * 0.05);
+  const accent = safeColor(brief.palette.accent ?? brief.palette.primary, "#7c3aed");
+
+  // 1. Background: cover-resize the GENERATED image to the canvas.
+  const bg = await sharp(input.background)
+    .resize(W, H, { fit: "cover", position: "centre" })
+    .toBuffer();
+
+  const layers: sharp.OverlayOptions[] = [];
+
+  // 2. Legibility scrim over the generated background (not a locked asset).
+  const scrim = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
+    <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="rgba(8,10,20,0.18)"/>
+      <stop offset="62%" stop-color="rgba(8,10,20,0.34)"/>
+      <stop offset="100%" stop-color="rgba(8,10,20,0.62)"/>
+    </linearGradient></defs>
+    <rect width="${W}" height="${H}" fill="url(#g)"/>
+  </svg>`;
+  layers.push({ input: Buffer.from(scrim), top: 0, left: 0 });
+
+  // 3. Locked assets — whitelist ops only (resize / crop / mask / position).
+  const h = brief.hierarchy;
+
+  // Headshot: cover-crop to a square, circular dest-in mask, positioned.
+  let headshotLayer: { x: number; y: number; d: number } | null = null;
+  if (brief.headshot_usage.use && input.headshot) {
+    const hero = h === "founder_led";
+    const d = Math.round(hero ? H * 0.42 : H * 0.11);
+    const square = await sharp(input.headshot)
+      .resize(d, d, { fit: "cover", position: sharp.strategy.attention })
+      .png()
+      .toBuffer();
+    const circleMask = Buffer.from(
+      `<svg width="${d}" height="${d}" xmlns="http://www.w3.org/2000/svg"><circle cx="${d / 2}" cy="${d / 2}" r="${d / 2}" fill="#fff"/></svg>`,
+    );
+    const round = await sharp(square)
+      .composite([{ input: circleMask, blend: "dest-in" }])
+      .png()
+      .toBuffer();
+    const pos = placementXY(
+      brief.headshot_usage.placement ?? (hero ? "right_third" : "bottom_left"),
+      d, d, W, H, m,
+    );
+    headshotLayer = { ...pos, d };
+    layers.push({ input: round, top: pos.y, left: pos.x });
+  }
+
+  // Logo: proportional fit inside a box, on a light chip for guaranteed
+  // contrast (the chip is drawn by us; the logo pixels are untouched).
+  if (brief.logo_usage.use && input.logo) {
+    const hero = h === "brand_led";
+    const boxW = Math.round(W * (hero ? 0.34 : 0.2));
+    const boxH = Math.round(H * (hero ? 0.16 : 0.08));
+    const logoImg = await sharp(input.logo)
+      .resize(boxW, boxH, { fit: "inside", withoutEnlargement: true })
+      .png()
+      .toBuffer();
+    const meta = await sharp(logoImg).metadata();
+    const lw = meta.width ?? boxW;
+    const lh = meta.height ?? boxH;
+    const pad = Math.round(Math.min(W, H) * 0.018);
+    const chipW = lw + pad * 2;
+    const chipH = lh + pad * 2;
+    const placement = brief.logo_usage.placement ?? (hero ? "center" : "bottom_right");
+    let pos = placementXY(placement, chipW, chipH, W, H, m);
+    if (hero) {
+      // brand_led: logo sits just below vertical center so the headline owns
+      // the upper third.
+      pos = { x: pos.x, y: Math.round(H * 0.5) };
+    }
+    const chip = Buffer.from(
+      `<svg width="${chipW}" height="${chipH}" xmlns="http://www.w3.org/2000/svg">` +
+        `<rect width="${chipW}" height="${chipH}" rx="${Math.round(pad * 0.9)}" fill="rgba(255,255,255,0.94)"/></svg>`,
+    );
+    layers.push({ input: chip, top: pos.y, left: pos.x });
+    layers.push({ input: logoImg, top: pos.y + pad, left: pos.x + pad });
+  }
+
+  // 4. Typography layer — headline, CTA, wordmark, attribution.
+  const blocks: string[] = [];
+
+  if (h === "founder_led" && headshotLayer) {
+    const maxW = headshotLayer.x - m * 2;
+    const fs = Math.round(W * 0.052);
+    const hb = headlineBlock(brief.headline, fs, maxW, m, Math.round(H * 0.3), "start");
+    blocks.push(hb.svg);
+    const cta = ctaPill(brief.cta, Math.round(fs * 0.5), m + Math.round(maxW / 2), Math.round(H * 0.3) + hb.height + m, accent);
+    blocks.push(cta.svg);
+  } else if (h === "brand_led") {
+    const fs = Math.round(W * 0.056);
+    const hb = headlineBlock(brief.headline, fs, W - m * 2, Math.round(W / 2), Math.round(H * 0.16), "middle");
+    blocks.push(hb.svg);
+    blocks.push(ctaPill(brief.cta, Math.round(fs * 0.48), Math.round(W / 2), Math.round(H * 0.74), accent).svg);
+  } else if (h === "data_led") {
+    const fs = Math.round(W * 0.072);
+    const hb = headlineBlock(brief.headline, fs, W - m * 2, Math.round(W / 2), Math.round(H * 0.3), "middle");
+    blocks.push(hb.svg);
+    blocks.push(ctaPill(brief.cta, Math.round(fs * 0.38), Math.round(W / 2), Math.round(H * 0.3) + hb.height + m, accent).svg);
+  } else {
+    // quote_led (and any future default)
+    const fs = Math.round(W * 0.05);
+    const hb = headlineBlock(brief.headline, fs, W - m * 2, Math.round(W / 2), Math.round(H * 0.26), "middle", true);
+    blocks.push(hb.svg);
+    blocks.push(ctaPill(brief.cta, Math.round(fs * 0.46), Math.round(W / 2), Math.round(H * 0.26) + hb.height + m, accent).svg);
+  }
+
+  // Founder attribution next to a non-hero headshot.
+  if (
+    brief.founder_name_usage.use &&
+    brief.founder_name_usage.name &&
+    headshotLayer &&
+    h !== "founder_led"
+  ) {
+    const fs = Math.round(W * 0.022);
+    blocks.push(
+      `<text x="${headshotLayer.x + headshotLayer.d + Math.round(fs * 0.8)}" ` +
+        `y="${headshotLayer.y + Math.round(headshotLayer.d / 2) + Math.round(fs * 0.35)}" ` +
+        `font-family="${FONT_STACK}" font-size="${fs}" font-weight="600" ` +
+        `fill="rgba(255,255,255,0.92)">${esc(brief.founder_name_usage.name)}</text>`,
+    );
+  }
+  // founder_led: name under the hero portrait.
+  if (brief.founder_name_usage.use && brief.founder_name_usage.name && headshotLayer && h === "founder_led") {
+    const fs = Math.round(W * 0.024);
+    blocks.push(
+      `<text x="${headshotLayer.x + Math.round(headshotLayer.d / 2)}" ` +
+        `y="${headshotLayer.y + headshotLayer.d + Math.round(fs * 1.4)}" text-anchor="middle" ` +
+        `font-family="${FONT_STACK}" font-size="${fs}" font-weight="600" ` +
+        `fill="rgba(255,255,255,0.92)">${esc(brief.founder_name_usage.name)}</text>`,
+    );
+  }
+
+  // Company wordmark when there's no logo to carry the name.
+  if (brief.company_name_usage.use && !(brief.logo_usage.use && input.logo)) {
+    const fs = Math.round(W * 0.026);
+    blocks.push(
+      `<text x="${m}" y="${H - m}" font-family="${FONT_STACK}" font-size="${fs}" ` +
+        `font-weight="700" letter-spacing="2" fill="rgba(255,255,255,0.9)">${esc(
+          input.brandName.toUpperCase(),
+        )}</text>`,
+    );
+  }
+
+  const typeLayer = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">${blocks.join("")}</svg>`;
+  layers.push({ input: Buffer.from(typeLayer), top: 0, left: 0 });
+
+  // 5. Flatten.
+  return sharp(bg).composite(layers).png().toBuffer();
+}

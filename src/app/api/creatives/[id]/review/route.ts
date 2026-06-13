@@ -18,6 +18,7 @@ import { auth } from "@clerk/nextjs/server";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase";
 import { captureFallback } from "@/lib/observability";
+import { creativeGenerationQueue } from "@/lib/queue";
 
 export const runtime = "nodejs";
 
@@ -93,8 +94,30 @@ export async function POST(
     return NextResponse.json({ error: "Failed to update creative" }, { status: 500 });
   }
 
-  // Phase B ends at 'approved' — image generation (Phase C) enqueues from
-  // this exact spot so the gate contract holds: no Imagen before approval.
+  // Phase C: an approved brief enqueues image generation from this exact
+  // spot — the ONLY path into the generation pipeline, so the gate contract
+  // holds (no Imagen before a human approval). Rejection enqueues nothing.
+  if (action === "approve") {
+    try {
+      await creativeGenerationQueue().add(
+        "generate",
+        { creativeId, brandId: updated.brand_id as string },
+        { jobId: `creative:${creativeId}` },
+      );
+    } catch (err) {
+      // Roll the gate back to brief_ready so the user can re-approve rather
+      // than being stuck in 'approved' with no worker job.
+      captureFallback("creative.enqueue_failed", err, { creativeId });
+      await admin
+        .from("content_creatives")
+        .update({ status: "brief_ready" })
+        .eq("id", creativeId);
+      return NextResponse.json(
+        { error: "Approved, but couldn't start generation. Try approving again." },
+        { status: 500 },
+      );
+    }
+  }
 
   return NextResponse.json({ creative: updated });
 }

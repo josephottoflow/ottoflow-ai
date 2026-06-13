@@ -2075,3 +2075,98 @@ Produce:
       "You are a senior brand art director. You design platform-native social creatives that feel intentionally designed — never like generic AI output. You follow asset-safety rules exactly: backgrounds never contain logos, text, or faces.",
   });
 }
+
+// ─── Creative background generation + validation (Phase C) ──────────────────
+//
+// Imagen generates the BACKGROUND ONLY for an approved creative brief.
+// Safety, per the orchestrator design:
+//  - negative constraints are embedded in the prompt text (the dedicated
+//    negativePrompt config field is unsupported/deprecated on newer Imagen
+//    models, so in-prompt negatives are the portable mechanism)
+//  - the generated image is then VALIDATED by a Gemini multimodal check for
+//    text / logos / faces before any compositing; violations are regenerated
+//  - locked brand assets never appear here — this call sends only the brief's
+//    background prompt, and the validator only ever sees AI-generated pixels
+
+const BACKGROUND_NEGATIVE_SUFFIX =
+  " Strictly no text, no letters, no words, no numbers, no logos, no brand marks, " +
+  "no watermarks, no signage, no people, no faces, no portraits, no hands.";
+
+export async function generateCreativeBackground(input: {
+  prompt: string;
+  aspectRatio: string; // "1:1" | "3:4" | "16:9" | "9:16"
+}): Promise<Buffer> {
+  const { seed } = entropy();
+  const resp = await callGemini("generateCreativeBackground", () =>
+    ai().models.generateImages({
+      // Same model + tier caveat as generateHeroFrame above.
+      model: "imagen-3.0-fast-generate-001",
+      prompt: `${input.prompt}.${BACKGROUND_NEGATIVE_SUFFIX}`,
+      config: {
+        numberOfImages: 1,
+        aspectRatio: input.aspectRatio,
+        outputMimeType: "image/png",
+        seed,
+      },
+    }),
+  );
+  const bytes = resp.generatedImages?.[0]?.image?.imageBytes;
+  if (!bytes) throw new Error("Imagen returned no image bytes");
+  return Buffer.from(bytes, "base64");
+}
+
+export interface BackgroundValidation {
+  contains_text: boolean;
+  contains_logo: boolean;
+  contains_face: boolean;
+  /** One sentence on what the image shows — logged for diagnostics. */
+  description: string;
+}
+
+const backgroundValidationSchema: Schema = {
+  type: Type.OBJECT,
+  required: ["contains_text", "contains_logo", "contains_face", "description"],
+  properties: {
+    contains_text: { type: Type.BOOLEAN },
+    contains_logo: { type: Type.BOOLEAN },
+    contains_face: { type: Type.BOOLEAN },
+    description: { type: Type.STRING },
+  },
+} as Schema;
+
+/**
+ * Multimodal inspection of a GENERATED background (never a locked asset).
+ * Returns flags the worker uses to reject + regenerate before compositing.
+ */
+export async function validateGeneratedBackground(
+  png: Buffer,
+): Promise<BackgroundValidation> {
+  const resp = await callGemini("validateGeneratedBackground", () =>
+    ai().models.generateContent({
+      model: MODEL,
+      contents: [
+        {
+          role: "user",
+          parts: [
+            { inlineData: { mimeType: "image/png", data: png.toString("base64") } },
+            {
+              text:
+                "Inspect this image, which must be a clean abstract/scenic background. " +
+                "Report whether it contains: (1) any readable text, letters, words, or numbers; " +
+                "(2) any logo, brand mark, or watermark; (3) any human face or person. " +
+                "Be strict — partial or stylized instances count.",
+            },
+          ],
+        },
+      ],
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: backgroundValidationSchema,
+        temperature: 0,
+      },
+    }),
+  );
+  const text = resp.text;
+  if (!text) throw new Error("Background validation returned empty response");
+  return JSON.parse(text) as BackgroundValidation;
+}
