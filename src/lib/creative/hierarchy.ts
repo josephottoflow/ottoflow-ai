@@ -62,6 +62,24 @@ export interface HierarchySelection {
 // Percentages, currency, multipliers, or standalone 2+ digit figures.
 const STAT_SIGNAL = /(\d+(?:\.\d+)?\s*%|[$€£]\s*\d|(?:\d+(?:\.\d+)?)\s*[x×]\b|\b\d{2,}\b)/;
 
+// ── Quote signal: a quotable line worth leading with (quote_led eligibility) ──
+// A passage in quotation marks (straight or curly) of ≥ 3 words.
+const QUOTE_SIGNAL = /[“"']([^”"']{12,})[”"']/;
+
+export function hasQuoteSignal(text: string): boolean {
+  const m = text.match(QUOTE_SIGNAL);
+  return !!m && m[1].trim().split(/\s+/).length >= 3;
+}
+
+// Deterministic hierarchy priority among the ELIGIBLE set (design spec):
+// founder_led → data_led → quote_led → brand_led (brand_led is the fallback).
+const HIERARCHY_PRIORITY: CreativeHierarchy[] = [
+  "founder_led",
+  "data_led",
+  "quote_led",
+  "brand_led",
+];
+
 export function hasStatSignal(text: string): boolean {
   return STAT_SIGNAL.test(text);
 }
@@ -184,9 +202,10 @@ export function rankHierarchies(input: HierarchyInputs): HierarchySelection {
         return headshot != null; // a real headshot is non-negotiable — faces are never synthesized
       case "data_led":
         return hasStatSignal(input.contentText);
-      case "brand_led":
       case "quote_led":
-        return true;
+        return hasQuoteSignal(input.contentText); // a real quotable line — else fall through to brand_led
+      case "brand_led":
+        return true; // always eligible — the deterministic fallback
       default:
         return false;
     }
@@ -217,7 +236,22 @@ export function rankHierarchies(input: HierarchyInputs): HierarchySelection {
   if (ranked.length === 0) {
     throw new Error("No eligible creative hierarchy — engine invariant broken");
   }
-  return { eligible, ranked, chosen: ranked[0] };
+
+  // Selection is DETERMINISTIC by priority (founder → data → quote → brand),
+  // not by score: the first eligible hierarchy in HIERARCHY_PRIORITY wins.
+  // (Scores are still computed for the confidence components shown at the
+  // approval gate, and `ranked` is preserved for that display.) A
+  // creative_preferences override still takes precedence when its hierarchy
+  // is eligible, so operators can pin a different style per brand/platform.
+  const prefHierarchy =
+    input.preferences.platform_hierarchy?.[input.platform] ??
+    input.preferences.preferred_hierarchy;
+  const byPriority =
+    HIERARCHY_PRIORITY.find((h) => h === prefHierarchy && eligible.includes(h)) ??
+    HIERARCHY_PRIORITY.find((h) => eligible.includes(h))!;
+  const chosen = ranked.find((r) => r.hierarchy === byPriority) ?? ranked[0];
+
+  return { eligible, ranked, chosen };
 }
 
 /** Blend the model's self-assessed fit into the final confidence. */

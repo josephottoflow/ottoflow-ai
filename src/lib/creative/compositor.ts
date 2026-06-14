@@ -36,12 +36,28 @@ export interface CompositeInput {
   founderName: string | null;
 }
 
-const CANVAS: Record<CreativeBrief["aspect_ratio"], { w: number; h: number }> = {
+// Native per-platform creative dimensions (px). The background is cover-cropped
+// to these exact dimensions, so each platform gets a correctly-sized asset.
+const CANVAS_BY_PLATFORM: Record<string, { w: number; h: number }> = {
+  linkedin: { w: 1200, h: 627 },
+  facebook: { w: 1200, h: 630 },
+  twitter: { w: 1600, h: 900 },
+  instagram: { w: 1080, h: 1350 },
+  blog: { w: 1600, h: 900 },
+  email: { w: 1200, h: 630 },
+};
+
+// Fallback by Imagen aspect ratio when the platform isn't in the map above.
+const CANVAS_BY_ASPECT: Record<CreativeBrief["aspect_ratio"], { w: number; h: number }> = {
   "1:1": { w: 1080, h: 1080 },
-  "3:4": { w: 1080, h: 1350 }, // Instagram portrait (4:5 canvas; 3:4 bg cover-crops)
-  "16:9": { w: 1280, h: 720 },
+  "3:4": { w: 1080, h: 1350 },
+  "16:9": { w: 1200, h: 630 },
   "9:16": { w: 1080, h: 1920 },
 };
+
+function resolveCanvas(brief: CreativeBrief): { w: number; h: number } {
+  return CANVAS_BY_PLATFORM[brief.platform] ?? CANVAS_BY_ASPECT[brief.aspect_ratio];
+}
 
 const FONT_STACK = "DejaVu Sans, Arial, Helvetica, sans-serif";
 
@@ -156,7 +172,7 @@ function ctaPill(
  */
 export async function compositeCreative(input: CompositeInput): Promise<Buffer> {
   const { brief } = input;
-  const { w: W, h: H } = CANVAS[brief.aspect_ratio];
+  const { w: W, h: H } = resolveCanvas(brief);
   const m = Math.round(Math.min(W, H) * 0.05);
   const accent = safeColor(brief.palette.accent ?? brief.palette.primary, "#7c3aed");
 

@@ -50,12 +50,15 @@ export interface ComposeBriefInput {
   } | null;
 }
 
-// Platform → Imagen-supported aspect ratio. Square is the safe default for
-// feeds; 3:4 gives Instagram its taller canvas; 16:9 suits blog/email heroes.
+// Platform → Imagen-supported aspect ratio for the BACKGROUND. Matched to the
+// platform's native creative dimensions (the compositor cover-crops the
+// background to the exact pixel canvas — see CANVAS_BY_PLATFORM):
+//   linkedin 1200×627 · facebook 1200×630 · twitter 1600×900 → 16:9 landscape
+//   instagram 1080×1350 → 3:4 portrait
 const PLATFORM_ASPECT: Record<string, AspectRatio> = {
-  linkedin: "1:1",
-  facebook: "1:1",
-  twitter: "1:1",
+  linkedin: "16:9",
+  facebook: "16:9",
+  twitter: "16:9",
   instagram: "3:4",
   blog: "16:9",
   email: "16:9",
