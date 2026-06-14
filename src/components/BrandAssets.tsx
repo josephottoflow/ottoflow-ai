@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { captureFallback } from "@/lib/observability";
 import type { BrandAssetKind, DbBrandAsset } from "@/lib/types";
 
@@ -47,6 +48,8 @@ export function BrandAssets({ brandId }: { brandId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [kind, setKind] = useState<BrandAssetKind>("logo");
   const [label, setLabel] = useState("");
+  const [pendingDelete, setPendingDelete] = useState<DbBrandAsset | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
@@ -99,19 +102,26 @@ export function BrandAssets({ brandId }: { brandId: string }) {
     }
   }
 
-  async function handleDelete(assetId: string) {
+  async function confirmDelete() {
+    const asset = pendingDelete;
+    if (!asset || deleting) return;
+    setDeleting(true);
     setError(null);
     const prev = assets;
-    setAssets((a) => a.filter((x) => x.id !== assetId));
+    setAssets((a) => a.filter((x) => x.id !== asset.id));
     try {
-      const res = await fetch(`/api/brands/${brandId}/assets/${assetId}`, {
+      const res = await fetch(`/api/brands/${brandId}/assets/${asset.id}`, {
         method: "DELETE",
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setPendingDelete(null);
     } catch (err) {
-      captureFallback("brand_assets.client_delete_failed", err, { brandId, assetId });
+      captureFallback("brand_assets.client_delete_failed", err, { brandId, assetId: asset.id });
       setAssets(prev); // restore on failure
       setError("Delete failed — try again.");
+      setPendingDelete(null);
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -224,9 +234,10 @@ export function BrandAssets({ brandId }: { brandId: string }) {
                     {Meta.label}
                   </Badge>
                   <button
-                    onClick={() => void handleDelete(a.id)}
+                    onClick={() => setPendingDelete(a)}
                     className="opacity-0 group-hover:opacity-100 transition-opacity text-white/35 hover:text-rose-400"
                     title="Delete asset"
+                    aria-label={`Delete ${Meta.label}${a.label ? ` "${a.label}"` : ""}`}
                   >
                     <Trash2 size={12} />
                   </button>
@@ -246,6 +257,20 @@ export function BrandAssets({ brandId }: { brandId: string }) {
           })}
         </div>
       )}
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Delete this asset?"
+        message={
+          pendingDelete
+            ? `"${pendingDelete.label ?? KIND_META[pendingDelete.kind]?.label ?? "Asset"}" will be removed from this brand's library. Creatives already generated keep their rendered image.`
+            : ""
+        }
+        confirmLabel="Delete asset"
+        busy={deleting}
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => !deleting && setPendingDelete(null)}
+      />
     </section>
   );
 }

@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { captureFallback } from "@/lib/observability";
 import { useSupabase } from "@/components/SupabaseProvider";
 import type { DbContentCreative } from "@/lib/types";
@@ -82,6 +83,7 @@ export function CreativePanel({
   const [loading, setLoading] = useState(true);
   const [composing, setComposing] = useState(false);
   const [reviewing, setReviewing] = useState<string | null>(null); // "approve" | "reject"
+  const [confirmReject, setConfirmReject] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -262,7 +264,7 @@ export function CreativePanel({
           reviewing={reviewing}
           regenerating={regenerating}
           onApprove={() => void handleReview(active.id, "approve")}
-          onReject={() => void handleReview(active.id, "reject")}
+          onReject={() => setConfirmReject(true)}
           onRegenerate={() => void handleRegenerate(active.id)}
         />
       )}
@@ -284,6 +286,19 @@ export function CreativePanel({
             ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmReject}
+        title="Reject this brief?"
+        message="The creative strategy will be archived. You can compose a fresh brief afterward. No image is generated for a rejected brief."
+        confirmLabel="Reject brief"
+        busy={reviewing === "reject"}
+        onConfirm={() => {
+          if (active) void handleReview(active.id, "reject");
+          setConfirmReject(false);
+        }}
+        onCancel={() => setConfirmReject(false)}
+      />
     </div>
   );
 }
