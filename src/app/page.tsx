@@ -1,4 +1,6 @@
+import { currentUser } from "@clerk/nextjs/server";
 import { KPICard } from "@/components/KPICard";
+import { DashboardGreeting } from "@/components/DashboardGreeting";
 import { ActivityFeed } from "@/components/ActivityFeed";
 import { RenderQueue } from "@/components/RenderQueue";
 import { UsageChart } from "@/components/UsageChart";
@@ -25,14 +27,16 @@ import Link from "next/link";
 export const revalidate = 30; // ISR: refresh every 30 s
 
 export default async function DashboardPage() {
-  const [kpis, projects, activity, renderJobs, chartData, brands] = await Promise.all([
+  const [kpis, projects, activity, renderJobs, chartData, brands, user] = await Promise.all([
     getKPISummary(),
     getProjects(),
     getActivity(6),
     getRenderJobs(undefined, 4),
     getAnalyticsData(14),
     listBrands(),
+    currentUser(),
   ]);
+  const firstName = user?.firstName?.trim() || "";
 
   const activeProjects = projects.filter((p) => p.status === "active");
   const pendingJobs = renderJobs.filter((j) => j.status !== "done").length;
@@ -55,9 +59,8 @@ export default async function DashboardPage() {
           <p className="text-sm text-white/40 mb-1">
             {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
           </p>
-          <h1 className="text-2xl font-bold text-white tracking-tight">
-            Good morning, Joseph 👋
-          </h1>
+          <DashboardGreeting firstName={firstName} />
+
           <p className="text-white/45 text-sm mt-1">
             You have{" "}
             <span className="text-violet-400 font-medium">{kpis.renderQueue} renders queued</span>{" "}
@@ -210,14 +213,14 @@ export default async function DashboardPage() {
               ))}
             </div>
 
+            {/* Static "how it works" stage map — uniform styling so it reads as
+                the pipeline's stages, not live per-job progress. */}
+            <p className="text-3xs uppercase tracking-wider text-white/30 mb-1.5">How it works</p>
             <div className="flex items-center gap-1 mb-4 overflow-x-auto pb-1">
               {["Brief", "Research", "Strategy", "Generate", "Approve", "Publish"].map((step, i, arr) => (
                 <div key={step} className="flex items-center gap-1 flex-shrink-0">
                   <div className="flex items-center gap-1 text-3xs font-medium px-2 py-1 rounded-md"
-                    style={{
-                      background: i < 4 ? "rgba(124,58,237,0.12)" : "rgba(255,255,255,0.04)",
-                      color: i < 4 ? "#a78bfa" : "rgba(255,255,255,0.3)",
-                    }}>
+                    style={{ background: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.45)" }}>
                     {step}
                   </div>
                   {i < arr.length - 1 && <div className="w-3 h-px bg-white/10" />}
@@ -270,14 +273,13 @@ export default async function DashboardPage() {
               ))}
             </div>
 
+            {/* Static stage map (uniform styling — descriptive, not live progress). */}
+            <p className="text-3xs uppercase tracking-wider text-white/30 mb-1.5">How it works</p>
             <div className="flex items-center gap-1 mb-4 overflow-x-auto pb-1">
               {["Brief", "Script", "Storyboard", "Clips", "Voice", "Captions", "Export"].map((step, i, arr) => (
                 <div key={step} className="flex items-center gap-1 flex-shrink-0">
                   <div className="flex items-center gap-1 text-3xs font-medium px-2 py-1 rounded-md"
-                    style={{
-                      background: i < 5 ? "rgba(6,182,212,0.12)" : "rgba(255,255,255,0.04)",
-                      color: i < 5 ? "#67e8f9" : "rgba(255,255,255,0.3)",
-                    }}>
+                    style={{ background: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.45)" }}>
                     {step}
                   </div>
                   {i < arr.length - 1 && <div className="w-3 h-px bg-white/10" />}
