@@ -17,13 +17,35 @@
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import sharp from "sharp";
 import { createAdminClient } from "@/lib/supabase";
 import { rateLimit } from "@/lib/rate-limit";
 import { captureFallback } from "@/lib/observability";
 import type { BrandAssetKind } from "@/lib/types";
 
 export const runtime = "nodejs";
+
+/**
+ * Magic-byte image sniffer. Returns our extension key ('png'|'jpg'|'webp') or
+ * null. This is the AUTHORITATIVE type check — it never depends on the sharp
+ * native binary (which doesn't always load on Vercel's lambda runtime). sharp
+ * is used only as a best-effort dimension reader below.
+ */
+function sniffImageType(buf: Buffer): "png" | "jpg" | "webp" | null {
+  if (buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
+    return "png";
+  }
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
+    return "jpg";
+  }
+  if (
+    buf.length >= 12 &&
+    buf.toString("ascii", 0, 4) === "RIFF" &&
+    buf.toString("ascii", 8, 12) === "WEBP"
+  ) {
+    return "webp";
+  }
+  return null;
+}
 
 const KINDS = new Set<BrandAssetKind>(["logo", "founder_headshot", "team_headshot"]);
 const ALLOWED_MIME: Record<string, string> = {
@@ -153,32 +175,38 @@ export async function POST(
 
   const bytes = Buffer.from(await file.arrayBuffer());
 
-  // Read-only decode check: confirms the bytes really are the claimed image
-  // format and records dimensions. The ORIGINAL buffer is what gets stored.
+  // Authoritative validation: the file's real magic bytes must match the type
+  // it declared. Never depends on sharp (the native binary doesn't reliably
+  // load on Vercel). The ORIGINAL buffer is what gets stored, untouched.
+  const sniffed = sniffImageType(bytes);
+  if (!sniffed) {
+    return NextResponse.json(
+      { error: "File could not be recognized as a PNG, JPEG, or WebP image" },
+      { status: 400 },
+    );
+  }
+  if (sniffed !== ext) {
+    return NextResponse.json(
+      { error: "File content doesn't match its declared image type" },
+      { status: 400 },
+    );
+  }
+
+  // Best-effort dimensions via sharp — lazily imported and NON-FATAL. If sharp
+  // can't load in this runtime, we still store the asset (width/height are
+  // nullable; the Phase C compositor reads dimensions from the bytes on the
+  // worker, where sharp is always available).
   let width: number | null = null;
   let height: number | null = null;
   let hasAlpha: boolean | null = null;
   try {
+    const sharp = (await import("sharp")).default;
     const meta = await sharp(bytes).metadata();
     width = meta.width ?? null;
     height = meta.height ?? null;
     hasAlpha = meta.hasAlpha ?? null;
-    const fmt = meta.format; // 'png' | 'jpeg' | 'webp'
-    const fmtOk =
-      (ext === "png" && fmt === "png") ||
-      (ext === "jpg" && fmt === "jpeg") ||
-      (ext === "webp" && fmt === "webp");
-    if (!fmtOk) {
-      return NextResponse.json(
-        { error: "File content doesn't match its declared image type" },
-        { status: 400 },
-      );
-    }
-  } catch {
-    return NextResponse.json(
-      { error: "File could not be decoded as an image" },
-      { status: 400 },
-    );
+  } catch (err) {
+    captureFallback("brand_assets.sharp_metadata_unavailable", err, { brandId, kind });
   }
 
   const objectPath = `${brandId}/${crypto.randomUUID()}.${ext}`;
