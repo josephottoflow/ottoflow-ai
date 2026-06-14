@@ -2096,17 +2096,18 @@ export async function generateCreativeBackground(input: {
   prompt: string;
   aspectRatio: string; // "1:1" | "3:4" | "16:9" | "9:16"
 }): Promise<Buffer> {
-  const { seed } = entropy();
   const resp = await callGemini("generateCreativeBackground", () =>
     ai().models.generateImages({
       // Same model + tier caveat as generateHeroFrame above.
       model: "imagen-3.0-fast-generate-001",
       prompt: `${input.prompt}.${BACKGROUND_NEGATIVE_SUFFIX}`,
       config: {
+        // NOTE: no `seed` — the Imagen endpoint rejects it ("seed parameter
+        // is not supported in Gemini API"). Variation comes from each brief's
+        // distinct prompt instead.
         numberOfImages: 1,
         aspectRatio: input.aspectRatio,
         outputMimeType: "image/png",
-        seed,
       },
     }),
   );
