@@ -16,7 +16,7 @@ import { auth } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase";
 import { rateLimit } from "@/lib/rate-limit";
 import { captureFallback } from "@/lib/observability";
-import { composeCreativeBrief, BriefValidationError } from "@/lib/creative/brief";
+import { composeCreativeBrief, BriefValidationError, type ComposeBriefInput } from "@/lib/creative/brief";
 import type { DbBrand, DbBrandAsset } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -27,7 +27,7 @@ async function ownedItem(itemId: string, userId: string) {
   const admin = createAdminClient();
   const { data: item } = await admin
     .from("content_items")
-    .select("id, brand_id, platform, title, preview, body, status, topic_id")
+    .select("id, brand_id, platform, title, preview, body, status, topic_id, creative_branding")
     .eq("id", itemId)
     .maybeSingle();
   if (!item || !item.brand_id) return null;
@@ -164,6 +164,7 @@ export async function POST(
         platform: item.platform as string,
       },
       topic,
+      branding: (item.creative_branding as ComposeBriefInput["branding"]) ?? null,
     });
 
     if (backgroundPromptReplaced) {

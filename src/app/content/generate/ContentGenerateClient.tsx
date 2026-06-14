@@ -114,6 +114,12 @@ export function ContentGenerateClient({
   // ─── Platforms (multi-select) ───────────────────────────────────────────────
   const [platforms, setPlatforms] = useState<Set<Platform>>(new Set<Platform>(["linkedin"]));
   const [userPrompt, setUserPrompt] = useState("");
+  // Branding overrides for the eventual creative (Creative Orchestrator).
+  const [companyName, setCompanyName] = useState("");
+  const [founderName, setFounderName] = useState("");
+  const [expertName, setExpertName] = useState("");
+  const [useLogo, setUseLogo] = useState(true);
+  const [useHeadshot, setUseHeadshot] = useState(true);
 
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -185,6 +191,13 @@ export function ContentGenerateClient({
           platforms: platformList,
           topicId: selectedTopicId ?? undefined,
           userPrompt: userPrompt.trim() || undefined,
+          branding: {
+            companyName: companyName.trim() || undefined,
+            founderName: founderName.trim() || undefined,
+            expertName: expertName.trim() || undefined,
+            useLogo,
+            useHeadshot,
+          },
         }),
       });
       const data = await res.json();
@@ -216,7 +229,7 @@ export function ContentGenerateClient({
     } finally {
       setSubmitting(false);
     }
-  }, [submitting, brandId, platforms, selectedTopicId, userPrompt]);
+  }, [submitting, brandId, platforms, selectedTopicId, userPrompt, companyName, founderName, expertName, useLogo, useHeadshot]);
 
   // ─── Realtime: one channel per generation (job + item) ──────────────────────
   useEffect(() => {
@@ -684,6 +697,49 @@ export function ContentGenerateClient({
             className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-violet-500/40 transition-colors resize-none"
           />
           <p className="text-2xs text-white/30 mt-1.5">{userPrompt.length}/500</p>
+        </div>
+
+        {/* Branding — overlay identity for the eventual creative image */}
+        <div>
+          <label className="text-xs font-semibold text-white/70 uppercase tracking-wider block mb-2">
+            Branding <span className="text-white/30 font-normal normal-case">(optional — overlays on the creative)</span>
+          </label>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+            <input
+              type="text"
+              value={companyName}
+              onChange={(e) => setCompanyName(e.target.value.slice(0, 120))}
+              placeholder="Company name"
+              className="bg-white/[0.04] border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-violet-500/40"
+            />
+            <input
+              type="text"
+              value={founderName}
+              onChange={(e) => setFounderName(e.target.value.slice(0, 120))}
+              placeholder="Founder name"
+              className="bg-white/[0.04] border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-violet-500/40"
+            />
+            <input
+              type="text"
+              value={expertName}
+              onChange={(e) => setExpertName(e.target.value.slice(0, 120))}
+              placeholder="Expert name"
+              className="bg-white/[0.04] border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-violet-500/40"
+            />
+          </div>
+          <div className="flex items-center gap-4 mt-2.5">
+            <label className="flex items-center gap-1.5 text-xs text-white/60 cursor-pointer select-none">
+              <input type="checkbox" checked={useLogo} onChange={(e) => setUseLogo(e.target.checked)} className="accent-violet-500" />
+              Use uploaded logo
+            </label>
+            <label className="flex items-center gap-1.5 text-xs text-white/60 cursor-pointer select-none">
+              <input type="checkbox" checked={useHeadshot} onChange={(e) => setUseHeadshot(e.target.checked)} className="accent-violet-500" />
+              Use uploaded headshot
+            </label>
+          </div>
+          <p className="text-2xs text-white/30 mt-1.5">
+            Locked assets are only composited (resize / crop / mask / position) — never AI-modified. Blank fields fall back to the brand profile.
+          </p>
         </div>
 
         {submitError && (

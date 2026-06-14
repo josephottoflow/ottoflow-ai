@@ -49,6 +49,17 @@ const Schema = z
     topicId: z.string().uuid().optional(),
     userPrompt: z.string().max(500).optional(),
     pillarId: z.string().uuid().optional(),
+    // Per-creative branding overrides (Brand Creative Orchestrator) — captured
+    // on /content/generate, persisted on the item, consumed by composeCreativeBrief.
+    branding: z
+      .object({
+        companyName: z.string().max(120).optional(),
+        founderName: z.string().max(120).optional(),
+        expertName: z.string().max(120).optional(),
+        useLogo: z.boolean().optional(),
+        useHeadshot: z.boolean().optional(),
+      })
+      .optional(),
   })
   .refine((v) => !!v.platforms?.length || !!v.platform, {
     message: "Provide at least one platform.",
@@ -221,6 +232,8 @@ export async function POST(req: NextRequest) {
         // Phase 1.5 — direct post→idea lineage (was only implicit in the
         // prompt text; videos already carried topic_id on render_jobs).
         topic_id: input.topicId ?? null,
+        // Creative Orchestrator — branding overrides for the eventual creative.
+        creative_branding: input.branding ?? null,
       })
       .select("id")
       .single();

@@ -140,6 +140,17 @@ export interface DbContentItem {
   platform_post_id?: string | null;
   /** 'manual' in v1; 'linkedin_api' | 'x_api' | 'facebook_api' | … later. */
   publishing_method?: string | null;
+  /**
+   * Per-creative branding overrides captured on /content/generate (migration
+   * 019). Consumed by composeCreativeBrief. Optional: rows predate the column.
+   */
+  creative_branding?: {
+    companyName?: string | null;
+    founderName?: string | null;
+    expertName?: string | null;
+    useLogo?: boolean;
+    useHeadshot?: boolean;
+  } | null;
 }
 
 export interface DbRenderJob {
