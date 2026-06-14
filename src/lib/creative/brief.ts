@@ -48,6 +48,19 @@ export interface ComposeBriefInput {
     opportunity_kind: string | null;
     category: string | null;
   } | null;
+  /**
+   * Per-creative branding overrides captured on /content/generate. Names
+   * override the defaults (company = brand.name, founder = headshot label);
+   * the use_logo / use_headshot toggles let the user suppress an available
+   * asset (default: use when present).
+   */
+  branding?: {
+    companyName?: string | null;
+    founderName?: string | null;
+    expertName?: string | null;
+    useLogo?: boolean;
+    useHeadshot?: boolean;
+  } | null;
 }
 
 // Platform → Imagen-supported aspect ratio for the BACKGROUND. Matched to the
@@ -252,9 +265,19 @@ export async function composeCreativeBrief(
   const h = score.hierarchy;
   const concept = attempt.concept;
 
+  // ── Branding overrides (from /content/generate) ───────────────────────────
+  const companyName = input.branding?.companyName?.trim() || input.brand.name;
+  const effectiveFounderName = input.branding?.founderName?.trim() || founderName;
+  const expertName = input.branding?.expertName?.trim() || null;
+
   // ── Code-computed usage facts (what the approval gate displays) ───────────
-  const useLogo = logo != null; // every hierarchy brands the canvas when a logo exists
-  const useHeadshot = headshot != null && (h === "founder_led" || h === "quote_led");
+  // A use_logo / use_headshot toggle of `false` suppresses an otherwise-
+  // available asset; undefined/true means "use when present".
+  const useLogo = logo != null && input.branding?.useLogo !== false;
+  const useHeadshot =
+    headshot != null &&
+    (h === "founder_led" || h === "quote_led") &&
+    input.branding?.useHeadshot !== false;
 
   const brief: CreativeBrief = {
     version: 1,
@@ -272,6 +295,7 @@ export async function composeCreativeBrief(
     visual_concept: concept.visual_concept.slice(0, 800),
     visual_rationale: concept.visual_rationale.slice(0, 800),
     headline: concept.headline.slice(0, 80),
+    subheadline: (concept.subheadline ?? "").slice(0, 120),
     cta: concept.cta.slice(0, 60),
     background_prompt: concept.background_prompt.slice(0, 1000),
 
@@ -308,25 +332,32 @@ export async function composeCreativeBrief(
         },
     company_name_usage: {
       use: true,
-      name: input.brand.name,
+      name: companyName,
       treatment: useLogo
         ? "Carried by the composited logo; name not duplicated as text."
         : "Rendered as a typographic wordmark in the bottom brand bar.",
     },
     founder_name_usage:
-      useHeadshot && founderName
+      useHeadshot && effectiveFounderName
         ? {
             use: true,
-            name: founderName,
+            name: effectiveFounderName,
             treatment: "Small attribution line next to the composited headshot.",
           }
         : {
             use: false,
             treatment:
-              founderName == null
+              effectiveFounderName == null
                 ? "No founder identified (label a headshot with the person's name to enable)."
                 : `Not shown in a ${h.replace("_", "-")} composition.`,
           },
+    expert_name_usage: expertName
+      ? {
+          use: true,
+          name: expertName,
+          treatment: "Credited as the subject-matter expert in the attribution line.",
+        }
+      : { use: false, treatment: "No expert credited for this creative." },
 
     aspect_ratio: aspectRatio,
     palette,

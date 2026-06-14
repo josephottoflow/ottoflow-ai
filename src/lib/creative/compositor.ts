@@ -147,6 +147,28 @@ function headlineBlock(
   return { svg: quoteMark + body, height: lines.length * lineH + (quote ? fontSize : 0) };
 }
 
+/** Lighter supporting line under the headline. */
+function subBlock(
+  text: string,
+  fontSize: number,
+  maxWidth: number,
+  x: number,
+  startY: number,
+  anchor: "start" | "middle",
+): TextBlock {
+  const lines = wrapText(text, fontSize, maxWidth).slice(0, 2);
+  const lineH = Math.round(fontSize * 1.25);
+  const body = lines
+    .map(
+      (ln, i) =>
+        `<text x="${x}" y="${startY + (i + 1) * lineH}" text-anchor="${anchor}" ` +
+        `font-family="${FONT_STACK}" font-size="${fontSize}" font-weight="500" ` +
+        `fill="rgba(255,255,255,0.85)">${esc(ln)}</text>`,
+    )
+    .join("");
+  return { svg: body, height: lines.length * lineH };
+}
+
 function ctaPill(
   text: string,
   fontSize: number,
@@ -252,33 +274,37 @@ export async function compositeCreative(input: CompositeInput): Promise<Buffer> 
     layers.push({ input: logoImg, top: pos.y + pad, left: pos.x + pad });
   }
 
-  // 4. Typography layer — headline, CTA, wordmark, attribution.
+  // 4. Typography layer — headline, subheadline, CTA, wordmark, attribution.
   const blocks: string[] = [];
 
+  // Per-hierarchy text layout (anchor + position), then a uniform
+  // headline → subheadline → CTA stack so the optional subheadline pushes the
+  // CTA down instead of overlapping it.
+  let fs: number, maxW: number, tx: number, startY: number;
+  let anchor: "start" | "middle" = "middle";
+  let quote = false;
+  let ctaFixedY: number | null = null;
   if (h === "founder_led" && headshotLayer) {
-    const maxW = headshotLayer.x - m * 2;
-    const fs = Math.round(W * 0.052);
-    const hb = headlineBlock(brief.headline, fs, maxW, m, Math.round(H * 0.3), "start");
-    blocks.push(hb.svg);
-    const cta = ctaPill(brief.cta, Math.round(fs * 0.5), m + Math.round(maxW / 2), Math.round(H * 0.3) + hb.height + m, accent);
-    blocks.push(cta.svg);
+    maxW = headshotLayer.x - m * 2; fs = Math.round(W * 0.052); tx = m; startY = Math.round(H * 0.3); anchor = "start";
   } else if (h === "brand_led") {
-    const fs = Math.round(W * 0.056);
-    const hb = headlineBlock(brief.headline, fs, W - m * 2, Math.round(W / 2), Math.round(H * 0.16), "middle");
-    blocks.push(hb.svg);
-    blocks.push(ctaPill(brief.cta, Math.round(fs * 0.48), Math.round(W / 2), Math.round(H * 0.74), accent).svg);
+    fs = Math.round(W * 0.056); maxW = W - m * 2; tx = Math.round(W / 2); startY = Math.round(H * 0.16); ctaFixedY = Math.round(H * 0.74);
   } else if (h === "data_led") {
-    const fs = Math.round(W * 0.072);
-    const hb = headlineBlock(brief.headline, fs, W - m * 2, Math.round(W / 2), Math.round(H * 0.3), "middle");
-    blocks.push(hb.svg);
-    blocks.push(ctaPill(brief.cta, Math.round(fs * 0.38), Math.round(W / 2), Math.round(H * 0.3) + hb.height + m, accent).svg);
+    fs = Math.round(W * 0.072); maxW = W - m * 2; tx = Math.round(W / 2); startY = Math.round(H * 0.3);
   } else {
-    // quote_led (and any future default)
-    const fs = Math.round(W * 0.05);
-    const hb = headlineBlock(brief.headline, fs, W - m * 2, Math.round(W / 2), Math.round(H * 0.26), "middle", true);
-    blocks.push(hb.svg);
-    blocks.push(ctaPill(brief.cta, Math.round(fs * 0.46), Math.round(W / 2), Math.round(H * 0.26) + hb.height + m, accent).svg);
+    fs = Math.round(W * 0.05); maxW = W - m * 2; tx = Math.round(W / 2); startY = Math.round(H * 0.26); quote = true;
   }
+
+  const hb = headlineBlock(brief.headline, fs, maxW, tx, startY, anchor, quote);
+  blocks.push(hb.svg);
+  let cursorY = startY + hb.height;
+  if (brief.subheadline) {
+    const sb = subBlock(brief.subheadline, Math.round(fs * 0.42), maxW, tx, cursorY + Math.round(m * 0.3), anchor);
+    blocks.push(sb.svg);
+    cursorY += Math.round(m * 0.3) + sb.height;
+  }
+  const ctaX = anchor === "start" ? m + Math.round(maxW / 2) : tx;
+  const ctaSize = Math.round(fs * (h === "data_led" ? 0.38 : h === "brand_led" ? 0.48 : h === "founder_led" ? 0.5 : 0.46));
+  blocks.push(ctaPill(brief.cta, ctaSize, ctaX, ctaFixedY ?? cursorY + m, accent).svg);
 
   // Founder attribution next to a non-hero headshot.
   if (
@@ -303,6 +329,18 @@ export async function compositeCreative(input: CompositeInput): Promise<Buffer> 
         `y="${headshotLayer.y + headshotLayer.d + Math.round(fs * 1.4)}" text-anchor="middle" ` +
         `font-family="${FONT_STACK}" font-size="${fs}" font-weight="600" ` +
         `fill="rgba(255,255,255,0.92)">${esc(brief.founder_name_usage.name)}</text>`,
+    );
+  }
+
+  // Expert credit (from the branding controls) — small line, bottom-left,
+  // sitting just above the company wordmark when one is shown.
+  if (brief.expert_name_usage.use && brief.expert_name_usage.name) {
+    const efs = Math.round(W * 0.02);
+    const wordmarkShown = brief.company_name_usage.use && !(brief.logo_usage.use && input.logo);
+    const ey = wordmarkShown ? H - m - Math.round(efs * 1.9) : H - m;
+    blocks.push(
+      `<text x="${m}" y="${ey}" font-family="${FONT_STACK}" font-size="${efs}" ` +
+        `font-weight="500" fill="rgba(255,255,255,0.8)">${esc("With " + brief.expert_name_usage.name)}</text>`,
     );
   }
 

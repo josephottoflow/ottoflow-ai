@@ -63,11 +63,13 @@ interface BriefView {
   visual_concept: string;
   visual_rationale: string;
   headline: string;
+  subheadline?: string;
   cta: string;
   logo_usage?: { use: boolean; placement?: string; reason: string };
   headshot_usage?: { use: boolean; placement?: string; reason: string };
   company_name_usage?: { use: boolean; name?: string; treatment: string };
   founder_name_usage?: { use: boolean; name?: string; treatment: string };
+  expert_name_usage?: { use: boolean; name?: string; treatment: string };
   aspect_ratio?: string;
 }
 
@@ -449,6 +451,9 @@ function BriefPreview({
         >
           <p className="text-3xs uppercase tracking-wider text-white/35 mb-1">Headline</p>
           <p className="text-sm font-semibold text-white leading-snug">“{brief.headline}”</p>
+          {brief.subheadline && (
+            <p className="text-2xs text-white/55 mt-1 leading-snug">{brief.subheadline}</p>
+          )}
         </div>
         <div
           className="rounded-lg p-3"
@@ -465,6 +470,9 @@ function BriefPreview({
         <UsageRow label="Headshot Usage" usage={brief.headshot_usage} />
         <NameRow label="Company Name Usage" usage={brief.company_name_usage} />
         <NameRow label="Founder Name Usage" usage={brief.founder_name_usage} />
+        {brief.expert_name_usage?.use && (
+          <NameRow label="Expert Name Usage" usage={brief.expert_name_usage} />
+        )}
       </div>
 
       {/* ── The gate ── */}

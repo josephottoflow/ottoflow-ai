@@ -1969,6 +1969,7 @@ export interface CreativeConcept {
   visual_concept: string;
   visual_rationale: string;
   headline: string;
+  subheadline: string;
   cta: string;
   background_prompt: string;
   /** Model's self-assessed fit of this hierarchy for this content (0-1). */
@@ -1981,6 +1982,7 @@ const creativeConceptSchema: Schema = {
     "visual_concept",
     "visual_rationale",
     "headline",
+    "subheadline",
     "cta",
     "background_prompt",
     "model_confidence",
@@ -1989,6 +1991,7 @@ const creativeConceptSchema: Schema = {
     visual_concept: { type: Type.STRING },
     visual_rationale: { type: Type.STRING },
     headline: { type: Type.STRING },
+    subheadline: { type: Type.STRING },
     cta: { type: Type.STRING },
     background_prompt: { type: Type.STRING },
     model_confidence: { type: Type.NUMBER },
@@ -2055,6 +2058,9 @@ Produce:
   and ${input.platform} specifically. Reference the actual content.
 - headline: the overlay text (≤ 80 chars). Rendered as crisp typography
   later — make every word earn its place.
+- subheadline: ONE supporting line under the headline (≤ 120 chars) that adds
+  the specific proof/angle from THIS post. Empty string if the headline fully
+  stands alone — never padding.
 - cta: short action line (≤ 60 chars), platform-appropriate.
 - background_prompt: an image-generation prompt for the BACKGROUND ONLY.
   HARD RULES: describe abstract scenes, environments, gradients, textures,

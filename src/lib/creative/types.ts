@@ -90,6 +90,8 @@ export const creativeBriefSchema = z.object({
   visual_concept: z.string().min(10).max(800),
   visual_rationale: z.string().min(10).max(800),
   headline: z.string().min(2).max(80),
+  /** Optional supporting line under the headline (≤ 120 chars). */
+  subheadline: z.string().max(120).default(""),
   cta: z.string().min(2).max(60),
   /** Imagen prompt for the BACKGROUND ONLY — validated against forbidden tokens. */
   background_prompt: z.string().min(10).max(1000),
@@ -99,6 +101,8 @@ export const creativeBriefSchema = z.object({
   headshot_usage: assetUsageSchema,
   company_name_usage: nameUsageSchema,
   founder_name_usage: nameUsageSchema,
+  /** Optional credited subject-matter expert (distinct from the founder). */
+  expert_name_usage: nameUsageSchema.default({ use: false, treatment: "" }),
 
   // ── Layout + context ─────────────────────────────────────────────────────
   aspect_ratio: z.enum(ASPECT_RATIOS),
