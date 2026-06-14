@@ -102,7 +102,8 @@ export async function POST(
       await creativeGenerationQueue().add(
         "generate",
         { creativeId, brandId: updated.brand_id as string },
-        { jobId: `creative:${creativeId}` },
+        // BullMQ rejects custom job ids containing ':' — use hyphens.
+        { jobId: `creative-${creativeId}` },
       );
     } catch (err) {
       // Roll the gate back to brief_ready so the user can re-approve rather

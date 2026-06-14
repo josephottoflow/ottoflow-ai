@@ -94,7 +94,8 @@ export async function POST(
       "generate",
       { creativeId, brandId: creative.brand_id as string, regen: true },
       // New jobId each regen so a removed-on-complete prior job doesn't clash.
-      { jobId: `creative:${creativeId}:regen:${(creative.regen_count as number) + 1}` },
+      // BullMQ rejects custom job ids containing ':' — use hyphens.
+      { jobId: `creative-${creativeId}-regen-${(creative.regen_count as number) + 1}` },
     );
   } catch (err) {
     captureFallback("creative.regenerate_enqueue_failed", err, { creativeId });
