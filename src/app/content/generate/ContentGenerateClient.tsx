@@ -23,6 +23,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
+import { CreativePanel } from "@/components/CreativePanel";
 import { useSupabase } from "@/components/SupabaseProvider";
 import { captureFallback } from "@/lib/observability";
 import type { DbBrandTopic } from "@/lib/types";
@@ -429,7 +430,8 @@ export function ContentGenerateClient({
             const PIcon = cfg.icon;
 
             return (
-              <div key={g.contentJobId} className="glass rounded-2xl p-5">
+              <div key={g.contentJobId} className="space-y-3">
+              <div className="glass rounded-2xl p-5">
                 <div className="flex items-start gap-3">
                   <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
                     style={{ background: cfg.bg }}>
@@ -511,6 +513,13 @@ export function ContentGenerateClient({
                     )}
                   </div>
                 )}
+              </div>
+
+              {/* Creative Strategy — composed from this post + brand + topic.
+                  Review → approve before any image-generation cost. */}
+              {item?.body && (
+                <CreativePanel contentItemId={g.contentItemId} brandId={brandId} />
+              )}
               </div>
             );
           })}
