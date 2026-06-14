@@ -316,6 +316,24 @@ export async function getKPISummary(): Promise<KPISummary> {
   }, EMPTY_KPI);
 }
 
+/**
+ * Creative Orchestrator dashboard counts — total composed creatives and how
+ * many have a finished (ready) image. RLS scopes to the user via brand.
+ */
+export async function getCreativeCount(): Promise<{ total: number; ready: number }> {
+  return safe("getCreativeCount", async () => {
+    const sb = await createServerSupabaseClient();
+    const [{ count: total }, { count: ready }] = await Promise.all([
+      sb.from("content_creatives").select("id", { count: "exact", head: true }),
+      sb
+        .from("content_creatives")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "ready"),
+    ]);
+    return { total: total ?? 0, ready: ready ?? 0 };
+  }, { total: 0, ready: 0 });
+}
+
 // ─── Analytics ────────────────────────────────────────────────────────────────
 
 /**

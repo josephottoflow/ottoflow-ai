@@ -7,14 +7,14 @@ import { UsageChart } from "@/components/UsageChart";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatRelative, formatNumber } from "@/lib/utils";
-import { getKPISummary, getProjects, getActivity, getRenderJobs, getAnalyticsData } from "@/lib/db";
+import { getKPISummary, getProjects, getActivity, getRenderJobs, getAnalyticsData, getCreativeCount } from "@/lib/db";
 import { listBrands } from "@/lib/db-brands";
 import {
   FileText,
   Video,
   Zap,
   ArrowRight,
-  FolderOpen,
+  Palette,
   BarChart3,
   Clock,
   Sparkles,
@@ -27,7 +27,7 @@ import Link from "next/link";
 export const revalidate = 30; // ISR: refresh every 30 s
 
 export default async function DashboardPage() {
-  const [kpis, projects, activity, renderJobs, chartData, brands, user] = await Promise.all([
+  const [kpis, projects, activity, renderJobs, chartData, brands, user, creatives] = await Promise.all([
     getKPISummary(),
     getProjects(),
     getActivity(6),
@@ -35,6 +35,7 @@ export default async function DashboardPage() {
     getAnalyticsData(14),
     listBrands(),
     currentUser(),
+    getCreativeCount(),
   ]);
   const firstName = user?.firstName?.trim() || "";
 
@@ -165,12 +166,12 @@ export default async function DashboardPage() {
           iconBg="rgba(245, 158, 11, 0.12)"
         />
         <KPICard
-          title="Active Projects"
-          value={kpis.activeProjects}
-          subtitle={`${kpis.publishedToday} posts today`}
-          icon={<FolderOpen size={18} />}
-          iconColor="#34d399"
-          iconBg="rgba(16, 185, 129, 0.12)"
+          title="Creatives"
+          value={formatNumber(creatives.total)}
+          subtitle={creatives.total > 0 ? `${creatives.ready} ready` : "Generate from any post"}
+          icon={<Palette size={18} />}
+          iconColor="#e879f9"
+          iconBg="rgba(217, 70, 239, 0.12)"
         />
       </div>
 
