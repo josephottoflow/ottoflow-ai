@@ -117,16 +117,32 @@ function paletteFromBrand(brand: DbBrand): CreativeBrief["palette"] {
 /**
  * Deterministic last-resort background prompt — used only if the model's
  * prompt fails the forbidden-token check twice. Always safe by construction.
+ *
+ * When a clean visual_metaphor is available it drives the fallback, so the
+ * topic still reaches the image even when the model's own (verbose) prompt
+ * tripped the guard (P4 Phase 1). The metaphor is abstract-safe by design; we
+ * guard it once more before use, falling back to a plain gradient otherwise.
  */
 function safeFallbackBackgroundPrompt(
   palette: CreativeBrief["palette"],
   industry: string | null,
+  metaphor?: string,
 ): string {
   const colors = [palette.primary, palette.secondary, palette.accent].filter(Boolean);
+  const colorClause = colors.length ? ` in ${colors.join(", ")}` : "";
+  const moodClause = industry ? `, mood suited to the ${industry} industry` : "";
+  if (metaphor && metaphor.trim() && !findForbiddenBackgroundToken(metaphor)) {
+    return (
+      `Abstract composition${colorClause}: ${metaphor.trim()}. ` +
+      `Soft studio lighting, subtle depth, generous negative space in the center` +
+      moodClause +
+      `, minimal, high-end, clean composition`
+    );
+  }
   return (
-    `Abstract premium gradient background${colors.length ? ` in ${colors.join(", ")}` : ""}, ` +
+    `Abstract premium gradient background${colorClause}, ` +
     `soft studio lighting, subtle geometric depth, generous negative space in the center` +
-    (industry ? `, mood suited to the ${industry} industry` : "") +
+    moodClause +
     `, minimal, high-end, clean composition`
   );
 }
@@ -195,7 +211,11 @@ async function composeConceptValidated(
   return {
     concept: {
       ...lastConcept!,
-      background_prompt: safeFallbackBackgroundPrompt(palette, input.brand.industry),
+      background_prompt: safeFallbackBackgroundPrompt(
+        palette,
+        input.brand.industry,
+        lastConcept!.visual_metaphor,
+      ),
     },
     backgroundPromptReplaced: true,
   };
