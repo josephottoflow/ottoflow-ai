@@ -36,6 +36,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { AskResearch } from "@/components/AskResearch";
 import { BrandAssets } from "@/components/BrandAssets";
+import { BrandColors } from "@/components/BrandColors";
 import { OpportunityFeed } from "@/components/OpportunityFeed";
 
 interface Props {
@@ -210,6 +211,12 @@ export function BrandDetailClient({
           research state, so it renders for pending/researching brands too. */}
       <div className="mb-6">
         <BrandAssets brandId={brand.id} />
+      </div>
+
+      {/* Brand color palette (Creative Quality Phase 0B) — drives creative
+          background / scrim / CTA so creatives render in the brand's colors. */}
+      <div className="mb-6">
+        <BrandColors brandId={brand.id} initial={brand.brand_colors} />
       </div>
 
       {/* Live progress card */}

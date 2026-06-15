@@ -2026,9 +2026,14 @@ export async function generateCreativeConcept(input: {
   assetSummary: string; // e.g. "logo (transparent PNG 800×200), headshot (\"Jane Doe — Founder\", 1200×1200)"
 }): Promise<{ data: CreativeConcept; meta: GenerationMeta }> {
   const direction = HIERARCHY_DIRECTION[input.hierarchy] ?? HIERARCHY_DIRECTION.brand_led;
-  const paletteLine = [input.palette.primary, input.palette.secondary, input.palette.accent]
-    .filter(Boolean)
-    .join(", ");
+  const pal = input.palette;
+  const hasPalette = !!(pal.primary || pal.secondary || pal.accent);
+  const paletteBlock = hasPalette
+    ? `BRAND PALETTE — the background MUST be built in this exact color world. Name these colors in the background_prompt and reinforce them so the image reads unmistakably on-brand:
+- primary: ${pal.primary ?? "(none)"}
+- secondary: ${pal.secondary ?? "(none)"}
+- accent: ${pal.accent ?? "(none)"}`
+    : `BRAND PALETTE: none configured — use a RESTRAINED, NEUTRAL, desaturated palette (soft grays / muted neutral tones). Do NOT invent a saturated brand color.`;
 
   const prompt = `
 Design the creative strategy for a single ${input.platform} image creative
@@ -2037,7 +2042,7 @@ Design the creative strategy for a single ${input.platform} image creative
 BRAND: ${input.brand.name}${input.brand.industry ? ` (${input.brand.industry})` : ""}
 ${input.brand.positioning ? `POSITIONING: ${input.brand.positioning}` : ""}
 VOICE: ${input.brand.voiceTone}
-${paletteLine ? `BRAND PALETTE: ${paletteLine}` : ""}
+${paletteBlock}
 ${input.founderName ? `FOUNDER: ${input.founderName}` : ""}
 AVAILABLE LOCKED ASSETS (composited later, never generated): ${input.assetSummary || "(none)"}
 
@@ -2066,8 +2071,11 @@ Produce:
   HARD RULES: describe abstract scenes, environments, gradients, textures,
   or objects — NEVER logos, brand marks, watermarks, text, letters, words,
   signs, people, faces, or portraits (all of those are composited or
-  rendered separately from locked assets). Include palette, lighting, and
-  mood. Leave compositional quiet space where the headline and assets land.
+  rendered separately from locked assets). Build it explicitly in the BRAND
+  PALETTE above — name the primary and accent colors in the prompt and
+  reinforce them; if no palette is configured keep it neutral and desaturated.
+  Include lighting and mood. Leave compositional quiet space where the
+  headline and assets land.
 - model_confidence: 0.0-1.0 — your honest assessment of how well THIS
   hierarchy fits THIS content. A mismatch (e.g. quote-led on a stats post)
   should score ≤ 0.5. Don't flatter.

@@ -76,6 +76,30 @@ function safeColor(c: string | undefined, fallback: string): string {
   return fallback;
 }
 
+// Non-branded fallbacks — used ONLY when a brand has no palette configured.
+// Never Ottoflow purple: a creative must not inherit Ottoflow's identity.
+const NEUTRAL_ACCENT = "#64748b"; // slate-500
+const NEUTRAL_SCRIM = { r: 10, g: 12, b: 16 } as const; // neutral near-black
+
+type RGB = { r: number; g: number; b: number };
+function parseHex(c?: string): RGB | null {
+  if (!c) return null;
+  let h = c.trim().replace(/^#/, "");
+  if (h.length === 3) h = h.split("").map((x) => x + x).join("");
+  if (!/^[0-9a-fA-F]{6}$/.test(h)) return null;
+  return { r: parseInt(h.slice(0, 2), 16), g: parseInt(h.slice(2, 4), 16), b: parseInt(h.slice(4, 6), 16) };
+}
+function mix(a: RGB, b: RGB, t: number): RGB {
+  return {
+    r: Math.round(a.r + (b.r - a.r) * t),
+    g: Math.round(a.g + (b.g - a.g) * t),
+    b: Math.round(a.b + (b.b - a.b) * t),
+  };
+}
+function rgbaStr(c: RGB, alpha: number): string {
+  return `rgba(${c.r},${c.g},${c.b},${alpha})`;
+}
+
 /** Greedy word wrap from an average-glyph-width estimate. */
 function wrapText(text: string, fontSize: number, maxWidthPx: number): string[] {
   const charW = fontSize * 0.56;
@@ -216,7 +240,13 @@ export async function compositeCreative(input: CompositeInput): Promise<Buffer> 
   const headshot = await decodableOrNull(input.headshot);
   const { w: W, h: H } = resolveCanvas(brief);
   const m = Math.round(Math.min(W, H) * 0.05);
-  const accent = safeColor(brief.palette.accent ?? brief.palette.primary, "#7c3aed");
+  // Brand accent — never Ottoflow purple. Neutral slate when no palette is set.
+  const accent = safeColor(brief.palette.accent ?? brief.palette.primary, NEUTRAL_ACCENT);
+  // Scrim tint derived from the brand primary, mixed ~86% toward near-black so
+  // it stays dark enough for white text (subtle brand tint, never a full
+  // recolor). Neutral near-black when the brand has no palette.
+  const primaryRgb = parseHex(brief.palette.primary ?? brief.palette.accent);
+  const scrimRgb = primaryRgb ? mix(primaryRgb, { r: 8, g: 10, b: 14 }, 0.86) : NEUTRAL_SCRIM;
 
   // 1. Background: cover-resize the GENERATED image to the canvas.
   const bg = await sharp(input.background)
@@ -228,9 +258,9 @@ export async function compositeCreative(input: CompositeInput): Promise<Buffer> 
   // 2. Legibility scrim over the generated background (not a locked asset).
   const scrim = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
     <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="rgba(8,10,20,0.18)"/>
-      <stop offset="62%" stop-color="rgba(8,10,20,0.34)"/>
-      <stop offset="100%" stop-color="rgba(8,10,20,0.62)"/>
+      <stop offset="0%" stop-color="${rgbaStr(scrimRgb, 0.2)}"/>
+      <stop offset="62%" stop-color="${rgbaStr(scrimRgb, 0.38)}"/>
+      <stop offset="100%" stop-color="${rgbaStr(scrimRgb, 0.66)}"/>
     </linearGradient></defs>
     <rect width="${W}" height="${H}" fill="url(#g)"/>
   </svg>`;
