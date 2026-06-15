@@ -2095,13 +2095,16 @@ Produce these IN ORDER — each builds on the previous:
 - background_prompt: an image-generation prompt for the BACKGROUND ONLY that
   RENDERS the visual_metaphor — express it through composition, geometry,
   structure, and visual tension so the metaphor is recognizable in the image
-  before any text. HARD RULES: abstract only — NEVER logos, brand marks,
-  watermarks, text, letters, words, signs, people, faces, or portraits (those
-  are composited or rendered separately from locked assets). Build it explicitly
-  in the BRAND PALETTE above — name the primary and accent colors and reinforce
-  them; if no palette is configured keep it neutral and desaturated. Include
-  lighting and mood. Leave compositional quiet space where the headline and
-  assets land.
+  before any headline is read. Build it explicitly in the BRAND PALETTE above —
+  name the primary and accent colors and reinforce them; if no palette is
+  configured keep it neutral and desaturated. Include lighting and mood. Leave
+  compositional quiet space where the headline and assets land.
+  WRITE IT AS POSITIVE DESCRIPTION ONLY — describe what IS in the frame (shapes,
+  geometry, flow, color, light). Do NOT write negative phrases like "no text"
+  or "no people", and do NOT use the words text, letters, words, logo, sign,
+  person, people, face, human, or portrait ANYWHERE in the prompt — those
+  elements are already excluded by design, and naming them (even to forbid
+  them) is itself disallowed. Just describe the clean abstract scene.
 - model_confidence: 0.0-1.0 — your honest assessment of how well THIS
   hierarchy fits THIS content. A mismatch (e.g. quote-led on a stats post)
   should score ≤ 0.5. Don't flatter.
