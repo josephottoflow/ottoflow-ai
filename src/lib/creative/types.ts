@@ -87,6 +87,12 @@ export const creativeBriefSchema = z.object({
   forced_brand_led: z.boolean(),
 
   // ── Model-composed strategy (the reviewable creative thinking) ──────────
+  /** Topic → Visual Metaphor Engine (P4 Phase 1). The opposition the topic
+   *  dramatizes (e.g. "Complexity vs Simplicity"). Defaulted for older briefs. */
+  visual_tension: z.string().max(120).default(""),
+  /** The abstract-safe visual that depicts the tension resolving; the
+   *  background_prompt renders it. Defaulted for briefs predating this field. */
+  visual_metaphor: z.string().max(400).default(""),
   visual_concept: z.string().min(10).max(800),
   visual_rationale: z.string().min(10).max(800),
   headline: z.string().min(2).max(80),

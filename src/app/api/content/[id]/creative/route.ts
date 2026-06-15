@@ -186,6 +186,8 @@ export async function POST(
         creative_brief: brief,
         creative_hierarchy: brief.hierarchy,
         creative_confidence: brief.confidence,
+        visual_tension: brief.visual_tension || null,
+        visual_metaphor: brief.visual_metaphor || null,
         platform: brief.platform,
         status_history: [{ from: null, to: "brief_ready", at: now, by: "system" }],
       })

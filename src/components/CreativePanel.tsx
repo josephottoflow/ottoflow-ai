@@ -93,6 +93,8 @@ const STATUS_META: Record<
 
 interface BriefView {
   hierarchy: string;
+  visual_tension?: string;
+  visual_metaphor?: string;
   confidence: number;
   confidence_components?: { assets: number; model: number; opportunity: number; platform: number };
   eligible_hierarchies?: string[];
@@ -651,6 +653,27 @@ function BriefPreview({
           </div>
         )}
       </div>
+
+      {/* ── Topic → Visual Metaphor (P4 Phase 1) ── */}
+      {(brief.visual_tension || brief.visual_metaphor) && (
+        <div
+          className="rounded-lg p-3 mb-3"
+          style={{ background: "rgba(168,85,247,0.06)", border: "1px solid rgba(168,85,247,0.18)" }}
+        >
+          {brief.visual_tension && (
+            <div className="flex items-center gap-1.5 mb-1">
+              <p className="text-3xs uppercase tracking-wider text-white/35">Visual Tension</p>
+              <Badge variant="purple" className="text-3xs">{brief.visual_tension}</Badge>
+            </div>
+          )}
+          {brief.visual_metaphor && (
+            <>
+              <p className="text-3xs uppercase tracking-wider text-white/35 mb-0.5">Visual Metaphor</p>
+              <p className="text-xs text-white/80 leading-relaxed italic">{brief.visual_metaphor}</p>
+            </>
+          )}
+        </div>
+      )}
 
       {/* ── Concept + Rationale ── */}
       <Field label="Visual Concept">{brief.visual_concept}</Field>

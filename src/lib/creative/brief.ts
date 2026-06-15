@@ -292,6 +292,8 @@ export async function composeCreativeBrief(
     eligible_hierarchies: selection.eligible,
     forced_brand_led: forcedBrandLed,
 
+    visual_tension: (concept.visual_tension ?? "").slice(0, 120),
+    visual_metaphor: (concept.visual_metaphor ?? "").slice(0, 400),
     visual_concept: concept.visual_concept.slice(0, 800),
     visual_rationale: concept.visual_rationale.slice(0, 800),
     headline: concept.headline.slice(0, 80),

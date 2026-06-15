@@ -1966,6 +1966,10 @@ Generate one entry per scene with sceneIndex matching the scene number.
 // against a forbidden-token list and recomposes on violation.
 
 export interface CreativeConcept {
+  /** The core opposition the topic dramatizes, e.g. "Complexity vs Simplicity". */
+  visual_tension: string;
+  /** Concrete abstract-safe visual that depicts the tension resolving. */
+  visual_metaphor: string;
   visual_concept: string;
   visual_rationale: string;
   headline: string;
@@ -1979,6 +1983,8 @@ export interface CreativeConcept {
 const creativeConceptSchema: Schema = {
   type: Type.OBJECT,
   required: [
+    "visual_tension",
+    "visual_metaphor",
     "visual_concept",
     "visual_rationale",
     "headline",
@@ -1988,6 +1994,8 @@ const creativeConceptSchema: Schema = {
     "model_confidence",
   ],
   properties: {
+    visual_tension: { type: Type.STRING },
+    visual_metaphor: { type: Type.STRING },
     visual_concept: { type: Type.STRING },
     visual_rationale: { type: Type.STRING },
     headline: { type: Type.STRING },
@@ -2056,26 +2064,44 @@ ${input.topic ? `SOURCE IDEA: ${input.topic.title}${input.topic.kind ? ` (${inpu
 CREATIVE HIERARCHY (decided — execute it, don't change it):
 ${direction}
 
-Produce:
-- visual_concept: 2-3 sentences. What the finished creative looks like —
-  composition, mood, where the eye lands. Concrete, not generic.
-- visual_rationale: 2-3 sentences. WHY this works for this brand, this idea,
-  and ${input.platform} specifically. Reference the actual content.
+The image must COMMUNICATE THE TOPIC before any text is read. Translate the
+topic into a visual metaphor, then design the background to render it.
+
+TENSION → METAPHOR EXAMPLES (abstract, no text/people/objects-with-words):
+- Complexity vs Simplicity → tangled lines resolving into clean organized lines
+- Fragmentation vs Alignment → scattered elements converging into one structure
+- Technical debt → a cracked foundation knitting back together / being repaired
+- Slow processes → a bottleneck opening into smooth flow
+- Productivity → momentum: smooth directional flow and forward movement
+- Manual work vs Automation → repetitive blocks becoming a continuous flow
+
+Produce these IN ORDER — each builds on the previous:
+- visual_tension: the core opposition THIS topic dramatizes, as "X vs Y"
+  (e.g. "Complexity vs Simplicity"). Derive it from the ACTUAL post, not generic.
+- visual_metaphor: ONE concrete, ABSTRACT-SAFE visual that depicts that tension
+  resolving — describe geometry, structure, composition, and motion only. NO
+  people, faces, text, letters, logos, or objects bearing words. This is the
+  idea the background renders.
+- visual_concept: 2-3 sentences. The finished creative built ON the metaphor —
+  composition, where the eye lands, where the headline + assets sit. Concrete.
+- visual_rationale: 2-3 sentences. WHY this metaphor + design fit this brand,
+  this idea, and ${input.platform}. Reference the actual content.
 - headline: the overlay text (≤ 80 chars). Rendered as crisp typography
   later — make every word earn its place.
 - subheadline: ONE supporting line under the headline (≤ 120 chars) that adds
   the specific proof/angle from THIS post. Empty string if the headline fully
   stands alone — never padding.
 - cta: short action line (≤ 60 chars), platform-appropriate.
-- background_prompt: an image-generation prompt for the BACKGROUND ONLY.
-  HARD RULES: describe abstract scenes, environments, gradients, textures,
-  or objects — NEVER logos, brand marks, watermarks, text, letters, words,
-  signs, people, faces, or portraits (all of those are composited or
-  rendered separately from locked assets). Build it explicitly in the BRAND
-  PALETTE above — name the primary and accent colors in the prompt and
-  reinforce them; if no palette is configured keep it neutral and desaturated.
-  Include lighting and mood. Leave compositional quiet space where the
-  headline and assets land.
+- background_prompt: an image-generation prompt for the BACKGROUND ONLY that
+  RENDERS the visual_metaphor — express it through composition, geometry,
+  structure, and visual tension so the metaphor is recognizable in the image
+  before any text. HARD RULES: abstract only — NEVER logos, brand marks,
+  watermarks, text, letters, words, signs, people, faces, or portraits (those
+  are composited or rendered separately from locked assets). Build it explicitly
+  in the BRAND PALETTE above — name the primary and accent colors and reinforce
+  them; if no palette is configured keep it neutral and desaturated. Include
+  lighting and mood. Leave compositional quiet space where the headline and
+  assets land.
 - model_confidence: 0.0-1.0 — your honest assessment of how well THIS
   hierarchy fits THIS content. A mismatch (e.g. quote-led on a stats post)
   should score ≤ 0.5. Don't flatter.
@@ -2086,7 +2112,7 @@ Produce:
     schema: creativeConceptSchema,
     label: "generateCreativeConcept",
     systemInstruction:
-      "You are a senior brand art director. You design platform-native social creatives that feel intentionally designed — never like generic AI output. You follow asset-safety rules exactly: backgrounds never contain logos, text, or faces.",
+      "You are a senior brand art director. You translate each topic into a distinct visual metaphor and design platform-native creatives whose background communicates the topic before any text is read — never generic AI gradients. You follow asset-safety rules exactly: backgrounds never contain logos, text, or faces.",
   });
 }
 
