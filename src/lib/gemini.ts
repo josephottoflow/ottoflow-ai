@@ -2104,8 +2104,11 @@ export async function generateCreativeBackground(input: {
 }): Promise<Buffer> {
   const resp = await callGemini("generateCreativeBackground", () =>
     ai().models.generateImages({
-      // Same model + tier caveat as generateHeroFrame above.
-      model: "imagen-3.0-fast-generate-001",
+      // imagen-3.0-* was retired from the Gemini Developer API (404 NOT_FOUND).
+      // ListModels on our key (2026-06-16) shows the available predict models
+      // are imagen-4.0-{generate,ultra-generate,fast-generate}-001; we use the
+      // fast variant (closest equivalent to the old fast-3.0 model).
+      model: "imagen-4.0-fast-generate-001",
       prompt: `${input.prompt}.${BACKGROUND_NEGATIVE_SUFFIX}`,
       config: {
         // NOTE: no `seed` — the Imagen endpoint rejects it ("seed parameter
