@@ -515,10 +515,19 @@ export function ContentGenerateClient({
                 )}
               </div>
 
-              {/* Creative Strategy — composed from this post + brand + topic.
-                  Review → approve before any image-generation cost. */}
+              {/* Creative Strategy + image + publishing preview — the full
+                  workspace, no navigation needed. */}
               {item?.body && (
-                <CreativePanel contentItemId={g.contentItemId} brandId={brandId} />
+                <CreativePanel
+                  contentItemId={g.contentItemId}
+                  brandId={brandId}
+                  post={{
+                    title: item.title,
+                    body: item.body,
+                    cta: item.engagement?.cta ?? null,
+                    hashtags: item.engagement?.hashtags ?? null,
+                  }}
+                />
               )}
               </div>
             );

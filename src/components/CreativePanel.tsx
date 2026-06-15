@@ -20,9 +20,11 @@ import {
   CheckCircle2,
   Clock,
   Download,
+  ExternalLink,
   ImageIcon,
   Loader2,
   Lock,
+  Maximize2,
   Palette,
   RefreshCw,
   Sparkles,
@@ -49,6 +51,33 @@ const HIERARCHY_LABEL: Record<string, string> = {
 // The four hierarchies the v1 engine selects from — shown in the asset-
 // readiness block with a lock/unlock state per brief.eligible_hierarchies.
 const READINESS_HIERARCHIES = ["founder_led", "data_led", "quote_led", "brand_led"] as const;
+
+// Platform-native pixel canvases (mirrors compositor CANVAS_BY_PLATFORM) — used
+// by the publishing preview to show exactly how the creative will post.
+const PLATFORM_DIMS: Record<string, { w: number; h: number }> = {
+  linkedin: { w: 1200, h: 627 },
+  facebook: { w: 1200, h: 630 },
+  twitter: { w: 1600, h: 900 },
+  instagram: { w: 1080, h: 1350 },
+  blog: { w: 1600, h: 900 },
+  email: { w: 1200, h: 630 },
+};
+const PLATFORM_LABEL: Record<string, string> = {
+  linkedin: "LinkedIn",
+  facebook: "Facebook",
+  twitter: "X / Twitter",
+  instagram: "Instagram",
+  blog: "Blog",
+  email: "Email",
+};
+
+/** Post copy threaded in for the publishing preview (optional). */
+export interface PostCopy {
+  title?: string | null;
+  body?: string | null;
+  cta?: string | null;
+  hashtags?: string[] | null;
+}
 
 const STATUS_META: Record<
   DbContentCreative["status"],
@@ -86,9 +115,12 @@ interface BriefView {
 export function CreativePanel({
   contentItemId,
   brandId,
+  post,
 }: {
   contentItemId: string;
   brandId?: string | null;
+  /** Post copy for the in-workflow publishing preview (optional). */
+  post?: PostCopy | null;
 }) {
   const supabase = useSupabase();
   const [creatives, setCreatives] = useState<DbContentCreative[]>([]);
@@ -152,6 +184,28 @@ export function CreativePanel({
   const active = creatives.find((c) =>
     ["brief_ready", "approved", "generating", "ready", "failed"].includes(c.status),
   );
+
+  // Polling fallback: Realtime on content tables is unreliable, so while a
+  // creative is actively generating (approved → generating) poll every 3s
+  // until it lands on a terminal state. The ready image then appears in the
+  // same workflow with NO manual refresh (P4/P8 workspace requirement).
+  useEffect(() => {
+    const s = active?.status;
+    if (s !== "approved" && s !== "generating") return;
+    let stopped = false;
+    const iv = setInterval(() => {
+      if (!stopped) void refresh();
+    }, 3000);
+    const safety = setTimeout(() => {
+      stopped = true;
+      clearInterval(iv);
+    }, 180_000);
+    return () => {
+      stopped = true;
+      clearInterval(iv);
+      clearTimeout(safety);
+    };
+  }, [active?.status, refresh]);
 
   // Spec #1: every generated post immediately produces a creative strategy.
   // Once the initial load settles with no creative on file, compose one
@@ -298,6 +352,8 @@ export function CreativePanel({
       ) : (
         <BriefPreview
           creative={active}
+          contentItemId={contentItemId}
+          post={post ?? null}
           reviewing={reviewing}
           regenerating={regenerating}
           onApprove={() => void handleReview(active.id, "approve")}
@@ -342,6 +398,8 @@ export function CreativePanel({
 
 function BriefPreview({
   creative,
+  contentItemId,
+  post,
   reviewing,
   regenerating,
   onApprove,
@@ -349,6 +407,8 @@ function BriefPreview({
   onRegenerate,
 }: {
   creative: DbContentCreative;
+  contentItemId: string;
+  post?: PostCopy | null;
   reviewing: string | null;
   regenerating: boolean;
   onApprove: () => void;
@@ -407,17 +467,25 @@ function BriefPreview({
         </div>
       )}
 
-      {/* Ready image (Phase C output) */}
+      {/* Ready image (Phase C output) — large preview + actions + publishing
+          preview, all in the same workflow (no navigation to /content/[id]). */}
       {creative.status === "ready" && creative.image_url && (
         <div className="mb-4">
+          <p className="text-3xs uppercase tracking-wider text-white/35 mb-1.5">Creative Image</p>
           <div className="rounded-xl overflow-hidden border border-white/[0.06]">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={creative.image_url} alt="Generated creative" className="w-full" />
           </div>
-          <div className="flex items-center gap-2 mt-2">
+          {/* CTA row */}
+          <div className="flex items-center gap-2 mt-2 flex-wrap">
             <a href={creative.image_url} target="_blank" rel="noreferrer" download>
               <Button size="sm" variant="outline" className="gap-1.5 h-7 text-2xs">
                 <Download size={11} /> Download
+              </Button>
+            </a>
+            <a href={creative.image_url} target="_blank" rel="noreferrer">
+              <Button size="sm" variant="ghost" className="gap-1.5 h-7 text-2xs">
+                <Maximize2 size={11} /> Open full size
               </Button>
             </a>
             <Button
@@ -434,10 +502,17 @@ function BriefPreview({
               )}
               Regenerate
             </Button>
+            <a href={`/content/${contentItemId}`}>
+              <Button size="sm" variant="ghost" className="gap-1.5 h-7 text-2xs">
+                <ExternalLink size={11} /> Open post detail
+              </Button>
+            </a>
             {creative.regen_count > 0 && (
               <span className="text-3xs text-white/30">regen ×{creative.regen_count}</span>
             )}
           </div>
+
+          <PublishingPreview creative={creative} post={post} />
         </div>
       )}
       {creative.status === "failed" && (
@@ -648,6 +723,84 @@ function BriefPreview({
           </span>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * In-workflow publishing preview (preview only — no publishing actions). Shows
+ * the creative's platform, native pixel dimensions, a thumbnail, and the post
+ * copy as it will appear, so the user never has to leave the workspace.
+ */
+function PublishingPreview({
+  creative,
+  post,
+}: {
+  creative: DbContentCreative;
+  post?: PostCopy | null;
+}) {
+  const platform = creative.platform;
+  const dims = PLATFORM_DIMS[platform] ?? null;
+  const title = post?.title?.trim() ?? "";
+  const bodyFull = (post?.body ?? "").trim();
+  const body = bodyFull.length > 220 ? `${bodyFull.slice(0, 220)}…` : bodyFull;
+  const cta = post?.cta?.trim() ?? "";
+  const tags = post?.hashtags ?? [];
+  const hasCopy = !!(title || body || cta || tags.length);
+  return (
+    <div className="mt-4 pt-3 border-t border-white/[0.05]">
+      <p className="text-3xs uppercase tracking-wider text-white/35 mb-2">Publishing Preview</p>
+      <div
+        className="rounded-xl p-3"
+        style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}
+      >
+        <div className="flex items-center gap-2 mb-2">
+          <Badge variant="info" className="text-3xs">
+            {PLATFORM_LABEL[platform] ?? platform}
+          </Badge>
+          {dims && (
+            <span className="text-3xs text-white/40">
+              {dims.w}×{dims.h}px
+            </span>
+          )}
+        </div>
+        <div className="flex gap-3">
+          {creative.image_url && (
+            <div
+              className="w-28 flex-shrink-0 rounded-md overflow-hidden border border-white/10"
+              style={{ aspectRatio: dims ? `${dims.w} / ${dims.h}` : "16 / 9" }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={creative.image_url} alt="" className="w-full h-full object-cover" />
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
+            {hasCopy ? (
+              <>
+                {title && (
+                  <p className="text-2xs font-semibold text-white/85 mb-0.5 leading-snug">{title}</p>
+                )}
+                {body && (
+                  <p className="text-2xs text-white/65 leading-relaxed whitespace-pre-wrap">{body}</p>
+                )}
+                {cta && <p className="text-2xs text-white/50 mt-1">{cta}</p>}
+                {tags.length > 0 && (
+                  <p className="text-2xs text-violet-300/70 mt-1 break-words">
+                    {tags.map((h) => `#${h.replace(/^#/, "")}`).join(" ")}
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="text-2xs text-white/35 italic">
+                Post copy preview unavailable here — open the post detail for the full copy.
+              </p>
+            )}
+          </div>
+        </div>
+        <p className="text-3xs text-white/25 mt-2">
+          Preview only — publishing is managed from the post detail page.
+        </p>
+      </div>
     </div>
   );
 }

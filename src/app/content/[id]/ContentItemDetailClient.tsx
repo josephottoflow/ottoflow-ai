@@ -238,7 +238,18 @@ export function ContentItemDetailClient({ item, brandName }: Props) {
       </div>
 
       {/* Creative Orchestrator (Phase B) — brief → approval gate → image */}
-      <CreativePanel contentItemId={item.id} />
+      <CreativePanel
+        contentItemId={item.id}
+        post={{
+          title: item.title,
+          body: item.body,
+          cta: item.engagement && "cta" in item.engagement ? item.engagement.cta ?? null : null,
+          hashtags:
+            item.engagement && "hashtags" in item.engagement
+              ? item.engagement.hashtags ?? null
+              : null,
+        }}
+      />
 
       {/* Footer actions */}
       <div className="flex items-center justify-between text-2xs text-white/30">
