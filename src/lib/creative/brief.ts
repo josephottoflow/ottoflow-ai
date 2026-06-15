@@ -359,6 +359,11 @@ export async function composeCreativeBrief(
         }
       : { use: false, treatment: "No expert credited for this creative." },
 
+    assets_available: {
+      logo: logo != null,
+      founder_headshot: headshot != null,
+    },
+
     aspect_ratio: aspectRatio,
     palette,
     platform: input.content.platform,

@@ -97,6 +97,16 @@ export async function POST(
   // Phase C: an approved brief enqueues image generation from this exact
   // spot — the ONLY path into the generation pipeline, so the gate contract
   // holds (no Imagen before a human approval). Rejection enqueues nothing.
+  //
+  // Approval is DECOUPLED from the render worker by design: the creative
+  // strategy is the deliverable, image generation is a separate later step.
+  // If the worker/Redis is offline (e.g. Railway paused) the enqueue fails —
+  // we do NOT roll the gate back. The creative stays 'approved' (strategy
+  // locked in), the failure is recorded on status_history as a deferral, and
+  // the response flags generationDeferred so the UI can explain that the
+  // image will be produced when the worker is available. Re-approval isn't
+  // possible from 'approved'; generation is (re)started by the Phase C
+  // regenerate path once the worker is back.
   if (action === "approve") {
     try {
       await creativeGenerationQueue().add(
@@ -106,17 +116,27 @@ export async function POST(
         { jobId: `creative-${creativeId}` },
       );
     } catch (err) {
-      // Roll the gate back to brief_ready so the user can re-approve rather
-      // than being stuck in 'approved' with no worker job.
-      captureFallback("creative.enqueue_failed", err, { creativeId });
-      await admin
+      captureFallback("creative.enqueue_deferred", err, { creativeId });
+      const deferHistory = Array.isArray(updated.status_history)
+        ? [...updated.status_history]
+        : [];
+      deferHistory.push({
+        from: "approved",
+        to: "approved",
+        at: new Date().toISOString(),
+        by: "system",
+        note: "Image generation deferred — render worker unavailable at approval time.",
+      });
+      const { data: deferred } = await admin
         .from("content_creatives")
-        .update({ status: "brief_ready" })
-        .eq("id", creativeId);
-      return NextResponse.json(
-        { error: "Approved, but couldn't start generation. Try approving again." },
-        { status: 500 },
-      );
+        .update({ status_history: deferHistory })
+        .eq("id", creativeId)
+        .select("*")
+        .single();
+      return NextResponse.json({
+        creative: deferred ?? updated,
+        generationDeferred: true,
+      });
     }
   }
 

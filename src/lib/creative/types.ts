@@ -104,6 +104,17 @@ export const creativeBriefSchema = z.object({
   /** Optional credited subject-matter expert (distinct from the founder). */
   expert_name_usage: nameUsageSchema.default({ use: false, treatment: "" }),
 
+  // ── Asset readiness (code-computed snapshot at compose time) ──────────────
+  // What the brand actually has on file, independent of whether the chosen
+  // hierarchy uses it. Powers the "Logo ✓ / Founder Headshot ✓" readiness row
+  // at the gate. Defaulted so briefs stored before this field stay valid.
+  assets_available: z
+    .object({
+      logo: z.boolean(),
+      founder_headshot: z.boolean(),
+    })
+    .default({ logo: false, founder_headshot: false }),
+
   // ── Layout + context ─────────────────────────────────────────────────────
   aspect_ratio: z.enum(ASPECT_RATIOS),
   palette: z.object({

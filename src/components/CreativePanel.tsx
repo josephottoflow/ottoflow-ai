@@ -13,12 +13,16 @@
  * BEFORE any image-generation cost is incurred. Approve moves the creative
  * to 'approved'; reject archives the brief so a fresh one can be composed.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  AlertTriangle,
   Check,
+  CheckCircle2,
+  Clock,
   Download,
   ImageIcon,
   Loader2,
+  Lock,
   Palette,
   RefreshCw,
   Sparkles,
@@ -41,6 +45,10 @@ const HIERARCHY_LABEL: Record<string, string> = {
   quote_led: "Quote-led",
   product_led: "Product-led",
 };
+
+// The four hierarchies the v1 engine selects from — shown in the asset-
+// readiness block with a lock/unlock state per brief.eligible_hierarchies.
+const READINESS_HIERARCHIES = ["founder_led", "data_led", "quote_led", "brand_led"] as const;
 
 const STATUS_META: Record<
   DbContentCreative["status"],
@@ -70,6 +78,8 @@ interface BriefView {
   company_name_usage?: { use: boolean; name?: string; treatment: string };
   founder_name_usage?: { use: boolean; name?: string; treatment: string };
   expert_name_usage?: { use: boolean; name?: string; treatment: string };
+  assets_available?: { logo: boolean; founder_headshot: boolean };
+  palette?: { primary?: string; secondary?: string; accent?: string };
   aspect_ratio?: string;
 }
 
@@ -142,6 +152,21 @@ export function CreativePanel({
   const active = creatives.find((c) =>
     ["brief_ready", "approved", "generating", "ready", "failed"].includes(c.status),
   );
+
+  // Spec #1: every generated post immediately produces a creative strategy.
+  // Once the initial load settles with no creative on file, compose one
+  // automatically (one Gemini concept call, no image cost). Fires once per
+  // mount; a rejected-only history is left alone (the user opted out).
+  const autoComposed = useRef(false);
+  useEffect(() => {
+    if (loading || autoComposed.current) return;
+    if (creatives.length === 0 && !composing) {
+      autoComposed.current = true;
+      void handleCompose();
+    }
+    // handleCompose is a stable per-render closure; deps intentionally minimal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, creatives.length, composing]);
 
   async function handleRegenerate(creativeId: string) {
     if (regenerating) return;
@@ -256,10 +281,20 @@ export function CreativePanel({
       {loading ? (
         <p className="text-xs text-white/35 italic">Loading…</p>
       ) : !active ? (
-        <p className="text-xs text-white/40">
-          No creative yet. <strong>Generate Creative</strong> composes a
-          reviewable strategy brief — hierarchy, concept, copy, and asset usage.
-        </p>
+        composing ? (
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-6 flex flex-col items-center justify-center gap-2">
+            <Loader2 size={18} className="text-fuchsia-400 animate-spin" />
+            <p className="text-xs text-white/60">Composing the creative strategy…</p>
+            <p className="text-3xs text-white/30">
+              Hierarchy, concept, copy &amp; asset usage — no image generated yet.
+            </p>
+          </div>
+        ) : (
+          <p className="text-xs text-white/40">
+            No creative yet. <strong>Generate Creative</strong> composes a
+            reviewable strategy brief — hierarchy, concept, copy, and asset usage.
+          </p>
+        )
       ) : (
         <BriefPreview
           creative={active}
@@ -325,10 +360,46 @@ function BriefPreview({
   const confColor =
     confPct >= 70 ? "text-emerald-400" : confPct >= 55 ? "text-amber-400" : "text-rose-400";
 
+  // Brand color system (#5): swatches when configured, warning when not.
+  const palette = brief.palette ?? {};
+  const swatches = (
+    [
+      ["Primary", palette.primary],
+      ["Secondary", palette.secondary],
+      ["Accent", palette.accent],
+    ] as const
+  ).filter(([, hex]) => !!hex) as Array<readonly [string, string]>;
+
+  // Asset readiness (#6). assets_available is authoritative on new briefs;
+  // fall back to usage flags for briefs composed before that field existed.
+  const hasLogo = brief.assets_available?.logo ?? !!brief.logo_usage?.use;
+  const hasHeadshot =
+    brief.assets_available?.founder_headshot ?? !!brief.headshot_usage?.use;
+  const eligible = brief.eligible_hierarchies ?? [brief.hierarchy];
+
   return (
     <div>
-      {/* Generating spinner (Phase C: approved → generating → ready) */}
-      {(creative.status === "approved" || creative.status === "generating") && (
+      {/* Approved — strategy locked. Image generation is a SEPARATE later step
+          (Phase C / render worker); approval does not depend on the worker
+          being online, so this is a calm "deferred" state, not a spinner. */}
+      {creative.status === "approved" && (
+        <div className="mb-4 rounded-xl border border-emerald-500/15 bg-emerald-500/[0.04] p-4 flex items-start gap-3">
+          <CheckCircle2 size={16} className="text-emerald-400 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-xs text-white/80 font-medium">
+              Strategy approved &amp; locked
+            </p>
+            <p className="text-3xs text-white/45 mt-0.5 flex items-center gap-1">
+              <Clock size={9} /> Image generation is a separate step — it runs on the
+              render worker and will produce the creative when available.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Generating spinner — only once the worker has actually picked the job
+          up and flipped the row to 'generating'. */}
+      {creative.status === "generating" && (
         <div className="mb-4 rounded-xl border border-white/[0.06] bg-white/[0.02] p-6 flex flex-col items-center justify-center gap-2">
           <Loader2 size={20} className="text-fuchsia-400 animate-spin" />
           <p className="text-xs text-white/60">{GEN_STEP_LABEL}</p>
@@ -439,6 +510,73 @@ function BriefPreview({
         )}
       </div>
 
+      {/* ── Asset readiness — what's on file + which hierarchies unlock ── */}
+      <div
+        className="rounded-lg p-3 mb-3"
+        style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)" }}
+      >
+        <p className="text-3xs uppercase tracking-wider text-white/35 mb-2">Asset Readiness</p>
+        <div className="flex items-center gap-4 mb-2.5">
+          <ReadinessChip label="Logo" present={hasLogo} />
+          <ReadinessChip label="Founder Headshot" present={hasHeadshot} />
+        </div>
+        <p className="text-3xs uppercase tracking-wider text-white/30 mb-1.5">Hierarchies unlocked</p>
+        <div className="flex flex-wrap gap-1.5">
+          {READINESS_HIERARCHIES.map((h) => {
+            const unlocked = eligible.includes(h);
+            const isChosen = brief.hierarchy === h;
+            return (
+              <span
+                key={h}
+                className="text-3xs px-2 py-1 rounded-full flex items-center gap-1"
+                style={{
+                  background: unlocked
+                    ? isChosen
+                      ? "rgba(168,85,247,0.18)"
+                      : "rgba(16,185,129,0.10)"
+                    : "rgba(255,255,255,0.03)",
+                  color: unlocked
+                    ? isChosen
+                      ? "rgb(216,180,254)"
+                      : "rgb(110,231,183)"
+                    : "rgba(255,255,255,0.3)",
+                  border: isChosen ? "1px solid rgba(168,85,247,0.35)" : "1px solid transparent",
+                }}
+              >
+                {unlocked ? <Check size={9} /> : <Lock size={9} />}
+                {HIERARCHY_LABEL[h]}
+                {isChosen && <span className="opacity-70">· chosen</span>}
+              </span>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Brand color system — palette preview or fallback warning (#5) ── */}
+      <div className="mb-3">
+        <p className="text-3xs uppercase tracking-wider text-white/35 mb-1.5">Brand Colors</p>
+        {swatches.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {swatches.map(([label, hex]) => (
+              <div key={label} className="flex items-center gap-1.5">
+                <span
+                  className="w-5 h-5 rounded-md border border-white/10 flex-shrink-0"
+                  style={{ background: hex }}
+                />
+                <span className="text-3xs text-white/45">
+                  {label} <span className="text-white/30 font-mono">{hex}</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-md px-3 py-2 text-2xs text-amber-300/90 border border-amber-500/20 bg-amber-500/[0.06] flex items-center gap-1.5">
+            <AlertTriangle size={11} className="flex-shrink-0" />
+            Brand colors not configured. Creative will use a fallback palette.
+          </div>
+        )}
+      </div>
+
       {/* ── Concept + Rationale ── */}
       <Field label="Visual Concept">{brief.visual_concept}</Field>
       <Field label="Visual Rationale">{brief.visual_rationale}</Field>
@@ -511,6 +649,22 @@ function BriefPreview({
         </div>
       )}
     </div>
+  );
+}
+
+function ReadinessChip({ label, present }: { label: string; present: boolean }) {
+  return (
+    <span className="flex items-center gap-1.5 text-2xs">
+      {present ? (
+        <CheckCircle2 size={12} className="text-emerald-400" />
+      ) : (
+        <X size={12} className="text-white/30" />
+      )}
+      <span className={present ? "text-white/70" : "text-white/40"}>{label}</span>
+      <span className={present ? "text-emerald-400/80" : "text-white/30"}>
+        {present ? "✓" : "Missing"}
+      </span>
+    </span>
   );
 }
 
