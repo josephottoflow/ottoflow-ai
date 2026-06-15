@@ -47,6 +47,52 @@ function sniffImageType(buf: Buffer): "png" | "jpg" | "webp" | null {
   return null;
 }
 
+/**
+ * Structural integrity check — pure JS, never needs the sharp native binary
+ * (which doesn't reliably load on Vercel). Magic bytes alone can't catch a
+ * TRUNCATED or garbage-bodied file: a PNG can carry a valid 8-byte signature
+ * AND a valid IEND terminus yet have a corrupt chunk stream no decoder can
+ * read (observed in prod — a 1 KB headshot with IHDR+PLTE then a garbage chunk,
+ * which sharp/libvips reject as "Input buffer has corrupt header"). We walk the
+ * container structure and reject those at upload instead of storing a creative-
+ * breaking asset.
+ */
+function verifyImageIntegrity(buf: Buffer, type: "png" | "jpg" | "webp"): boolean {
+  try {
+    if (type === "png") {
+      // Walk chunks: [len:4][type:4][data:len][crc:4]. Require IHDR + at least
+      // one IDAT + IEND, with every chunk type a valid 4-letter tag that fits.
+      let off = 8;
+      let sawIHDR = false, sawIDAT = false, sawIEND = false;
+      while (off + 12 <= buf.length) {
+        const len = buf.readUInt32BE(off);
+        const tag = buf.toString("ascii", off + 4, off + 8);
+        if (!/^[A-Za-z]{4}$/.test(tag)) return false;       // garbage chunk type
+        const next = off + 12 + len;
+        if (next > buf.length || next < off) return false;  // overruns file → truncated
+        if (tag === "IHDR") sawIHDR = true;
+        else if (tag === "IDAT") sawIDAT = true;
+        else if (tag === "IEND") { sawIEND = true; break; }
+        off = next;
+      }
+      return sawIHDR && sawIDAT && sawIEND;
+    }
+    if (type === "jpg") {
+      // SOI (FFD8) … EOI (FFD9).
+      return (
+        buf.length >= 4 &&
+        buf[0] === 0xff && buf[1] === 0xd8 &&
+        buf[buf.length - 2] === 0xff && buf[buf.length - 1] === 0xd9
+      );
+    }
+    // webp: RIFF payload size (LE, bytes 4–7) + the 8-byte header must fit.
+    const riffSize = buf.readUInt32LE(4);
+    return riffSize >= 4 && riffSize + 8 <= buf.length;
+  } catch {
+    return false;
+  }
+}
+
 const KINDS = new Set<BrandAssetKind>(["logo", "founder_headshot", "team_headshot"]);
 const ALLOWED_MIME: Record<string, string> = {
   "image/png": "png",
@@ -188,6 +234,15 @@ export async function POST(
   if (sniffed !== ext) {
     return NextResponse.json(
       { error: "File content doesn't match its declared image type" },
+      { status: 400 },
+    );
+  }
+
+  // Structural integrity — rejects truncated / corrupt-bodied images that pass
+  // the magic-byte sniff but can't be decoded by the Phase C compositor.
+  if (!verifyImageIntegrity(bytes, sniffed)) {
+    return NextResponse.json(
+      { error: "Image file is incomplete or corrupted — re-export it and upload again." },
       { status: 400 },
     );
   }

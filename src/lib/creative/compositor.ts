@@ -190,10 +190,30 @@ function ctaPill(
 }
 
 /**
+ * Decode-validate a locked asset buffer. Returns it only if sharp/libvips can
+ * actually read it, else null. A corrupt upload (valid magic bytes but
+ * undecodable data — now rejected at the upload route, this is the worker-side
+ * backstop) is SKIPPED so a single bad asset degrades the layout instead of
+ * hard-failing the whole creative. Read-only: the bytes are never modified.
+ */
+async function decodableOrNull(buf: Buffer | null): Promise<Buffer | null> {
+  if (!buf) return null;
+  try {
+    await sharp(buf).metadata();
+    return buf;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Composite the final creative. Returns PNG bytes.
  */
 export async function compositeCreative(input: CompositeInput): Promise<Buffer> {
   const { brief } = input;
+  // Skip any locked asset that can't be decoded rather than failing the job.
+  const logo = await decodableOrNull(input.logo);
+  const headshot = await decodableOrNull(input.headshot);
   const { w: W, h: H } = resolveCanvas(brief);
   const m = Math.round(Math.min(W, H) * 0.05);
   const accent = safeColor(brief.palette.accent ?? brief.palette.primary, "#7c3aed");
@@ -221,10 +241,10 @@ export async function compositeCreative(input: CompositeInput): Promise<Buffer> 
 
   // Headshot: cover-crop to a square, circular dest-in mask, positioned.
   let headshotLayer: { x: number; y: number; d: number } | null = null;
-  if (brief.headshot_usage.use && input.headshot) {
+  if (brief.headshot_usage.use && headshot) {
     const hero = h === "founder_led";
     const d = Math.round(hero ? H * 0.42 : H * 0.11);
-    const square = await sharp(input.headshot)
+    const square = await sharp(headshot)
       .resize(d, d, { fit: "cover", position: sharp.strategy.attention })
       .png()
       .toBuffer();
@@ -245,11 +265,11 @@ export async function compositeCreative(input: CompositeInput): Promise<Buffer> 
 
   // Logo: proportional fit inside a box, on a light chip for guaranteed
   // contrast (the chip is drawn by us; the logo pixels are untouched).
-  if (brief.logo_usage.use && input.logo) {
+  if (brief.logo_usage.use && logo) {
     const hero = h === "brand_led";
     const boxW = Math.round(W * (hero ? 0.34 : 0.2));
     const boxH = Math.round(H * (hero ? 0.16 : 0.08));
-    const logoImg = await sharp(input.logo)
+    const logoImg = await sharp(logo)
       .resize(boxW, boxH, { fit: "inside", withoutEnlargement: true })
       .png()
       .toBuffer();
@@ -336,7 +356,7 @@ export async function compositeCreative(input: CompositeInput): Promise<Buffer> 
   // sitting just above the company wordmark when one is shown.
   if (brief.expert_name_usage.use && brief.expert_name_usage.name) {
     const efs = Math.round(W * 0.02);
-    const wordmarkShown = brief.company_name_usage.use && !(brief.logo_usage.use && input.logo);
+    const wordmarkShown = brief.company_name_usage.use && !(brief.logo_usage.use && logo);
     const ey = wordmarkShown ? H - m - Math.round(efs * 1.9) : H - m;
     blocks.push(
       `<text x="${m}" y="${ey}" font-family="${FONT_STACK}" font-size="${efs}" ` +
@@ -345,7 +365,7 @@ export async function compositeCreative(input: CompositeInput): Promise<Buffer> 
   }
 
   // Company wordmark when there's no logo to carry the name.
-  if (brief.company_name_usage.use && !(brief.logo_usage.use && input.logo)) {
+  if (brief.company_name_usage.use && !(brief.logo_usage.use && logo)) {
     const fs = Math.round(W * 0.026);
     blocks.push(
       `<text x="${m}" y="${H - m}" font-family="${FONT_STACK}" font-size="${fs}" ` +
