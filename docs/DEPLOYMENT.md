@@ -1,311 +1,86 @@
-# Ottoflow AI — Deployment Guide
+# DEPLOYMENT.md
 
-This document is the single source of truth for environment variables and
-deployment topology for the Brand Research Engine. Audited against
-[PRODUCTION_AUDIT.md](./PRODUCTION_AUDIT.md).
+Environment + deploy/operational truth for Ottoflow AI. Topology and design decisions live in [ARCHITECTURE.md](ARCHITECTURE.md) / [DECISIONS.md](DECISIONS.md); this doc is env vars, per-platform setup, and the release/migration/rollback procedures.
 
-**Topology**
-
-```
-                ┌──────────────────────────────────┐
-                │  Vercel — Next.js web app        │
-                │  (stateless, autoscaling)        │
-                └──────┬───────────────────────────┘
-                       │
-            HTTPS      │    Clerk-authed Supabase JWT
-                       │           │
-            ┌──────────▼───────────▼─────────┐    ┌───────────────────────┐
-            │   Supabase (Postgres + RLS)     │    │  Clerk (Auth)         │
-            │   + Realtime channels           │    │  https://clerk.com    │
-            └──────────▲──────────────────────┘    └───────────────────────┘
-                       │
-            service    │ BullMQ enqueue / Realtime
-            role       │
-                       │
-                ┌──────┴───────────────────────────┐    ┌─────────────────┐
-                │  Railway — BullMQ worker          │◀──▶│  Upstash Redis  │
-                │  (long-running, single replica    │    │  (managed)      │
-                │   to start; scale-out later)      │    └─────────────────┘
-                └──────────────┬────────────────────┘
-                               │
-                               ▼
-                    ┌───────────────────────┐
-                    │  Google AI — Gemini   │
-                    │  (Flash 2.5)          │
-                    └───────────────────────┘
-```
-
----
+Hosts: **Vercel** (Next.js app) · **Railway** (BullMQ worker + Redis) · **Supabase** (Postgres+Storage+Realtime) · **Clerk** (auth) · **Google AI** (Gemini/Imagen). All env is validated at boot — missing/malformed values fail loud, no silent fallbacks.
 
 ## Environment variables
 
-All vars are validated at process boot. Missing or malformed values cause a
-loud startup failure with a remediation message — no silent fallbacks.
-
-### Next.js app (Vercel)
-
-Validated by [`src/lib/env.ts`](../src/lib/env.ts).
-
-| Variable | Required | Where it goes | What it's for |
+### Next.js app — Vercel (`src/lib/env.ts`)
+| Variable | Req | Scope | For |
 |---|---|---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | ✅ | Browser + server | Supabase REST endpoint |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | ✅ | Browser + server | Public publishable key |
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | ✅ | Browser + server | Clerk publishable key (`pk_…`) |
-| `SUPABASE_SERVICE_ROLE_KEY` | ✅ | Server only | Bypasses RLS — used by route handlers |
-| `CLERK_SECRET_KEY` | ✅ | Server only | Clerk server SDK (`sk_…`) |
-| `REDIS_URL` | ✅ | Server only | BullMQ enqueue connection |
-| `GEMINI_MODEL` | optional | Server only | Default: `gemini-2.5-flash` |
-| `NEXT_PUBLIC_CLERK_SIGN_IN_URL` | optional | Browser | Default: `/sign-in` |
-| `NEXT_PUBLIC_CLERK_SIGN_UP_URL` | optional | Browser | Default: `/sign-up` |
-| `NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL` | optional | Browser | Default: `/` |
-| `NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL` | optional | Browser | Default: `/` |
+| `NEXT_PUBLIC_SUPABASE_URL` | ✅ | browser+server | Supabase REST endpoint |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | ✅ | browser+server | public publishable key |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | ✅ | browser+server | Clerk publishable (`pk_…`) |
+| `SUPABASE_SERVICE_ROLE_KEY` | ✅ | server | bypasses RLS in route handlers |
+| `CLERK_SECRET_KEY` | ✅ | server | Clerk server SDK (`sk_…`) |
+| `REDIS_URL` | ✅ | server | BullMQ enqueue |
+| `GOOGLE_API_KEY` | ✅¹ | server | synchronous Gemini calls (creative brief/concept composition runs on Vercel) |
+| `GEMINI_MODEL` | opt | server | default `gemini-2.5-flash` |
+| `NEXT_PUBLIC_CLERK_{SIGN_IN,SIGN_UP,AFTER_SIGN_IN,AFTER_SIGN_UP}_URL` | opt | browser | default `/sign-in`,`/sign-up`,`/`,`/` |
 
-> **NEXT_PUBLIC_\* timing**: these are inlined into the client bundle at
-> **build** time, not runtime. They must be present in Vercel's environment
-> when the build runs, or the bundle will ship with `undefined`.
+> `NEXT_PUBLIC_*` are inlined into the client bundle at **build** time — must be present when Vercel builds, and changing them requires a redeploy.
+>
+> ¹ `GOOGLE_API_KEY` is **not** boot-validated by `env.ts` — `gemini.ts` reads it directly and throws `GOOGLE_API_KEY is not set` at call time. It must be set on Vercel for creative brief/concept composition to work.
 
-### Worker (Railway)
-
-Validated by [`src/lib/worker-env.ts`](../src/lib/worker-env.ts).
-
-| Variable | Required | What it's for |
+### Worker — Railway (`src/lib/worker-env.ts`)
+| Variable | Req | For |
 |---|---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | ✅ | Admin client target |
-| `SUPABASE_SERVICE_ROLE_KEY` | ✅ | Bypasses RLS for worker writes |
-| `REDIS_URL` | ✅ | BullMQ consume connection |
-| `GOOGLE_API_KEY` | ✅ | Gemini Flash |
-| `GEMINI_MODEL` | optional | Default: `gemini-2.5-flash` |
-| `GEMINI_TIMEOUT_MS` | optional | Per-call hard timeout. Default: `90000` |
-| `WORKER_CONCURRENCY` | optional | Jobs per worker process. Default: `2` |
-| `LOG_LEVEL` | optional | `trace | debug | info | warn | error | fatal`. Default: `info` |
+| `NEXT_PUBLIC_SUPABASE_URL` | ✅ | admin client target |
+| `SUPABASE_SERVICE_ROLE_KEY` | ✅ | RLS-bypass writes |
+| `REDIS_URL` | ✅ | BullMQ consume |
+| `GOOGLE_API_KEY` | ✅ | Gemini + Imagen |
+| `GEMINI_MODEL` | opt | default `gemini-2.5-flash` |
+| `GEMINI_TIMEOUT_MS` | opt | per-call timeout, default `90000` |
+| `WORKER_CONCURRENCY` | opt | jobs/process, default `2` |
+| `LOG_LEVEL` | opt | trace…fatal, default `info` |
 
-> The worker does **not** need Clerk vars or the Supabase anon key — it
-> never holds a user session and never goes through RLS.
+> Worker needs **no** Clerk vars or anon key — no user session, never goes through RLS.
 
----
+### Validation flow
+Boot → dotenv loads `.env.local`/`.env` (no-op on platforms) → `env.ts`/`worker-env.ts` parse `process.env` via zod → on failure throw listing offending vars + exit non-zero → on success modules read `process.env` directly. **Build-phase tolerance:** `env.ts` detects `NEXT_PHASE==="phase-production-build"` and substitutes `build-placeholder-…-do-not-use-at-runtime` for missing *server-only* vars (public vars are still required — they're inlined). Seeing a placeholder in a request log = runtime env wasn't injected on the host.
 
-## Validation flow
-
-```
-1. Process starts
-2. dotenv loads .env.local + .env  (no-op on Railway/Vercel; vars come from platform)
-3. env.ts (Next) or worker-env.ts (worker) eagerly parses process.env via zod
-4. On failure: throws with the offending vars listed; process exits with non-zero
-5. On success: cached env exposed to all downstream modules
-6. supabase.ts, queue.ts, gemini.ts etc. read process.env directly — env validator
-   has already guaranteed the values are present and well-formed
-```
-
-### Build-phase tolerance
-
-`next build` prerenders pages and runs server modules without runtime
-secrets present (Vercel injects those at runtime, not build time). To
-avoid build crashes, `env.ts` detects `NEXT_PHASE === "phase-production-build"`
-and substitutes loud-named placeholders for missing server-only vars.
-
-**Public (NEXT_PUBLIC_\*) vars are still required at build time** — they
-get inlined into the client bundle and cannot be substituted later.
-
-Placeholder values look like `build-placeholder-…-do-not-use-at-runtime`,
-so if you ever see one in a request log you know exactly what went wrong:
-runtime env vars weren't injected on the host.
-
-### Failure example
-
-A missing `CLERK_SECRET_KEY` produces:
-
-```
-Error: [env] Server environment validation failed:
-  • CLERK_SECRET_KEY — expected a Clerk secret key (sk_test_… or sk_live_…)
-  • CLERK_SECRET_KEY — must start with sk_test_ or sk_live_
-
-→ Local dev: copy .env.local.example to .env.local and fill in the missing values.
-→ Production: set these in the platform dashboard. See docs/DEPLOYMENT.md.
-```
-
----
-
-## Per-platform setup
-
-### Supabase (Postgres + Realtime)
-
-1. Create a project at <https://supabase.com>.
-2. **Settings → API**: copy `URL`, `anon (publishable) key`, `service_role (secret) key`.
-3. **SQL Editor**: run migrations in order:
-   - `supabase/migrations/001_initial.sql`
-   - `supabase/migrations/002_foundation.sql`
-4. **Settings → API → JWT Secret**: copy this — needed for the Clerk JWT template.
-
-**Realtime**: enabled automatically by migration 002 (`alter publication
-supabase_realtime add table …`). Verify in **Database → Replication**.
-
-### Clerk (Auth)
-
-1. Create app at <https://dashboard.clerk.com>.
-2. **API Keys**: copy publishable + secret keys.
-3. **JWT Templates → New template**:
-   - Name: **`supabase`** (lowercase exact)
-   - Signing algorithm: **HS256**
-   - Signing key: **the Supabase JWT secret from above**
-   - Claims (body):
-     ```json
-     {
-       "aud": "authenticated",
-       "role": "authenticated"
-     }
-     ```
-4. **Paths**:
-   - Sign-in URL: `/sign-in`
-   - Sign-up URL: `/sign-up`
-   - After sign-in: `/`
-
-### Upstash Redis
-
-1. <https://upstash.com> → **Create Database**.
-2. Region: pick the closest to your Vercel deployment region (US-East / Frankfurt / Singapore).
-3. **TLS/SSL**: enabled (recommended). Copy the **TLS Redis URL**:
-   `rediss://default:<password>@<host>.upstash.io:<port>`
-4. (Optional) Set per-second rate limits in Upstash dashboard for safety.
-
-### Google AI (Gemini)
-
-1. <https://aistudio.google.com/app/apikey> → copy API key.
-2. The Brand Research processor uses two grounding tools:
-   - **URL Context** — fetches the brand's website
-   - **Google Search** — finds competitors
-   Both are billed alongside generation tokens.
-
-### Vercel (Next.js app)
-
-1. **New Project** → import this repo.
-2. **Root Directory**: `ottoflow-ai`
-3. **Framework**: Next.js (auto-detected)
-4. **Environment Variables**: set every row marked ✅ in the Next.js table above.
-   - Apply to **Production** + **Preview** + **Development** environments.
-   - `NEXT_PUBLIC_*` vars are inlined at build — re-deploy after changing them.
-5. **Build Command**: `npm run build` (default)
-6. **Output Directory**: `.next` (default)
-7. **Node version**: 20.x or 22.x.
-
-### Railway (Worker)
-
-1. **New Project → Empty service** (or **Deploy from GitHub**).
-2. **Source**: this repo, **Root Directory**: `ottoflow-ai`.
-3. **Build command**: `npm install`  *(see [PRODUCTION_AUDIT.md#B3](./PRODUCTION_AUDIT.md) — step 4 of this remediation series fixes this properly)*
-4. **Start command**: `npm run start:worker`
-5. **Variables**: set every row marked ✅ in the Worker table above.
-6. **Healthcheck**: not yet wired (M4 — Phase 5 of this remediation series will add one).
-7. **Restart policy**: ON_FAILURE
-8. **Replicas**: 1 for now. Scale-out is safe — BullMQ coordinates job ownership via Redis.
-
----
-
-## Deployment order (first deploy)
-
-1. **Supabase**: create project, run migrations.
-2. **Clerk**: create app, configure JWT template using Supabase's JWT secret.
-3. **Upstash**: create Redis database.
-4. **Google AI Studio**: generate API key.
-5. **Railway**: deploy worker with env vars set. Verify logs show
-   `{"scope":"worker","msg":"started", ...}`.
-6. **Vercel**: deploy Next.js with env vars set. Verify the build succeeded
-   (placeholders in logs are OK during build, NOT at runtime).
-7. **Smoke test**: sign up, create a brand, watch the worker logs pick up
-   the job. Verify the brand transitions through the status enum.
-
----
-
-## Troubleshooting
-
-### "Environment validation failed" at startup
-Read the error — it names each missing/malformed variable with a hint.
-
-### Browser "Server env X accessed in the browser"
-A client component is importing a server-only module. Move the import
-behind a server file or use `"use server"`.
-
-### Build succeeds but every API route 500s
-Runtime env vars weren't injected. Check Vercel **Settings → Environment
-Variables** → "Available to:" includes Production.
-
-### Worker starts then immediately stops
-Almost always env validation. Look for `[worker-env]` in the Railway logs.
-
-### Realtime updates don't arrive in the UI
-B1 is fixed (Step 2). Live progress flows through `SupabaseProvider`, which
-injects the Clerk JWT into both Realtime and REST. If updates still don't
-arrive, check:
-1. Browser console for `[supabase-provider] realtime auth refresh failed`.
-2. The Clerk JWT template named `supabase` exists and is signed with the
-   Supabase JWT secret (Settings → API → JWT Secret).
-3. The relevant table is in the `supabase_realtime` publication
-   (Database → Replication in the Supabase dashboard).
-
-### Dashboard / projects pages show empty data
-Tracked separately as [B2](./PRODUCTION_AUDIT.md#B2) — fix lands in Step 3.
-
----
-
-## What's NOT in this guide yet
-
-These come in subsequent remediation steps:
-
-- **Worker healthcheck endpoint** (M4 — Step 5)
-- **Sentry / observability wiring** (M1 — Phase 5)
-- **Rate limiting** (H2 — Phase 4)
-- **Clerk webhooks for user-delete cleanup** (H10 — Phase 4)
-- **Final deployment checklist + rollback plan** (Phase 6) → now exists: see below + RELEASE_CHECKLIST.md
-
----
-
-# Operational procedures (added 2026-06-13, infra-hardening pass)
-
-Companion docs: [ACCESS.md](./ACCESS.md) (credentials/access matrix) ·
-[RELEASE_CHECKLIST.md](./RELEASE_CHECKLIST.md) (the codified release order).
+## Per-platform setup (first deploy)
+1. **Supabase** — create project; **Settings→API** copy URL + anon + service_role + **JWT Secret**; **SQL Editor** run `supabase/migrations/*` in numeric order (001 → latest); Realtime enabled by migration 002, verify **Database→Replication**.
+2. **Clerk** — create app; copy keys; **JWT Templates→New**: name `supabase` (exact), HS256, signing key = Supabase JWT Secret, claims `{"aud":"authenticated","role":"authenticated"}`; paths `/sign-in`,`/sign-up`,after-`/`.
+3. **Redis (Upstash)** — create DB near Vercel region; TLS URL `rediss://default:<pw>@<host>.upstash.io:<port>`.
+4. **Google AI** — `aistudio.google.com/app/apikey`; Brand Research grounding (URL Context + Google Search) is billed with generation tokens.
+5. **Railway** — root dir `ottoflow-ai`; build `npm install`; start `npm run start:worker`; set every ✅ worker var; restart ON_FAILURE; replicas 1 (BullMQ coordinates ownership via Redis, scale-out safe). Worker also needs the 2 GB RAM tier for video render (Hobby).
+6. **Vercel** — import repo; root dir `ottoflow-ai`; framework Next.js; set every ✅ app var to Production+Preview+Development; Node 20.x/22.x.
 
 ## Release flow
-
 ```
 git push origin feat/ffmpeg-multi-agent-pipeline && git push origin HEAD:main
- ├─► Vercel  — app          ~2-4 min to READY (verify via API: state READY + SHA)
- └─► Railway — worker+Redis  ~5-15+ min (verify: service card ACTIVE = new commit
-                             message + "Deployment successful" BEFORE functional tests —
-                             a job picked up mid-swap runs on the OLD worker)
+ ├─► Vercel  — app          ~2-4 min → READY (verify via API: state READY + SHA)
+ └─► Railway — worker+Redis ~5-15 min (verify card ACTIVE = new commit msg +
+                            "Deployment successful" BEFORE functional tests —
+                            a job picked up mid-swap runs on the OLD worker)
 ```
-⚠️ Every push to main triggers a Railway build (burns credits) — batch doc-only
-changes with feature pushes while on metered credits.
+⚠️ Every push to main triggers a Railway build (burns credits) — batch doc-only changes with feature pushes while metered. Local gates before push: `npx tsc --noEmit` (ignore the 2 known untracked-script errors) + `npm run build:worker`. Local `next build` fails at env collection (expected — no NEXT_PUBLIC_* locally).
 
 ## Migration workflow
+**Interim (current):** Supabase dashboard SQL editor — paste file → Run (`monaco.editor.getEditors()[0].setValue(sql)` + Ctrl+Enter); the "destructive operation" modal is expected when the only DROPs are `DROP …IF EXISTS` idempotency guards → confirm. **Target (after ACCESS.md CLI setup):** `npx supabase db push`. **Break-glass:** node + `pg` against `SUPABASE_DB_URL`.
 
-**Target (after ACCESS.md one-time setup):** `npx supabase db push` — applies
-`supabase/migrations/*` in order; no dashboard involved.
-**Interim:** dashboard SQL editor (paste file → Run; the "destructive operation"
-modal is expected when the only DROPs are `DROP POLICY/CONSTRAINT IF EXISTS`
-idempotency guards).
-**Break-glass:** node + `pg` (installed in repo root) against `SUPABASE_DB_URL`.
-
-Rules (learned in production):
-1. Migrations are idempotent (`IF NOT EXISTS` / `OR REPLACE` / guarded `DO`) and additive-only.
-2. **Migrate BEFORE pushing** whenever code WRITES new columns/values (e.g. 014:
-   worker writes `in_review`; 010: brands finalize-update). Exception: purely
-   additive columns nothing existing writes (e.g. 015) — code-first is safe;
-   only the new feature's actions fail until the migration lands.
-3. Schema verification without dashboard: anon-key REST probes —
-   `GET /rest/v1/<table>?select=<col>&limit=1` → 200 exists · PGRST205 no table ·
-   42703 no column; RPCs: PGRST202 = missing.
+Rules (learned in prod):
+1. Migrations are idempotent (`IF NOT EXISTS`/`OR REPLACE`/guarded `DO`) and additive-only.
+2. **Migrate BEFORE pushing whenever code WRITES new columns/values** (e.g. 019 `creative_branding`, 014 `in_review`, 010 brand finalize). Exception: purely additive columns nothing existing writes — code-first is safe; only the new feature fails until the migration lands.
+3. Verify schema without the dashboard: anon-key REST probe `GET /rest/v1/<table>?select=<col>&limit=1` → 200 exists · PGRST205 no table · 42703 no column; RPC missing = PGRST202.
 
 ## Rollback
-
-- **Code:** `git revert <sha>` + push (never force-push main); Vercel also offers
-  instant rollback to a prior deployment; Railway: deployment History → Redeploy.
-- **Migrations:** never rolled back (additive-only rule) — unused columns are
-  inert; reverting code is sufficient.
+- **Code:** `git revert <sha>` + push (never force-push main); Vercel offers instant rollback to a prior deployment; Railway: deployment History → Redeploy.
+- **Migrations:** never rolled back (additive-only) — unused columns are inert; reverting code suffices.
 
 ## Known platform behaviors
+- Supabase dashboard can hard-fail (assets 200, zero API calls, blank body) — the reason ACCESS.md CLI/token setup matters.
+- Supabase Realtime unreliable on content tables → those UIs use ~2.5s polling fallbacks.
+- sharp's native binary doesn't reliably load on Vercel → the brand-assets upload route validates by magic bytes and reads dimensions via a lazy, non-fatal `await import("sharp")`; the Railway worker runs sharp fine. See [DECISIONS.md](DECISIONS.md).
 
-- Supabase dashboard can hard-fail (2026-06-13: assets 200, zero API calls, blank
-  body) — the reason ACCESS.md's CLI/token setup is mandatory.
-- Supabase Realtime unreliable on content tables → UIs use 2.5s polling fallbacks.
-- Local `next build` fails at env collection (expected — no NEXT_PUBLIC_* locally);
-  local gates are `npx tsc --noEmit` + `npm run build:worker`. Ignore the known
-  tsc error in untracked `scripts/create-sentry-alert-rules.ts`.
+## Troubleshooting
+- **"Environment validation failed" at startup** — read the error; it names each missing/malformed var.
+- **"Server env X accessed in the browser"** — a client component imports a server-only module; move behind a server file or `"use server"`.
+- **Build succeeds but every API route 500s** — runtime env not injected; check Vercel env "Available to: Production".
+- **Worker starts then stops** — almost always env validation; look for `[worker-env]` in Railway logs.
+- **Worker jobs never run / paused** — check the Railway plan (a maxed Trial pauses all services); see [PROJECT_STATE.md](PROJECT_STATE.md).
+- **Realtime updates don't arrive** — check browser console `[supabase-provider] realtime auth refresh failed`; the `supabase` JWT template exists + signed with the Supabase JWT secret; the table is in the `supabase_realtime` publication.
+
+Companion: [ACCESS.md](ACCESS.md) (credentials/access matrix) · [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) (codified release order).
