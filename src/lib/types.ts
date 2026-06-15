@@ -276,6 +276,9 @@ export interface DbContentCreative {
   platform: string;
   background_url: string | null;
   image_url: string | null;
+  /** How the background was produced: 'imagen' (model) or 'fallback'
+   *  (deterministic palette gradient when Imagen failed safety validation). */
+  background_source: "imagen" | "fallback" | null;
   generation_error: string | null;
   generated_at: string | null;
   regen_count: number;

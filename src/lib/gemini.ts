@@ -2169,10 +2169,13 @@ export async function validateGeneratedBackground(
             { inlineData: { mimeType: "image/png", data: png.toString("base64") } },
             {
               text:
-                "Inspect this image, which must be a clean abstract/scenic background. " +
-                "Report whether it contains: (1) any readable text, letters, words, or numbers; " +
-                "(2) any logo, brand mark, or watermark; (3) any human face or person. " +
-                "Be strict — partial or stylized instances count.",
+                "Inspect this image, which must be a clean abstract/scenic background. Report:\n" +
+                "(1) contains_text — true ONLY if a human could actually READ letters, words, or numbers " +
+                "(including stylized or partially-formed words). Abstract shapes, gradients, geometric " +
+                "forms, blobs, lines, and textures are NOT text — do not flag them.\n" +
+                "(2) contains_logo — true for any logo, brand mark, or watermark (strict).\n" +
+                "(3) contains_face — true for any human face or person (strict).\n" +
+                "Keep logo and face detection strict; for text, flag only genuinely legible characters.",
             },
           ],
         },

@@ -231,6 +231,32 @@ async function decodableOrNull(buf: Buffer | null): Promise<Buffer | null> {
 }
 
 /**
+ * Deterministic, guaranteed-clean fallback background — rendered directly with
+ * sharp (NEVER Imagen), so it cannot contain text, logos, faces, symbols, or
+ * objects. Used when Imagen's background fails safety validation after all
+ * attempts: the creative still produces a usable image instead of failing.
+ * Uses the brand palette when available, a neutral dark palette otherwise.
+ */
+export async function renderFallbackBackground(brief: CreativeBrief): Promise<Buffer> {
+  const { w: W, h: H } = resolveCanvas(brief);
+  const p = brief.palette ?? {};
+  const base1 = parseHex(p.primary) ?? { r: 26, g: 29, b: 36 };
+  const base2 =
+    parseHex(p.secondary) ?? parseHex(p.accent) ?? mix(base1, { r: 64, g: 70, b: 82 }, 0.6);
+  // Deepen slightly so the headline + scrim still read. Pure gradient, no content.
+  const c1 = mix(base1, { r: 12, g: 14, b: 18 }, 0.35);
+  const c2 = mix(base2, { r: 12, g: 14, b: 18 }, 0.25);
+  const svg =
+    `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">` +
+    `<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">` +
+    `<stop offset="0%" stop-color="rgb(${c1.r},${c1.g},${c1.b})"/>` +
+    `<stop offset="100%" stop-color="rgb(${c2.r},${c2.g},${c2.b})"/>` +
+    `</linearGradient></defs>` +
+    `<rect width="${W}" height="${H}" fill="url(#bg)"/></svg>`;
+  return sharp(Buffer.from(svg)).png().toBuffer();
+}
+
+/**
  * Composite the final creative. Returns PNG bytes.
  */
 export async function compositeCreative(input: CompositeInput): Promise<Buffer> {

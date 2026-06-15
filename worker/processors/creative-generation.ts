@@ -28,7 +28,7 @@ import {
   generateCreativeBackground,
   validateGeneratedBackground,
 } from "@/lib/gemini";
-import { compositeCreative } from "@/lib/creative/compositor";
+import { compositeCreative, renderFallbackBackground } from "@/lib/creative/compositor";
 import {
   creativeBriefSchema,
   findForbiddenBackgroundToken,
@@ -107,6 +107,7 @@ export async function processCreativeGeneration(
     // ─── Step 2: Imagen background + multimodal validation loop ──────────────
     report("background", 20);
     let background: Buffer | null = null;
+    let backgroundSource: "imagen" | "fallback" = "imagen";
     let lastReason = "";
     for (let attempt = 1; attempt <= MAX_BACKGROUND_ATTEMPTS; attempt++) {
       const png = await generateCreativeBackground({
@@ -122,11 +123,15 @@ export async function processCreativeGeneration(
       report("background", 20 + attempt * 8);
     }
     if (!background) {
-      return fail(
-        new Error(
-          `Imagen produced an unsafe background after ${MAX_BACKGROUND_ATTEMPTS} attempts: ${lastReason}`,
-        ),
+      // Imagen couldn't produce a background that passes safety validation.
+      // Do NOT fail the creative — render a deterministic, guaranteed-clean
+      // palette gradient (sharp only, never Imagen → no text/logo/face/symbols/
+      // objects) and continue. Every approved creative still yields an image.
+      console.warn(
+        `[creative-generation] ${creativeId}: Imagen background failed safety validation after ${MAX_BACKGROUND_ATTEMPTS} attempts (${lastReason}); using deterministic fallback background.`,
       );
+      background = await renderFallbackBackground(brief);
+      backgroundSource = "fallback";
     }
 
     // ─── Step 3: download LOCKED asset bytes (never sent to any AI model) ─────
@@ -194,6 +199,7 @@ export async function processCreativeGeneration(
         status: "ready",
         background_url: backgroundUrl,
         image_url: imageUrl,
+        background_source: backgroundSource,
         generated_at: doneAt,
         generation_error: null,
         status_history: finalHistory,
