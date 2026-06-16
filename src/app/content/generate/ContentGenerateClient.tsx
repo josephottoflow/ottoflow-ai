@@ -93,6 +93,62 @@ interface Props {
   preselectTopicId: string | null;
 }
 
+// ─── Session persistence (P4/P8) ────────────────────────────────────────────
+// The generate workspace keeps its results only in React state, so a refresh /
+// navigation loses the cards (the content + creatives still exist in the DB and
+// on /content/[id]). We persist a lightweight pointer per generated post to
+// sessionStorage and rehydrate from the DB on mount — no new tables, no
+// migration; content_items + content_creatives are the source of truth.
+const SESSION_KEY = "ottoflow.generate.sessions.v1";
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+interface SavedSession {
+  id: string; // content_item_id (the durable key; creative is fetched from it)
+  platform: Platform;
+  createdAt: number;
+}
+
+/** Read sessions, drop entries older than 7 days, newest first; writes back the pruned list. */
+function readSessions(): SavedSession[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.sessionStorage.getItem(SESSION_KEY);
+    if (!raw) return [];
+    const now = Date.now();
+    const all = (JSON.parse(raw) as SavedSession[])
+      .filter((s) => s && s.id && typeof s.createdAt === "number" && now - s.createdAt < SESSION_TTL_MS)
+      .sort((a, b) => b.createdAt - a.createdAt);
+    window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(all));
+    return all;
+  } catch {
+    return [];
+  }
+}
+
+/** Merge new entries (newest wins), prune >7d, cap, persist. */
+function persistSessions(entries: SavedSession[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    const byId = new Map<string, SavedSession>();
+    for (const s of [...entries, ...readSessions()]) byId.set(s.id, s);
+    const merged = [...byId.values()].sort((a, b) => b.createdAt - a.createdAt).slice(0, 40);
+    window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(merged));
+  } catch {
+    /* sessionStorage quota / disabled — non-fatal */
+  }
+}
+
+/** Drop sessions whose content item no longer exists (deleted). */
+function pruneSessions(ids: string[]): void {
+  if (typeof window === "undefined" || ids.length === 0) return;
+  try {
+    const keep = readSessions().filter((s) => !ids.includes(s.id));
+    window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(keep));
+  } catch {
+    /* non-fatal */
+  }
+}
+
 export function ContentGenerateClient({
   readyBrands,
   preselectBrandId,
@@ -130,6 +186,9 @@ export function ContentGenerateClient({
   const [jobs, setJobs] = useState<Record<string, JobRow>>({});
   const [items, setItems] = useState<Record<string, ContentItemRow>>({});
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  // True when the current results view was restored from sessionStorage (a
+  // "Recent Generated Content" view) rather than an active generation.
+  const [rehydrated, setRehydrated] = useState(false);
   const startedAtRef = useRef<number | null>(null);
 
   const selectedBrand = readyBrands.find((b) => b.id === brandId) ?? null;
@@ -205,7 +264,12 @@ export function ContentGenerateClient({
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
 
       const gens: Generation[] = data.generations ?? [];
+      setRehydrated(false);
       setGenerations(gens);
+      // Persist a pointer per generated post so the workspace survives refresh.
+      persistSessions(
+        gens.map((g) => ({ id: g.contentItemId, platform: g.platform, createdAt: Date.now() })),
+      );
       // Optimistic placeholders so each card shows progress immediately.
       const j: Record<string, JobRow> = {};
       for (const g of gens) {
@@ -232,9 +296,53 @@ export function ContentGenerateClient({
     }
   }, [submitting, brandId, platforms, selectedTopicId, userPrompt, companyName, founderName, expertName, useLogo, useHeadshot]);
 
+  // ─── Rehydrate the workspace from sessionStorage on mount ───────────────────
+  // Restores "Recent Generated Content" (newest first) after refresh / reopen /
+  // navigation. Pointers come from sessionStorage; the actual post + creative
+  // state is re-fetched from the DB (content_items + content_creatives). The
+  // per-card CreativePanel then restores the image (ready) or continues polling
+  // (brief_ready/approved/generating).
+  const rehydratedRef = useRef(false);
+  useEffect(() => {
+    if (!supabase || rehydratedRef.current) return;
+    rehydratedRef.current = true;
+    const saved = readSessions();
+    if (saved.length === 0) return;
+    const gens: Generation[] = saved.map((s) => ({
+      platform: s.platform,
+      contentItemId: s.id,
+      contentJobId: s.id, // synthetic: the post is already generated
+    }));
+    const doneJobs: Record<string, JobRow> = {};
+    for (const s of saved) {
+      doneJobs[s.id] = { id: s.id, status: "done", current_step: "done", progress: 100, error_message: null };
+    }
+    setRehydrated(true);
+    setGenerations(gens);
+    setJobs(doneJobs);
+    void (async () => {
+      const ids = saved.map((s) => s.id);
+      const { data } = await supabase
+        .from("content_items")
+        .select("id, title, preview, body, platform, engagement")
+        .in("id", ids);
+      if (!data) return;
+      const m: Record<string, ContentItemRow> = {};
+      for (const r of data) m[(r as ContentItemRow).id] = r as ContentItemRow;
+      setItems(m);
+      // Drop pointers to items that were deleted so the view stays honest.
+      const existing = new Set(data.map((r) => (r as ContentItemRow).id));
+      const gone = ids.filter((id) => !existing.has(id));
+      if (gone.length) {
+        pruneSessions(gone);
+        setGenerations((prev) => prev.filter((g) => existing.has(g.contentItemId)));
+      }
+    })();
+  }, [supabase]);
+
   // ─── Realtime: one channel per generation (job + item) ──────────────────────
   useEffect(() => {
-    if (!supabase || generations.length === 0) return;
+    if (!supabase || generations.length === 0 || rehydrated) return;
     const channels = generations.map((g) => {
       void (async () => {
         const { data: itemData } = await supabase
@@ -268,7 +376,7 @@ export function ContentGenerateClient({
     return () => {
       channels.forEach((c) => supabase.removeChannel(c));
     };
-  }, [supabase, generations]);
+  }, [supabase, generations, rehydrated]);
 
   // ─── Polling fallback ───────────────────────────────────────────────────────
   // Realtime UPDATE events for content_generation_jobs / content_items don't
@@ -276,7 +384,7 @@ export function ContentGenerateClient({
   // the UI can stay on "Generating…"). Poll every 2.5s until every job is
   // terminal so results always show. Belt-and-suspenders with the Realtime sub.
   useEffect(() => {
-    if (!supabase || generations.length === 0) return;
+    if (!supabase || generations.length === 0 || rehydrated) return;
     let stopped = false;
     const jobIds = generations.map((g) => g.contentJobId);
     const itemIds = generations.map((g) => g.contentItemId);
@@ -330,7 +438,7 @@ export function ContentGenerateClient({
       clearInterval(interval);
       clearTimeout(safety);
     };
-  }, [supabase, generations]);
+  }, [supabase, generations, rehydrated]);
 
   const handleGenerateAnother = () => {
     setGenerations([]);
@@ -338,6 +446,7 @@ export function ContentGenerateClient({
     setItems({});
     setCopiedId(null);
     setSubmitError(null);
+    setRehydrated(false); // back to the form; sessionStorage keeps the recents
   };
 
   const copyItem = (item: ContentItemRow) => {
@@ -399,20 +508,28 @@ export function ContentGenerateClient({
         <div className="flex items-start justify-between gap-4 mb-5">
           <div className="min-w-0">
             <h1 className="text-xl font-bold text-white tracking-tight">
-              {generations.length > 1
-                ? `Generating ${generations.length} posts for ${selectedBrand?.name}`
-                : `Generating a post for ${selectedBrand?.name}`}
+              {rehydrated
+                ? "Recent Generated Content"
+                : generations.length > 1
+                  ? `Generating ${generations.length} posts for ${selectedBrand?.name}`
+                  : `Generating a post for ${selectedBrand?.name}`}
             </h1>
-            {selectedTopic && (
-              <p className="text-xs text-white/50 mt-1 flex items-center gap-1.5">
-                <Lightbulb size={11} className="text-amber-400" />
-                Aligned to idea: <span className="text-white/75 font-medium">{selectedTopic.title}</span>
+            {rehydrated ? (
+              <p className="text-xs text-white/50 mt-1">
+                Restored from this session — content &amp; creatives stay here through refreshes.
               </p>
+            ) : (
+              selectedTopic && (
+                <p className="text-xs text-white/50 mt-1 flex items-center gap-1.5">
+                  <Lightbulb size={11} className="text-amber-400" />
+                  Aligned to idea: <span className="text-white/75 font-medium">{selectedTopic.title}</span>
+                </p>
+              )
             )}
           </div>
-          {allDone && (
+          {(allDone || rehydrated) && (
             <Button variant="outline" size="sm" onClick={handleGenerateAnother} className="gap-1.5 flex-shrink-0">
-              <Sparkles size={13} /> Generate more
+              <Sparkles size={13} /> {rehydrated ? "Generate new post" : "Generate more"}
             </Button>
           )}
         </div>
