@@ -172,6 +172,7 @@ export async function processSceneGeneration(
       clips,
       narrationUrl: data.narrationUrl ?? null,
       musicUrl: data.musicUrl ?? null,
+      branding: data.branding,
     });
     report("plan", 75);
 

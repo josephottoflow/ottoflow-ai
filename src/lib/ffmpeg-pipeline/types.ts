@@ -326,6 +326,24 @@ export interface CompositionPlan {
     strategy: StrategistOutput;
     script: ScriptOutput;
   };
+  /**
+   * Optional deterministic branding layer (Ottoflow Video V1). When present,
+   * the composer overlays the logo and appends a CTA end card. Brand asset
+   * bytes are composited pixel-for-pixel and NEVER sent to a model — same
+   * locked-asset discipline as the still-creative compositor. Absent on the
+   * stock pipeline → composer behaviour is unchanged.
+   */
+  branding?: {
+    brandId: string;
+    brandName?: string | null;
+    logoAssetId?: string | null;
+    ctaText?: string | null;
+    palette?: {
+      primary?: string | null;
+      secondary?: string | null;
+      accent?: string | null;
+    } | null;
+  };
 }
 
 // ─── Ottoflow Video V1 — Video Strategy (Seedance AI-first path) ─────────────

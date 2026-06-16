@@ -286,6 +286,18 @@ export interface SceneGenerationJobData {
   narrationUrl?: string | null;
   /** Resolved background music URL (optional). */
   musicUrl?: string | null;
+  /** Deterministic branding for the CompositionPlan (logo overlay + CTA card). */
+  branding?: {
+    brandId: string;
+    brandName?: string | null;
+    logoAssetId?: string | null;
+    ctaText?: string | null;
+    palette?: {
+      primary?: string | null;
+      secondary?: string | null;
+      accent?: string | null;
+    } | null;
+  };
   /** Forwarded to ffmpeg-compose as the storage fallback when R2 is unset. */
   gdriveAccessToken?: string | null;
 }
