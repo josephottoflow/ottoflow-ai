@@ -31,11 +31,40 @@ import {
 import { compositeCreative, renderFallbackBackground } from "@/lib/creative/compositor";
 import {
   creativeBriefSchema,
+  brandPatternSchema,
   findForbiddenBackgroundToken,
   type CreativeBrief,
+  type BrandPattern,
 } from "@/lib/creative/types";
+import { computeBRS } from "@/lib/creative/brs";
 import { founderNameFromLabel } from "@/lib/creative/brief";
+import { captureFallback } from "@/lib/observability";
 import type { CreativeGenerationJobData } from "@/lib/queue";
+
+/**
+ * Load a brand's ACTIVE brand pattern (P4 Phase 2A). Defensive: returns null on
+ * any error — including the table not existing yet (migration 023 unapplied) —
+ * so the compositor degrades to today's palette+logo behaviour.
+ */
+async function loadActiveBrandPattern(
+  admin: ReturnType<typeof createAdminClient>,
+  brandId: string,
+): Promise<{ id: string; version: number; pattern: BrandPattern } | null> {
+  try {
+    const { data, error } = await admin
+      .from("brand_patterns")
+      .select("id, version, pattern")
+      .eq("brand_id", brandId)
+      .eq("is_active", true)
+      .maybeSingle();
+    if (error || !data?.pattern) return null;
+    const parsed = brandPatternSchema.safeParse(data.pattern);
+    if (!parsed.success) return null;
+    return { id: data.id as string, version: (data.version as number) ?? 1, pattern: parsed.data };
+  } catch {
+    return null;
+  }
+}
 
 type Reporter = (step: string, progress: number) => void;
 
@@ -150,6 +179,9 @@ export async function processCreativeGeneration(
       .eq("id", creative.brand_id)
       .single();
     const brandName = (brand?.name as string | undefined) ?? "";
+    // Active Brand Pattern (P4 Phase 2A) — null until migration 023 + an
+    // authored pattern exist; null → compositor renders exactly as before.
+    const brandPattern = await loadActiveBrandPattern(admin, creative.brand_id as string);
     const founderName =
       brief.founder_name_usage.use && brief.founder_name_usage.name
         ? brief.founder_name_usage.name
@@ -164,6 +196,7 @@ export async function processCreativeGeneration(
       headshot: headshotBuf,
       brandName,
       founderName,
+      pattern: brandPattern?.pattern ?? null,
     });
 
     // ─── Step 5: upload background (provenance) + final composite ────────────
@@ -206,6 +239,28 @@ export async function processCreativeGeneration(
       })
       .eq("id", creativeId);
     if (updErr) throw new Error(`Failed to finalize creative: ${updErr.message}`);
+
+    // BRS (P4 Phase 2A) — score the rendered creative + snapshot the pattern
+    // version. Best-effort: never fail the creative on a scoring error.
+    if (brandPattern) {
+      try {
+        const brs = await computeBRS(finalPng, brandPattern.pattern, {
+          primary: brief.palette.primary,
+          secondary: brief.palette.secondary,
+          accent: brief.palette.accent,
+        });
+        await admin
+          .from("brand_patterns")
+          .update({ recognition_score: brs.score })
+          .eq("id", brandPattern.id);
+        await admin
+          .from("content_creatives")
+          .update({ brand_pattern_version: brandPattern.version })
+          .eq("id", creativeId);
+      } catch (err) {
+        captureFallback("creative-generation.brs_failed", err, { creativeId });
+      }
+    }
 
     report("done", 100);
     return { ok: true, imageUrl };
