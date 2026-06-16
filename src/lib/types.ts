@@ -273,6 +273,10 @@ export interface DbContentCreative {
   creative_brief: Record<string, unknown>;
   creative_hierarchy: "founder_led" | "brand_led" | "data_led" | "quote_led" | "product_led";
   creative_confidence: number;
+  /** Topic → Visual Metaphor Engine (P4 Phase 1) — denormalized from the brief
+   *  for analytics ("which metaphors perform best?"). */
+  visual_tension: string | null;
+  visual_metaphor: string | null;
   platform: string;
   background_url: string | null;
   image_url: string | null;
