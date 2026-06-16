@@ -46,6 +46,7 @@ import {
   type VideoMergeJobData,
   type FfmpegComposeJobData,
   type CreativeGenerationJobData,
+  type SceneGenerationJobData,
 } from "@/lib/queue";
 import { createAdminClient } from "@/lib/supabase";
 import { processBrandResearch } from "./processors/brand-research";
@@ -53,6 +54,7 @@ import { processContentGeneration } from "./processors/content-generation";
 import { processVideoMerge } from "./processors/video-merge";
 import { processFfmpegCompose } from "./processors/ffmpeg-compose";
 import { processCreativeGeneration } from "./processors/creative-generation";
+import { processSceneGeneration } from "./processors/scene-generation";
 import { recoverStuckJobsAtBoot, markJobFailedFromStall, schedulePeriodicSweep } from "./recovery";
 
 // ─── Logging ─────────────────────────────────────────────────────────────────
@@ -548,6 +550,79 @@ creativeGenerationWorker.on("error", (err) => {
   logError("creative-generation", "worker.error", { error: err.message });
 });
 
+// ─── Step 6f: Scene Generation worker (Ottoflow Video V1 — AI-first) ─────────
+// Sixth Worker instance. Consumes a frozen VideoStrategy → one provider clip
+// per scene (Seedance preferred, Runway/Luma/Pexels fallback) → R2 copy →
+// scene_generations → builds the CompositionPlan → enqueues `ffmpeg-compose`.
+// I/O-bound (provider polling + downloads), so shares the reduced concurrency
+// budget with the other video queues. No GPU — generation is offloaded to the
+// provider; FFmpeg (ffmpeg-compose) still owns composition.
+const sceneGenerationWorker = new Worker<SceneGenerationJobData>(
+  QUEUE_NAMES.sceneGeneration,
+  async (job: Job<SceneGenerationJobData>) => {
+    log("scene-generation", "job.start", {
+      jobId: job.id,
+      renderJobId: job.data.renderJobId,
+      scenes: job.data.strategy.scenes.length,
+    });
+    const result = await processSceneGeneration(job.data, (step, progress) => {
+      job.updateProgress(progress).catch(() => {});
+      log("scene-generation", "step", { jobId: job.id, step, progress });
+    });
+    log("scene-generation", "job.done", {
+      jobId: job.id,
+      renderJobId: job.data.renderJobId,
+      scenes: result.scenes,
+    });
+    return result;
+  },
+  {
+    connection: getRedis(),
+    concurrency: Math.max(1, Math.floor(workerEnv.WORKER_CONCURRENCY / 2)),
+  },
+);
+
+sceneGenerationWorker.on("active", (job) => {
+  log("scene-generation", "job.active", {
+    jobId: job.id,
+    renderJobId: job.data.renderJobId,
+  });
+});
+
+sceneGenerationWorker.on("completed", (job) => {
+  log("scene-generation", "job.completed", {
+    jobId: job.id,
+    renderJobId: job.data?.renderJobId,
+    durationMs:
+      job.finishedOn && job.processedOn ? job.finishedOn - job.processedOn : null,
+  });
+});
+
+sceneGenerationWorker.on("failed", (job, err) => {
+  logError("scene-generation", "job.failed", {
+    jobId: job?.id,
+    renderJobId: job?.data?.renderJobId,
+    attemptsMade: job?.attemptsMade,
+    error: err?.message,
+  });
+  Sentry.withScope((scope) => {
+    scope.setTag("queue", QUEUE_NAMES.sceneGeneration);
+    if (job?.id) scope.setTag("job.id", String(job.id));
+    if (job?.data?.renderJobId)
+      scope.setTag("render_job.id", String(job.data.renderJobId));
+    scope.setContext("job", {
+      id: job?.id,
+      renderJobId: job?.data?.renderJobId,
+      attemptsMade: job?.attemptsMade,
+    });
+    Sentry.captureException(err ?? new Error("scene-generation job.failed with no error"));
+  });
+});
+
+sceneGenerationWorker.on("error", (err) => {
+  logError("scene-generation", "worker.error", { error: err.message });
+});
+
 // ─── Step 7: Graceful shutdown with hard cap ─────────────────────────────────
 // Railway sends SIGTERM during a deploy and waits for a grace period before
 // SIGKILL. We try a graceful close (lets active jobs finish) but cap at a
@@ -581,6 +656,7 @@ async function shutdown(signal: string): Promise<never> {
     videoMergeWorker.close(),
     ffmpegComposeWorker.close(),
     creativeGenerationWorker.close(),
+    sceneGenerationWorker.close(),
   ]);
   const deadline = new Promise<"timeout">((resolve) =>
     setTimeout(() => resolve("timeout"), GRACEFUL_SHUTDOWN_TIMEOUT_MS)
@@ -613,6 +689,9 @@ async function shutdown(signal: string): Promise<never> {
       }),
       creativeGenerationWorker.close(true).catch((err) => {
         logError("worker", "shutdown.force_close_failed", { error: err?.message, queue: "creative-generation" });
+      }),
+      sceneGenerationWorker.close(true).catch((err) => {
+        logError("worker", "shutdown.force_close_failed", { error: err?.message, queue: "scene-generation" });
       }),
     ]);
   } else {
