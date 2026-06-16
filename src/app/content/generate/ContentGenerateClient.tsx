@@ -95,10 +95,16 @@ interface Props {
 
 // ─── Session persistence (P4/P8) ────────────────────────────────────────────
 // The generate workspace keeps its results only in React state, so a refresh /
-// navigation loses the cards (the content + creatives still exist in the DB and
-// on /content/[id]). We persist a lightweight pointer per generated post to
-// sessionStorage and rehydrate from the DB on mount — no new tables, no
+// navigation / new tab / tab-reopen loses the cards (the content + creatives
+// still exist in the DB and on /content/[id]). We persist a lightweight pointer
+// per generated post and rehydrate from the DB on mount — no new tables, no
 // migration; content_items + content_creatives are the source of truth.
+//
+// NOTE: uses localStorage, NOT sessionStorage. The acceptance criteria require
+// restoration across a NEW TAB and a reopened tab, plus a 7-day retention —
+// sessionStorage is tab-scoped and cleared on tab close, so it cannot satisfy
+// any of those. localStorage (same-origin, shared across tabs, persistent) is
+// the correct store for the stated goals.
 const SESSION_KEY = "ottoflow.generate.sessions.v1";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
@@ -112,13 +118,13 @@ interface SavedSession {
 function readSessions(): SavedSession[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = window.sessionStorage.getItem(SESSION_KEY);
+    const raw = window.localStorage.getItem(SESSION_KEY);
     if (!raw) return [];
     const now = Date.now();
     const all = (JSON.parse(raw) as SavedSession[])
       .filter((s) => s && s.id && typeof s.createdAt === "number" && now - s.createdAt < SESSION_TTL_MS)
       .sort((a, b) => b.createdAt - a.createdAt);
-    window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(all));
+    window.localStorage.setItem(SESSION_KEY, JSON.stringify(all));
     return all;
   } catch {
     return [];
@@ -132,7 +138,7 @@ function persistSessions(entries: SavedSession[]): void {
     const byId = new Map<string, SavedSession>();
     for (const s of [...entries, ...readSessions()]) byId.set(s.id, s);
     const merged = [...byId.values()].sort((a, b) => b.createdAt - a.createdAt).slice(0, 40);
-    window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(merged));
+    window.localStorage.setItem(SESSION_KEY, JSON.stringify(merged));
   } catch {
     /* sessionStorage quota / disabled — non-fatal */
   }
@@ -143,7 +149,7 @@ function pruneSessions(ids: string[]): void {
   if (typeof window === "undefined" || ids.length === 0) return;
   try {
     const keep = readSessions().filter((s) => !ids.includes(s.id));
-    window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(keep));
+    window.localStorage.setItem(SESSION_KEY, JSON.stringify(keep));
   } catch {
     /* non-fatal */
   }
