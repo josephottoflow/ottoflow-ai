@@ -16,8 +16,9 @@ export type SourceName =
   | "pixabay"
   | "mixkit"
   | "coverr"
-  | "runway"   // opt-in
-  | "luma";    // opt-in
+  | "runway"     // opt-in
+  | "luma"       // opt-in
+  | "seedance";  // Video V1 AI-first scene generator (BytePlus ModelArk)
 
 export type Emotion =
   | "curious"
@@ -325,6 +326,34 @@ export interface CompositionPlan {
     strategy: StrategistOutput;
     script: ScriptOutput;
   };
+}
+
+// ─── Ottoflow Video V1 — Video Strategy (Seedance AI-first path) ─────────────
+// Reuses the live Topic → Visual Tension → Visual Metaphor engine (the same
+// fields the still-creative brief carries) to drive a 4-beat video arc. Stored
+// frozen on render_jobs.video_strategy. Seedance generates scenes ONLY; FFmpeg
+// (Agents 11/12) remains the composition + branding engine.
+
+export type SceneRole = "problem" | "tension" | "solution" | "outcome";
+
+export interface VideoStrategyScene {
+  role: SceneRole;
+  sceneId: number; // 1-based, aligns with ScenePlan.sceneId
+  /** Seedance generation prompt — brand-palette + metaphor seeded, abstract-safe. */
+  prompt: string;
+  /** Short on-screen caption line for this beat (FFmpeg burns it in). */
+  caption: string;
+  /** Deterministic seed for reproducible regeneration. */
+  seed: number;
+  durationSec: number;
+}
+
+export interface VideoStrategy {
+  video_concept: string;
+  visual_tension: string;   // reused from the content creative brief
+  visual_metaphor: string;  // reused from the content creative brief
+  brand_worldview: string;
+  scenes: VideoStrategyScene[];
 }
 
 // ─── Agent 11: FFmpeg Composer ──────────────────────────────────────────────

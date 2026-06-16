@@ -6,7 +6,7 @@
  */
 import { Queue, type QueueOptions, type JobsOptions, type ConnectionOptions } from "bullmq";
 import IORedis from "ioredis";
-import type { CompositionPlan } from "./ffmpeg-pipeline/types";
+import type { CompositionPlan, VideoStrategy } from "./ffmpeg-pipeline/types";
 
 // ─── Redis singleton ─────────────────────────────────────────────────────────
 // We hold the actual IORedis instance separately from the BullMQ-shaped
@@ -103,6 +103,12 @@ export const QUEUE_NAMES = {
   // (approve) and /api/creatives/[id]/regenerate; the processor refuses any
   // creative whose status isn't approved/generating.
   creativeGeneration: "creative-generation",
+  // Ottoflow Video V1 — AI-first scene generation. Consumes a frozen
+  // VideoStrategy, calls the video-provider registry (preferring Seedance)
+  // once per scene, copies each clip to R2 (provider URLs expire), records
+  // scene_generations, then enqueues `ffmpeg-compose`. Polling lives here
+  // (worker) so it never hits the Vercel 300s SSE ceiling.
+  sceneGeneration: "scene-generation",
 } as const;
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
 
@@ -262,12 +268,35 @@ export interface CreativeGenerationJobData {
   regen?: boolean;
 }
 
+/**
+ * Ottoflow Video V1 — scene-generation payload. The frozen VideoStrategy is
+ * built in the SSE/API route (Agents 1-3 + strategy) so the worker does the
+ * slow per-scene provider polling. Audio URLs are resolved by the route (same
+ * ElevenLabs/Jamendo path as the stock pipeline) and forwarded so the
+ * downstream ffmpeg-compose plan is complete; blank when audio is deferred.
+ */
+export interface SceneGenerationJobData {
+  renderJobId: string;
+  userId: string;
+  topic: string;
+  brandId?: string | null;
+  brandIndustry?: string | null;
+  strategy: VideoStrategy;
+  /** Resolved narration (data: or https URL). Forwarded into the CompositionPlan. */
+  narrationUrl?: string | null;
+  /** Resolved background music URL (optional). */
+  musicUrl?: string | null;
+  /** Forwarded to ffmpeg-compose as the storage fallback when R2 is unset. */
+  gdriveAccessToken?: string | null;
+}
+
 export interface JobPayloads {
   "brand-research": BrandResearchJobData;
   "content-generation": ContentGenerationJobData;
   "video-merge": VideoMergeJobData;
   "ffmpeg-compose": FfmpegComposeJobData;
   "creative-generation": CreativeGenerationJobData;
+  "scene-generation": SceneGenerationJobData;
 }
 
 // ─── Queue accessors ──────────────────────────────────────────────────────────
@@ -299,3 +328,4 @@ export const contentGenerationQueue = () => getQueue(QUEUE_NAMES.contentGenerati
 export const videoMergeQueue = () => getQueue(QUEUE_NAMES.videoMerge);
 export const ffmpegComposeQueue = () => getQueue(QUEUE_NAMES.ffmpegCompose);
 export const creativeGenerationQueue = () => getQueue(QUEUE_NAMES.creativeGeneration);
+export const sceneGenerationQueue = () => getQueue(QUEUE_NAMES.sceneGeneration);
