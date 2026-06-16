@@ -209,7 +209,11 @@ export function buildFinalizeArgv(i: FinalizeArgvInput): string[] {
     musIdx = idx++;
   }
   if (i.logoPath) {
-    inputArgs.push("-i", i.logoPath);
+    // `-loop 1` makes the still logo an infinite stream so the overlay always
+    // has a frame for the full video; `shortest=1` (below) then bounds the
+    // output to the main video's length. (A single-frame image + eof_action
+    // is version-dependent on the prod nixpacks ffmpeg — this is deterministic.)
+    inputArgs.push("-loop", "1", "-i", i.logoPath);
     logoIdx = idx++;
   }
 
@@ -222,7 +226,7 @@ export function buildFinalizeArgv(i: FinalizeArgvInput): string[] {
     videoFilter =
       `[0:v]ass='${escapeFilterPath(i.assPath)}'[base];` +
       `[${logoIdx}:v]scale=${logoW}:-1[lg];` +
-      `[base][lg]overlay=W-w-${marginX}:H-h-${marginY}:eof_action=repeat[vout]`;
+      `[base][lg]overlay=W-w-${marginX}:H-h-${marginY}:shortest=1[vout]`;
   } else {
     videoFilter = `[0:v]ass='${escapeFilterPath(i.assPath)}'[vout]`;
   }

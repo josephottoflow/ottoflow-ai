@@ -106,10 +106,12 @@ export async function processSceneGeneration(
         fallbackReason = `seedance unavailable → fell through to ${result.provider}`;
       }
 
-      // Copy to durable storage (Seedance URLs expire). Fall back to the
-      // provider URL if R2 isn't configured.
+      // Copy to durable storage (provider URLs — esp. Seedance — expire ~1h,
+      // and ffmpeg-compose runs LATER). The compose step must read a durable
+      // URL, so a failed/absent copy makes the scene UNUSABLE.
       let storageUrl: string | null = null;
       let storageKey: string | null = null;
+      let copyError: string | null = null;
       try {
         const copied = await copyToR2(
           result.url,
@@ -118,16 +120,23 @@ export async function processSceneGeneration(
         if (copied) {
           storageUrl = copied.storageUrl;
           storageKey = copied.storageKey;
+        } else {
+          copyError = "R2 not configured";
         }
       } catch (err) {
+        copyError = err instanceof Error ? err.message : String(err);
         captureFallback("scene-generation.r2_copy_failed", err, {
           renderJobId: data.renderJobId,
           sceneId: scene.sceneId,
         });
       }
 
-      const durableUrl = storageUrl ?? result.url;
-
+      // Record the row first (so the failure is visible in scene_generations),
+      // combining any provider fall-through note with the copy error.
+      const rowReason =
+        [fallbackReason, copyError && `R2 copy failed: ${copyError}`]
+          .filter(Boolean)
+          .join("; ") || null;
       await admin.from("scene_generations").upsert(
         {
           render_job_id: data.renderJobId,
@@ -144,16 +153,26 @@ export async function processSceneGeneration(
           height: result.height,
           generation_time_ms: Date.now() - startedAt,
           cost_usd: result.costUsd ?? null,
-          fallback_reason: fallbackReason,
+          fallback_reason: rowReason,
           attribution: result.attribution ?? null,
           metadata: (result.metadata ?? null) as Record<string, unknown> | null,
         },
         { onConflict: "render_job_id,scene_number" },
       );
 
+      // Durability gate — fail fast + visibly rather than letting an expiring
+      // provider URL flow into compose and 404 minutes later.
+      if (!storageUrl) {
+        throw new Error(
+          `scene ${scene.sceneId}: no durable storage_url (${copyError ?? "unknown"}). ` +
+            `Provider (${result.provider}) URL would expire before compose — failing fast. ` +
+            `Ensure R2_* env is set on the worker.`,
+        );
+      }
+
       clips.push({
         sceneId: scene.sceneId,
-        url: durableUrl,
+        url: storageUrl,
         durationSec: result.durationSec,
         width: result.width,
         height: result.height,

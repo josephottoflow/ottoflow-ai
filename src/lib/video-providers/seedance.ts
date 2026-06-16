@@ -5,17 +5,20 @@
  * captions, no audio mixing — FFmpeg (Agents 11/12) owns composition. Slots
  * into the existing VideoProvider chain exactly like runway.ts / luma.ts.
  *
- * Async task API (BytePlus ModelArk): create a generation task → poll the
- * task until it succeeds → read the output MP4 URL. Mirrors the create→poll
- * shape already used by Runway and Luma.
+ * Async task API (Volcengine/BytePlus ModelArk Ark video generation): create a
+ * task → poll until it succeeds → read the output MP4 URL. Mirrors the
+ * create→poll shape already used by Runway and Luma.
  *
- * ⚠ The exact ModelArk endpoint/host + request/response field names must be
- * confirmed against the BytePlus ModelArk console at provisioning time. To
- * avoid baking an unverified contract into code, the base URL, model id, and
- * task-path are env-overridable. Defaults target the ModelArk v3 task API;
- * set SEEDANCE_BASE_URL / SEEDANCE_MODEL from the console if they differ.
- * No live call is made unless SEEDANCE_API_KEY is set (isConfigured()=false
- * otherwise → the registry skips this provider cleanly).
+ * Contract verified against the Ark video API (POST /api/v3/contents/
+ * generations/tasks): generation params (ratio/resolution/duration/seed) are
+ * passed as `--key value` SUFFIXES on the text prompt inside a `content`
+ * array — NOT as flat JSON fields. Response status lifecycle is
+ * queued→running→succeeded|failed|cancelled; the MP4 is at content.video_url.
+ *
+ * The base URL + model id are account/region-specific → env-overridable.
+ * SEEDANCE_MODEL MUST be set to the operator's real model/endpoint id;
+ * SEEDANCE_BASE_URL to their region host. No live call unless SEEDANCE_API_KEY
+ * is set (isConfigured()=false otherwise → registry skips cleanly).
  *
  * Pricing (estimate, verify at provisioning): ~$0.01–0.02/s @720p,
  * ~$0.05–0.10/s @1080p. We default to 720p for cost.
@@ -88,6 +91,26 @@ function authHeaders(apiKey: string): Record<string, string> {
   };
 }
 
+/** Structured log line (consistent with the worker's JSON logging). */
+function slog(event: string, extra?: Record<string, unknown>): void {
+  console.log(JSON.stringify({ scope: "seedance", event, ...extra }));
+}
+
+/**
+ * Build the Ark text command: prompt + `--key value` parameter suffixes.
+ * (Ark passes ratio/resolution/duration/seed this way, not as JSON fields.)
+ */
+function buildCommandText(req: SceneRequest, ratio: string, duration: number): string {
+  const parts = [
+    req.prompt.trim(),
+    `--ratio ${ratio}`,
+    `--resolution ${RESOLUTION}`,
+    `--duration ${duration}`,
+  ];
+  if (typeof req.seed === "number") parts.push(`--seed ${req.seed}`);
+  return parts.join(" ");
+}
+
 /**
  * Create a Seedance generation task. Returns the task id.
  * `prompt` carries the abstract-safe scene description (brand-palette +
@@ -99,13 +122,11 @@ export async function createTask(
   apiKey: string,
 ): Promise<string> {
   const ratio = seedanceRatio(req.aspectRatio);
+  const duration = seedanceDuration(req.durationSec);
+  // Ark contract: a `content` array of typed parts; params as text suffixes.
   const body = {
     model: SEEDANCE_MODEL,
-    prompt: req.prompt,
-    ratio,
-    duration: seedanceDuration(req.durationSec),
-    resolution: RESOLUTION,
-    ...(typeof req.seed === "number" ? { seed: req.seed } : {}),
+    content: [{ type: "text", text: buildCommandText(req, ratio, duration) }],
   };
   const res = await fetch(`${SEEDANCE_BASE}${TASKS_PATH}`, {
     method: "POST",
@@ -115,11 +136,14 @@ export async function createTask(
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(
-      `Seedance create ${res.status}: ${text.slice(0, 300) || res.statusText}`,
+      `Seedance create ${res.status} ${res.statusText} @ ${SEEDANCE_BASE}${TASKS_PATH}: ${text.slice(0, 400)}`,
     );
   }
-  const created = (await res.json()) as SeedanceCreateResp;
-  if (!created.id) throw new Error("Seedance create response had no task id");
+  const created = (await res.json().catch(() => null)) as SeedanceCreateResp | null;
+  if (!created?.id) {
+    throw new Error("Seedance create response had no task id (check SEEDANCE_MODEL / contract)");
+  }
+  slog("task.created", { taskId: created.id, model: SEEDANCE_MODEL, ratio, duration });
   return created.id;
 }
 
@@ -136,10 +160,20 @@ export async function pollTask(taskId: string, apiKey: string): Promise<string> 
       await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
       continue;
     }
-    const task = (await res.json()) as SeedanceTaskResp;
+    const task = (await res.json().catch(() => null)) as SeedanceTaskResp | null;
+    if (!task) {
+      await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+      continue;
+    }
     if (task.status === "succeeded") {
       const url = downloadResult(task);
-      if (!url) throw new Error("Seedance succeeded but no video_url present");
+      // Defensive: the result MUST be a usable absolute http(s) URL.
+      if (!url || !/^https?:\/\//i.test(url)) {
+        throw new Error(
+          `Seedance succeeded but content.video_url is missing/invalid: ${JSON.stringify(task.content ?? null).slice(0, 200)}`,
+        );
+      }
+      slog("task.succeeded", { taskId });
       return url;
     }
     if (task.status === "failed" || task.status === "cancelled") {
@@ -147,9 +181,10 @@ export async function pollTask(taskId: string, apiKey: string): Promise<string> 
         `Seedance task ${task.status}: ${task.error?.message ?? task.error?.code ?? "unknown"}`,
       );
     }
+    // queued / running (or an unknown status) → keep polling within deadline.
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
-  throw new Error(`Seedance task timed out after ${POLL_TIMEOUT_MS}ms`);
+  throw new Error(`Seedance task ${taskId} timed out after ${POLL_TIMEOUT_MS}ms`);
 }
 
 /**
