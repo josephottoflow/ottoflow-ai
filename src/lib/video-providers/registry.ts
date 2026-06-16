@@ -9,6 +9,7 @@
  */
 import { captureFallback } from "@/lib/observability";
 import { PexelsFallbackProvider } from "./pexels";
+import { SeedanceProvider } from "./seedance";
 import { RunwayProvider } from "./runway";
 import { LumaProvider } from "./luma";
 import {
@@ -34,7 +35,12 @@ function getChain(): VideoProvider[] {
   // MCP server (`.mcp.json` `mcp.higgsfield.ai`) but no documented public
   // REST API. Adding it later requires running an MCP client inside the
   // Railway worker — outside this phase's scope.
+  //
+  // Seedance (BytePlus ModelArk) leads the chain for the Video V1 AI-first
+  // path: bespoke per-scene AI video, native 9:16, cheap. Runway/Luma stay
+  // as fallbacks; Pexels stock is ALWAYS last so a scene never 500s.
   chain = [
+    new SeedanceProvider(),
     new RunwayProvider(),
     new LumaProvider(),
     new PexelsFallbackProvider(),

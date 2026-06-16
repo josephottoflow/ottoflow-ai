@@ -87,6 +87,16 @@ const WorkerSchema = z.object({
     .min(10, "Luma key looks too short")
     .pipe(headerSafe("Luma key has invalid characters for an HTTP header"))
     .optional(),
+  // Ottoflow Video V1 — Seedance (BytePlus ModelArk) scene generator. Optional:
+  // when unset the registry skips Seedance and falls through to Runway/Luma/
+  // Pexels. SEEDANCE_BASE_URL / SEEDANCE_MODEL / SEEDANCE_TASKS_PATH /
+  // SEEDANCE_RESOLUTION are read directly by the provider with defaults; only
+  // the API key is validated here for header safety.
+  SEEDANCE_API_KEY: z
+    .string()
+    .min(10, "Seedance key looks too short")
+    .pipe(headerSafe("Seedance key has invalid characters for an HTTP header"))
+    .optional(),
   PEXELS_API_KEY: z
     .string()
     .min(10, "Pexels key looks too short")
