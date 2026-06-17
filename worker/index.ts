@@ -59,7 +59,8 @@ import { processCreativeGeneration } from "./processors/creative-generation";
 import { processDriveSync } from "./processors/drive-sync";
 import { processPublish } from "./processors/publish";
 import { isPublishingEnabled } from "@/lib/publishing/flags";
-import { claimDueScheduledJobs } from "@/lib/publishing/jobs";
+import { claimDueScheduledJobs, reapStuckPublishingJobs, getPublishStatusCounts } from "@/lib/publishing/jobs";
+import { withLock, SCHEDULER_LOCK_KEY, REAPER_LOCK_KEY } from "@/lib/publishing/lock";
 import { recoverStuckJobsAtBoot, markJobFailedFromStall, schedulePeriodicSweep } from "./recovery";
 
 // ─── Logging ─────────────────────────────────────────────────────────────────
@@ -606,6 +607,12 @@ driveSyncWorker.on("error", (err) => {
 // (scheduled→queued) and enqueues them; no BullMQ delayed jobs.
 let publishWorker: Worker<PublishJobData> | null = null;
 let publishSchedulerHandle: ReturnType<typeof setInterval> | null = null;
+let publishReaperHandle: ReturnType<typeof setInterval> | null = null;
+
+const SCHED_LOCK_MS = Number(process.env.PUBLISH_SCHEDULER_LOCK_MS ?? 25_000);
+const REAPER_INTERVAL_MS = Number(process.env.PUBLISH_REAPER_INTERVAL_MS ?? 300_000);
+const REAPER_LOCK_MS = Number(process.env.PUBLISH_REAPER_LOCK_MS ?? 120_000);
+const ORPHAN_THRESHOLD_MS = Number(process.env.PUBLISH_ORPHAN_THRESHOLD_MS ?? 900_000);
 
 if (isPublishingEnabled()) {
   publishWorker = new Worker<PublishJobData>(
@@ -642,23 +649,53 @@ if (isPublishingEnabled()) {
     logError("publish", "worker.error", { error: err.message });
   });
 
-  // DB-driven scheduler: claim due scheduled jobs and enqueue them (attempts:1).
+  // DB-driven scheduler (single-instance via Redis lock): claim due scheduled
+  // jobs and enqueue them (attempts:1). If another replica holds the lock, this
+  // tick is a no-op.
   publishSchedulerHandle = setInterval(() => {
-    void claimDueScheduledJobs()
-      .then(async (ids) => {
-        for (const id of ids) {
-          await publishQueue().add("publish", { publishJobId: id }, { attempts: 1, jobId: id });
+    const started = Date.now();
+    void withLock(SCHEDULER_LOCK_KEY, SCHED_LOCK_MS, async () => {
+      const ids = await claimDueScheduledJobs();
+      for (const id of ids) {
+        await publishQueue().add("publish", { publishJobId: id }, { attempts: 1, jobId: id });
+      }
+      return ids.length;
+    })
+      .then((claimed) => {
+        if (claimed === null) return; // lock held elsewhere
+        if (claimed > 0) {
+          log("publish", "scheduler.swept", { claimed, durationMs: Date.now() - started });
         }
-        if (ids.length) log("publish", "scheduler.claimed", { count: ids.length });
       })
       .catch((err: unknown) => {
-        logError("publish", "scheduler.error", {
-          error: err instanceof Error ? err.message : String(err),
-        });
+        logError("publish", "scheduler.error", { error: err instanceof Error ? err.message : String(err) });
       });
   }, 30_000);
 
-  log("publish", "registered", { schedulerIntervalMs: 30_000 });
+  // Reaper (single-instance): recover jobs stuck in 'publishing' past the
+  // orphan threshold → needs_review (never re-posts). Emits status metrics.
+  publishReaperHandle = setInterval(() => {
+    const started = Date.now();
+    void withLock(REAPER_LOCK_KEY, REAPER_LOCK_MS, async () => {
+      const { found, reaped } = await reapStuckPublishingJobs(ORPHAN_THRESHOLD_MS);
+      const counts = await getPublishStatusCounts();
+      return { found, reaped, counts };
+    })
+      .then((res) => {
+        if (res === null) return; // lock held elsewhere
+        log("publish", "reaper.swept", { found: res.found, reaped: res.reaped, durationMs: Date.now() - started });
+        log("publish", "metrics", res.counts);
+      })
+      .catch((err: unknown) => {
+        logError("publish", "reaper.error", { error: err instanceof Error ? err.message : String(err) });
+      });
+  }, REAPER_INTERVAL_MS);
+
+  log("publish", "registered", {
+    schedulerIntervalMs: 30_000,
+    reaperIntervalMs: REAPER_INTERVAL_MS,
+    orphanThresholdMs: ORPHAN_THRESHOLD_MS,
+  });
 } else {
   log("publish", "disabled", { reason: "PUBLISHING_ENABLED not set" });
 }
@@ -687,6 +724,7 @@ async function shutdown(signal: string): Promise<never> {
   // Stop the periodic recovery sweep so it doesn't fire during shutdown.
   clearInterval(periodicSweepHandle);
   if (publishSchedulerHandle) clearInterval(publishSchedulerHandle);
+  if (publishReaperHandle) clearInterval(publishReaperHandle);
 
   // Race graceful close against a hard deadline. Close all workers in
   // parallel — they share the same Redis connection so a slow brand-research
