@@ -242,19 +242,23 @@ export async function getValidAccessToken(
   try {
     // Provider override (e.g. Meta long-lived exchange) when present; else the
     // generic RFC-6749 refresh_token grant.
-    const { accessToken, expiresInSec } = provider.refresh
-      ? await provider.refresh(refreshToken)
-      : await refreshAccessToken(provider.oauth, refreshToken);
+    const refreshed: { accessToken: string; expiresInSec: number; refreshToken?: string } =
+      provider.refresh
+        ? await provider.refresh(refreshToken)
+        : await refreshAccessToken(provider.oauth, refreshToken);
     const admin = createAdminClient();
-    await admin
-      .from("connected_accounts")
-      .update({
-        access_token_enc: encryptSecret(accessToken, aad),
-        token_expiry: new Date(Date.now() + expiresInSec * 1000).toISOString(),
-        status: "active",
-      })
-      .eq("id", account.id);
-    return accessToken;
+    const update: Record<string, unknown> = {
+      access_token_enc: encryptSecret(refreshed.accessToken, aad),
+      token_expiry: new Date(Date.now() + refreshed.expiresInSec * 1000).toISOString(),
+      status: "active",
+    };
+    // Roll the refresh anchor when the provider returns a new one (Meta
+    // re-exchange). Generic refresh returns none → keep the existing token.
+    if (refreshed.refreshToken) {
+      update.refresh_token_enc = encryptSecret(refreshed.refreshToken, aad);
+    }
+    await admin.from("connected_accounts").update(update).eq("id", account.id);
+    return refreshed.accessToken;
   } catch (err) {
     await setAccountStatus(account.id, "reauth_required");
     await logIntegrationAudit({

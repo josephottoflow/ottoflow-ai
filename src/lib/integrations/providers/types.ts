@@ -78,8 +78,12 @@ export interface ProviderDefinition {
   enumerateDestinations?: (accessToken: string) => Promise<Destination[]>;
 
   /** Custom token refresh (e.g. Meta long-lived `fb_exchange_token`). Falls
-   * back to the generic RFC-6749 refresh_token grant (oauth.ts) when omitted. */
-  refresh?: (refreshToken: string) => Promise<{ accessToken: string; expiresInSec: number }>;
+   * back to the generic RFC-6749 refresh_token grant (oauth.ts) when omitted.
+   * May return a new `refreshToken` (Meta re-exchange rolls the anchor); the
+   * token service persists it when present, else keeps the existing one. */
+  refresh?: (
+    refreshToken: string,
+  ) => Promise<{ accessToken: string; expiresInSec: number; refreshToken?: string }>;
 
   /** Custom token revocation (e.g. Meta `DELETE /me/permissions`). Falls back
    * to the generic revoke-endpoint POST (oauth.ts) when omitted. */
