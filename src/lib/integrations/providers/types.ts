@@ -76,6 +76,17 @@ export interface MediaHandle {
   metadata?: Record<string, unknown>;
 }
 
+/** Publish failure with a classification phase the worker maps to job status:
+ *  - "pre_send"  → nothing was posted (auth/scope/validation/media) → failed
+ *  - "post_send" → ambiguous (request sent, 5xx/timeout/missing id) → needs_review
+ * Unknown errors default to post_send (safer: needs_review, never blind retry). */
+export class PublishError extends Error {
+  constructor(message: string, public phase: "pre_send" | "post_send") {
+    super(message);
+    this.name = "PublishError";
+  }
+}
+
 /** A targetable sub-account: LinkedIn org page, Facebook Page, IG business
  * account, YouTube channel, etc. Providers without sub-targets (e.g. Drive)
  * expose none. Framework type only — no provider implements it in P3.1b. */
