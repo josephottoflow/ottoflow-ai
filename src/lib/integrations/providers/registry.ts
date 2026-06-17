@@ -6,9 +6,11 @@
  */
 import type { OAuthProvider, ProviderDefinition } from "./types";
 import { googleDriveProvider } from "./google-drive";
+import { linkedinProvider } from "./linkedin";
 
 const PROVIDERS: Record<string, ProviderDefinition> = {
   [googleDriveProvider.id]: googleDriveProvider,
+  [linkedinProvider.id]: linkedinProvider,
 };
 
 export function getProvider(id: string): ProviderDefinition | null {
