@@ -37,6 +37,18 @@ export interface ProviderIdentity {
   accountName: string | null;
 }
 
+/** A targetable sub-account: LinkedIn org page, Facebook Page, IG business
+ * account, YouTube channel, etc. Providers without sub-targets (e.g. Drive)
+ * expose none. Framework type only — no provider implements it in P3.1b. */
+export interface Destination {
+  /** Provider's destination id (page id / channel id / profile urn). */
+  id: string;
+  name: string;
+  /** e.g. "personal" | "company_page" | "facebook_page" | "ig_business" | "youtube_channel". */
+  type: string;
+  metadata?: Record<string, unknown>;
+}
+
 export interface ProviderDefinition {
   id: string; // e.g. "google_drive"
   label: string; // e.g. "Google Drive"
@@ -46,6 +58,22 @@ export interface ProviderDefinition {
   oauth?: OAuthConfig;
   /** Identify the connected account from an access token (OAuth providers). */
   identity?: (accessToken: string) => Promise<ProviderIdentity>;
+
+  // ─── Optional capability hooks (P3.1b). All backward-compatible: when a
+  // provider omits a hook the generic implementation is used. Drive defines
+  // none, so its behaviour is unchanged. ──────────────────────────────────────
+
+  /** Enumerate targetable destinations for a connected account, given a valid
+   * access token. Omit for providers with no sub-targets (Drive). */
+  enumerateDestinations?: (accessToken: string) => Promise<Destination[]>;
+
+  /** Custom token refresh (e.g. Meta long-lived `fb_exchange_token`). Falls
+   * back to the generic RFC-6749 refresh_token grant (oauth.ts) when omitted. */
+  refresh?: (refreshToken: string) => Promise<{ accessToken: string; expiresInSec: number }>;
+
+  /** Custom token revocation (e.g. Meta `DELETE /me/permissions`). Falls back
+   * to the generic revoke-endpoint POST (oauth.ts) when omitted. */
+  revoke?: (token: string) => Promise<void>;
 }
 
 /** A ProviderDefinition known to be an OAuth provider (oauth is non-null). */

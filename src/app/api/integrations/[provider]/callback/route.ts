@@ -1,33 +1,40 @@
 /**
- * GET /api/integrations/google_drive/callback — finish the Drive OAuth flow.
+ * GET /api/integrations/[provider]/callback — finish an OAuth flow (registry-driven).
  *
- * Verifies state (CSRF + owner + expiry), exchanges the code with the PKCE
- * verifier, identifies the account, stores encrypted tokens in
- * connected_accounts, deletes the one-time state, audits, and redirects back
- * to the Integrations settings UI. All failures redirect with ?error=… so the
- * user never sees a raw 500.
+ * Generalized from /google_drive/callback. The Google redirect URI
+ * (/api/integrations/google_drive/callback) resolves here unchanged, so the
+ * value registered in Google Cloud stays valid. All failures redirect to the
+ * settings UI with ?error=… (never a raw 500).
  */
 import { type NextRequest } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { createAdminClient } from "@/lib/supabase";
 import { decryptSecret } from "@/lib/integrations/encryption";
-import {
-  exchangeCode,
-  fetchDriveIdentity,
-  GOOGLE_DRIVE_PROVIDER,
-  GOOGLE_DRIVE_SCOPE,
-} from "@/lib/integrations/google-drive";
+import { exchangeCode } from "@/lib/integrations/oauth";
+import { getOAuthProvider } from "@/lib/integrations/providers/registry";
 import { upsertConnectedAccount, logIntegrationAudit } from "@/lib/integrations/accounts";
 
 export const runtime = "nodejs";
 
-export async function GET(req: NextRequest) {
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ provider: string }> },
+) {
   const url = req.nextUrl;
+  const { provider } = await params;
   const settings = new URL("/settings/integrations", url.origin);
 
   const { userId } = await auth();
   if (!userId) {
     settings.searchParams.set("error", "unauthorized");
+    return Response.redirect(settings, 302);
+  }
+
+  let def;
+  try {
+    def = getOAuthProvider(provider);
+  } catch {
+    settings.searchParams.set("error", "unknown_provider");
     return Response.redirect(settings, 302);
   }
 
@@ -50,7 +57,7 @@ export async function GET(req: NextRequest) {
     .eq("state", state)
     .maybeSingle();
 
-  if (!st || st.user_id !== userId || st.provider !== GOOGLE_DRIVE_PROVIDER) {
+  if (!st || st.user_id !== userId || st.provider !== provider) {
     settings.searchParams.set("error", "invalid_state");
     return Response.redirect(settings, 302);
   }
@@ -61,35 +68,37 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const verifier = decryptSecret(st.code_verifier_enc, `oauth_state:${userId}`);
-    const tokens = await exchangeCode({ code, codeVerifier: verifier });
-    const identity = await fetchDriveIdentity(tokens.accessToken);
+    const verifier = st.code_verifier_enc
+      ? decryptSecret(st.code_verifier_enc, `oauth_state:${userId}`)
+      : undefined;
+    const tokens = await exchangeCode(def.oauth, { code, codeVerifier: verifier });
+    const identity = await def.identity(tokens.accessToken);
     const account = await upsertConnectedAccount({
       userId,
       brandId: st.brand_id ?? null,
-      provider: GOOGLE_DRIVE_PROVIDER,
+      provider,
       accountId: identity.accountId,
       accountName: identity.accountName,
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
       expiresInSec: tokens.expiresInSec,
-      scopes: tokens.scope ? tokens.scope.split(" ") : [GOOGLE_DRIVE_SCOPE],
+      scopes: tokens.scope ? tokens.scope.split(" ") : def.oauth.scopes,
     });
     await admin.from("oauth_states").delete().eq("id", st.id);
     await logIntegrationAudit({
       userId,
-      provider: GOOGLE_DRIVE_PROVIDER,
+      provider,
       action: "connect",
       target: identity.accountName,
       connectedAccountId: account.id,
       ip: req.headers.get("x-forwarded-for"),
     });
-    settings.searchParams.set("connected", "google_drive");
+    settings.searchParams.set("connected", provider);
     return Response.redirect(settings, 302);
   } catch (err) {
     await logIntegrationAudit({
       userId,
-      provider: GOOGLE_DRIVE_PROVIDER,
+      provider,
       action: "error",
       target: "connect",
       detail: { error: err instanceof Error ? err.message : String(err) },

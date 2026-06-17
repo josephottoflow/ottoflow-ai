@@ -12,7 +12,29 @@
 import { createAdminClient } from "@/lib/supabase";
 import { encryptSecret, decryptSecret, secretAad } from "./encryption";
 import { refreshAccessToken, revokeToken } from "./oauth";
-import { getOAuthProvider } from "./providers/registry";
+import { getOAuthProvider, getProvider } from "./providers/registry";
+
+// ─── Audit secret sanitization (P3.1b security hardening) ─────────────────────
+// Provider error bodies can echo tokens/codes. We slice them into thrown
+// messages and sometimes into integration_audit_log.detail. Redact token-like
+// content BEFORE it is persisted. Applied to every audit write below.
+function redactString(s: string): string {
+  return s
+    .replace(/(["']?(?:access_token|refresh_token|id_token|client_secret|code)["']?\s*[:=]\s*["']?)[^"'&,\s}]+/gi, "$1[REDACTED]")
+    .replace(/([?&](?:access_token|refresh_token|id_token|client_secret|code)=)[^&\s"']+/gi, "$1[REDACTED]")
+    .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer [REDACTED]")
+    .replace(/eyJ[A-Za-z0-9._-]{10,}/g, "[REDACTED_JWT]");
+}
+function redactDeep(value: unknown): unknown {
+  if (typeof value === "string") return redactString(value);
+  if (Array.isArray(value)) return value.map(redactDeep);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, redactDeep(v)]),
+    );
+  }
+  return value;
+}
 
 export interface ConnectedAccountRow {
   id: string;
@@ -69,9 +91,9 @@ export async function logIntegrationAudit(entry: {
       user_id: entry.userId,
       provider: entry.provider ?? null,
       action: entry.action,
-      target: entry.target ?? null,
+      target: entry.target ? redactString(entry.target) : null,
       connected_account_id: entry.connectedAccountId ?? null,
-      detail: entry.detail ?? {},
+      detail: (redactDeep(entry.detail ?? {}) as Record<string, unknown>) ?? {},
       ip: entry.ip ?? null,
     });
   } catch {
@@ -218,7 +240,11 @@ export async function getValidAccessToken(
   const provider = getOAuthProvider(account.provider);
   const refreshToken = decryptSecret(account.refresh_token_enc, aad);
   try {
-    const { accessToken, expiresInSec } = await refreshAccessToken(provider.oauth, refreshToken);
+    // Provider override (e.g. Meta long-lived exchange) when present; else the
+    // generic RFC-6749 refresh_token grant.
+    const { accessToken, expiresInSec } = provider.refresh
+      ? await provider.refresh(refreshToken)
+      : await refreshAccessToken(provider.oauth, refreshToken);
     const admin = createAdminClient();
     await admin
       .from("connected_accounts")
@@ -253,22 +279,18 @@ export const getValidDriveAccessToken = getValidAccessToken;
  * the row. Provider-generic. */
 export async function disconnectAccount(account: ConnectedAccountRow): Promise<void> {
   const aad = secretAad(account.provider, account.user_id);
-  // Resolve the provider's OAuth config for revocation; tolerate unknown
-  // providers (just delete the row).
-  let oauthCfg: ReturnType<typeof getOAuthProvider>["oauth"] | null = null;
-  try {
-    oauthCfg = getOAuthProvider(account.provider).oauth;
-  } catch {
-    oauthCfg = null;
-  }
-  if (oauthCfg) {
-    const enc = account.refresh_token_enc ?? account.access_token_enc;
-    if (enc) {
-      try {
-        await revokeToken(oauthCfg, decryptSecret(enc, aad));
-      } catch {
-        // best-effort
-      }
+  // Resolve the provider (nullable — tolerate unknown providers: just delete).
+  const provider = getProvider(account.provider);
+  const enc = account.refresh_token_enc ?? account.access_token_enc;
+  if (enc && provider) {
+    const token = decryptSecret(enc, aad);
+    try {
+      // Provider override (e.g. Meta DELETE /me/permissions) when present; else
+      // the generic revoke-endpoint POST (no-op if the provider has none).
+      if (provider.revoke) await provider.revoke(token);
+      else if (provider.oauth) await revokeToken(provider.oauth, token);
+    } catch {
+      // best-effort — local row is still deleted below
     }
   }
   const admin = createAdminClient();

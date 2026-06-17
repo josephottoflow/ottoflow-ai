@@ -1,10 +1,10 @@
 /**
- * GET  /api/integrations/google_drive/folders — current folder mapping +
- *      available app folders. Ensures the default Ottoflow/{…} tree exists.
- * PATCH /api/integrations/google_drive/folders — set chosen folder ids.
+ * GET/PATCH /api/integrations/[provider]/folders — Drive folder mapping.
  *
- * Mapping lives in connected_accounts.metadata.folders (no migration). Folder
- * ids are non-secret, so they may be returned to the client.
+ * Moved verbatim from /google_drive/folders so the URL
+ * (/api/integrations/google_drive/folders) is unchanged. This is a Drive-
+ * specific provider-config route; non-Drive providers get 404 (folders have no
+ * meaning for them). Mapping lives in connected_accounts.metadata.folders.
  */
 import { type NextRequest } from "next/server";
 import { auth } from "@clerk/nextjs/server";
@@ -34,9 +34,16 @@ async function resolveAccount(
     : getAccountByProviderForUser(userId, GOOGLE_DRIVE_PROVIDER);
 }
 
-export async function GET(req: NextRequest) {
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ provider: string }> },
+) {
   const { userId } = await auth();
   if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const { provider } = await params;
+  if (provider !== GOOGLE_DRIVE_PROVIDER) {
+    return Response.json({ error: "Folders are only supported for Google Drive" }, { status: 404 });
+  }
 
   const account = await resolveAccount(userId, req.nextUrl.searchParams.get("accountId"));
   if (!account) return Response.json({ error: "No connected Drive account" }, { status: 404 });
@@ -56,9 +63,16 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function PATCH(req: NextRequest) {
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ provider: string }> },
+) {
   const { userId } = await auth();
   if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const { provider } = await params;
+  if (provider !== GOOGLE_DRIVE_PROVIDER) {
+    return Response.json({ error: "Folders are only supported for Google Drive" }, { status: 404 });
+  }
 
   const body = (await req.json().catch(() => null)) as {
     accountId?: string;
@@ -71,7 +85,6 @@ export async function PATCH(req: NextRequest) {
   const account = await resolveAccount(userId, body.accountId ?? null);
   if (!account) return Response.json({ error: "No connected Drive account" }, { status: 404 });
 
-  // Only accept known mapping keys; ignore anything else.
   const allowed = new Set(Object.keys(DRIVE_FOLDER_LAYOUT));
   const current = (account.metadata?.folders as Record<string, string> | undefined) ?? {};
   const next = { ...current };
