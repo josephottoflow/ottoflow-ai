@@ -47,6 +47,35 @@ export interface ProviderIdentity {
   accountName: string | null;
 }
 
+// ─── Publishing types (PUB-1 framework only; no provider implements these yet) ─
+export interface MediaItem {
+  source: "creative" | "render_job";
+  id: string;
+  url: string;
+  mime?: string;
+  width?: number;
+  height?: number;
+}
+export interface MediaSpec {
+  kind: "none" | "image" | "video" | "carousel";
+  items: MediaItem[];
+}
+export interface PublishContext {
+  accessToken: string;
+  destination: Destination;
+  media: MediaSpec;
+  text?: string | null;
+  idempotencyKey?: string;
+}
+export interface PublishResult {
+  externalPostId: string;
+  permalinkUrl?: string | null;
+}
+export interface MediaHandle {
+  ref: string;
+  metadata?: Record<string, unknown>;
+}
+
 /** A targetable sub-account: LinkedIn org page, Facebook Page, IG business
  * account, YouTube channel, etc. Providers without sub-targets (e.g. Drive)
  * expose none. Framework type only — no provider implements it in P3.1b. */
@@ -95,6 +124,17 @@ export interface ProviderDefinition {
    * a long-lived one (so a short-lived token is never stored). Omit for
    * providers whose code-exchange token is already the final token. */
   exchangeToken?: (tokens: TokenSet) => Promise<TokenSet>;
+
+  // ─── Publishing hooks (PUB-1 framework only — NO provider implements these
+  // yet; the publish worker treats their absence as needs_review). ────────────
+
+  /** Publish a post to a destination. Returns the external post id. */
+  publish?: (ctx: PublishContext) => Promise<PublishResult>;
+  /** Provider-specific media upload/registration (LinkedIn asset, FB/IG
+   * container, YouTube resumable). Called by publish() or the worker. */
+  uploadMedia?: (ctx: { accessToken: string; item: MediaItem }) => Promise<MediaHandle>;
+  /** Poll async publish/processing status (YouTube/IG). */
+  status?: (externalPostId: string, accessToken: string) => Promise<"processing" | "live" | "failed">;
 }
 
 /** A ProviderDefinition known to be an OAuth provider (oauth is non-null). */
