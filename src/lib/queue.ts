@@ -107,6 +107,10 @@ export const QUEUE_NAMES = {
   // connected Google Drive. Payload carries connected_account_id only; the
   // worker fetches + decrypts the OAuth token server-side (no token in Redis).
   driveSync: "drive-sync",
+  // Phase 3 Publishing (PUB-1) — publish one publish_job to its destination.
+  // Payload is the publishJobId ONLY; the worker loads the job + decrypts the
+  // token server-side. at-most-once (attempts:1, set at enqueue).
+  publish: "publish",
 } as const;
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
 
@@ -271,6 +275,12 @@ export interface DriveSyncJobData {
   folderKey: "creatives" | "videos";
 }
 
+/** Publish a single publish_job. Id ONLY — the worker loads the job and
+ * decrypts the token server-side (no token/media in Redis). */
+export interface PublishJobData {
+  publishJobId: string;
+}
+
 /**
  * Creative Orchestrator Phase C — payload is intentionally tiny: the worker
  * re-reads the creative row + brief from Postgres so a stale queue entry can
@@ -290,6 +300,7 @@ export interface JobPayloads {
   "ffmpeg-compose": FfmpegComposeJobData;
   "creative-generation": CreativeGenerationJobData;
   "drive-sync": DriveSyncJobData;
+  "publish": PublishJobData;
 }
 
 // ─── Queue accessors ──────────────────────────────────────────────────────────
@@ -322,3 +333,4 @@ export const videoMergeQueue = () => getQueue(QUEUE_NAMES.videoMerge);
 export const ffmpegComposeQueue = () => getQueue(QUEUE_NAMES.ffmpegCompose);
 export const creativeGenerationQueue = () => getQueue(QUEUE_NAMES.creativeGeneration);
 export const driveSyncQueue = () => getQueue(QUEUE_NAMES.driveSync);
+export const publishQueue = () => getQueue(QUEUE_NAMES.publish);
