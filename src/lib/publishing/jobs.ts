@@ -22,8 +22,10 @@ export interface PublishJobRow {
   id: string;
   user_id: string;
   content_item_id: string | null;
+  connected_account_id: string | null;
   publishing_destination_id: string | null;
   provider: string;
+  destination_type: string | null;
   destination_id: string;
   destination_name: string | null;
   status: string;
