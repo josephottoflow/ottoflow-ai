@@ -5,7 +5,18 @@
  */
 import { createAdminClient } from "@/lib/supabase";
 import { publishQueue } from "@/lib/queue";
+import { logIntegrationAudit } from "@/lib/integrations/accounts";
 import type { MediaSpec } from "@/lib/integrations/providers/types";
+
+export const PUBLISH_STATUSES = [
+  "scheduled",
+  "queued",
+  "publishing",
+  "published",
+  "failed",
+  "needs_review",
+  "canceled",
+] as const;
 
 const NON_TERMINAL = ["scheduled", "queued", "publishing"] as const;
 const MAX_ATTEMPTS_HISTORY = 10;
@@ -247,6 +258,110 @@ export async function claimDueScheduledJobs(): Promise<string[]> {
     .lte("scheduled_for", new Date().toISOString())
     .select("id");
   return ((data as { id: string }[]) ?? []).map((r) => r.id);
+}
+
+/**
+ * Reaper (P1.3): recover jobs stuck in 'publishing' (worker crashed between
+ * claim and result). Candidates: status='publishing' AND external_post_id IS
+ * NULL AND claimed_at older than threshold. Each is moved to needs_review via a
+ * compare-and-set (so a worker that JUST finished — set external_post_id or a
+ * terminal status — is never clobbered). NEVER re-posts. Returns counts.
+ */
+export async function reapStuckPublishingJobs(
+  thresholdMs: number,
+): Promise<{ found: number; reaped: number }> {
+  const admin = createAdminClient();
+  const cutoff = new Date(Date.now() - thresholdMs).toISOString();
+  const { data } = await admin
+    .from("publish_jobs")
+    .select("*")
+    .eq("status", "publishing")
+    .is("external_post_id", null)
+    .lte("claimed_at", cutoff)
+    .limit(200);
+  const candidates = (data as PublishJobRow[]) ?? [];
+  let reaped = 0;
+  for (const job of candidates) {
+    const { data: upd } = await admin
+      .from("publish_jobs")
+      .update({ status: "needs_review", failure_reason: "recovered: stuck in 'publishing' beyond threshold (no external_post_id)" })
+      .eq("id", job.id)
+      .eq("status", "publishing")
+      .is("external_post_id", null)
+      .select("id");
+    if (upd && upd.length) {
+      reaped += 1;
+      await appendAttempt(job, {
+        n: (job.attempt_count ?? 0) + 1,
+        status: "recovered",
+        error_code: "stuck_publishing",
+        error_message: "reaped: claimed_at older than threshold; moved to needs_review (never re-posted)",
+        at: new Date().toISOString(),
+      });
+      await logIntegrationAudit({
+        userId: job.user_id,
+        provider: job.provider,
+        action: "publish_recovered",
+        target: job.id,
+        detail: { claimedAt: null, thresholdMs },
+      });
+    }
+  }
+  return { found: candidates.length, reaped };
+}
+
+/** Status-count metrics across all publish_jobs. */
+export async function getPublishStatusCounts(): Promise<Record<string, number>> {
+  const admin = createAdminClient();
+  const counts: Record<string, number> = {};
+  await Promise.all(
+    PUBLISH_STATUSES.map(async (s) => {
+      const { count } = await admin
+        .from("publish_jobs")
+        .select("id", { count: "exact", head: true })
+        .eq("status", s);
+      counts[s] = count ?? 0;
+    }),
+  );
+  return counts;
+}
+
+/** Health snapshot for diagnostics (read-only). */
+export async function getPublishHealth(orphanThresholdMs: number): Promise<{
+  counts: Record<string, number>;
+  oldestQueued: { id: string; created_at: string } | null;
+  oldestPublishing: { id: string; claimed_at: string | null } | null;
+  orphanCount: number;
+}> {
+  const admin = createAdminClient();
+  const counts = await getPublishStatusCounts();
+  const { data: oq } = await admin
+    .from("publish_jobs")
+    .select("id,created_at")
+    .eq("status", "queued")
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  const { data: op } = await admin
+    .from("publish_jobs")
+    .select("id,claimed_at")
+    .eq("status", "publishing")
+    .order("claimed_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  const cutoff = new Date(Date.now() - orphanThresholdMs).toISOString();
+  const { count: orphanCount } = await admin
+    .from("publish_jobs")
+    .select("id", { count: "exact", head: true })
+    .eq("status", "publishing")
+    .is("external_post_id", null)
+    .lte("claimed_at", cutoff);
+  return {
+    counts,
+    oldestQueued: (oq as { id: string; created_at: string }) ?? null,
+    oldestPublishing: (op as { id: string; claimed_at: string | null }) ?? null,
+    orphanCount: orphanCount ?? 0,
+  };
 }
 
 /** Append a (capped) attempt entry + bump attempt_count. */
