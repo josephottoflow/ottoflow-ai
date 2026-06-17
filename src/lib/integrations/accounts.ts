@@ -144,6 +144,23 @@ export async function getAccountById(id: string): Promise<ConnectedAccountRow | 
   return (data as ConnectedAccountRow) ?? null;
 }
 
+/** First (most recent) full row for a provider — server/worker use only. */
+export async function getAccountByProviderForUser(
+  userId: string,
+  provider: string,
+): Promise<ConnectedAccountRow | null> {
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("connected_accounts")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("provider", provider)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return (data as ConnectedAccountRow) ?? null;
+}
+
 /** Token-free list for the UI. */
 export async function listAccountsForUser(userId: string): Promise<ConnectedAccountSafe[]> {
   const admin = createAdminClient();

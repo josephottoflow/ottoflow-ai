@@ -43,6 +43,7 @@ import { runTiming } from "@/lib/ffmpeg-pipeline/agents/09-timing";
 import { runVideoEditor } from "@/lib/ffmpeg-pipeline/agents/10-video-editor";
 import { uploadToR2, isR2Configured } from "@/lib/ffmpeg-pipeline/r2";
 import { uploadToGDrive } from "@/lib/ffmpeg-pipeline/gdrive";
+import { getAccountById, getValidDriveAccessToken } from "@/lib/integrations/accounts";
 
 type Reporter = (step: string, progress: number) => void;
 
@@ -133,7 +134,7 @@ async function regenerate(
 async function uploadResult(
   plan: CompositionPlan,
   localPath: string,
-  gdriveAccessToken: string | null | undefined,
+  connectedAccountId: string | null | undefined,
   ctx: AgentContext,
 ): Promise<{ url: string; r2Key: string | null; gdriveId: string | null }> {
   const bytes = await fs.readFile(localPath);
@@ -144,14 +145,26 @@ async function uploadResult(
     return { url: r2.publicUrl, r2Key: r2.objectKey, gdriveId: null };
   }
 
-  if (gdriveAccessToken) {
+  if (connectedAccountId) {
+    // P1 token-threading: fetch the account + decrypt the OAuth token here in
+    // the worker (no plaintext token in the queue payload). getValidDrive-
+    // AccessToken refreshes if needed.
     ctx.log("ffmpeg-compose.r2_unconfigured_using_gdrive");
+    const account = await getAccountById(connectedAccountId);
+    if (!account) {
+      throw new Error(`Drive connected_account ${connectedAccountId} not found`);
+    }
+    const accessToken = await getValidDriveAccessToken(account);
+    const folderId =
+      (account.metadata?.folders as Record<string, string> | undefined)?.videos ??
+      process.env.GDRIVE_FOLDER_ID ??
+      null;
     const drive = await uploadToGDrive({
-      accessToken: gdriveAccessToken,
+      accessToken,
       fileName: `ottoflow-${plan.renderJobId}.mp4`,
       contentType: "video/mp4",
       body: bytes,
-      folderId: process.env.GDRIVE_FOLDER_ID ?? null,
+      folderId,
     });
     return {
       url: drive.webViewLink ?? `https://drive.google.com/file/d/${drive.fileId}/view`,
@@ -161,7 +174,7 @@ async function uploadResult(
   }
 
   throw new Error(
-    "No storage configured: set R2_* env (primary) or pass a Google Drive access token (fallback)",
+    "No storage configured: set R2_* env (primary) or connect Google Drive (fallback)",
   );
 }
 
@@ -240,7 +253,7 @@ export async function processFfmpegCompose(
     }
 
     // ─── Upload ────────────────────────────────────────────────────────────
-    const upload = await uploadResult(plan, result.localPath, data.gdriveAccessToken, ctx);
+    const upload = await uploadResult(plan, result.localPath, data.connectedAccountId, ctx);
     report("upload", 90);
 
     // ─── asset_history (best-effort) ─────────────────────────────────────────

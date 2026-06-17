@@ -167,6 +167,102 @@ export async function revokeToken(token: string): Promise<void> {
   }
 }
 
+// ─── Folder management (drive.file: the app only sees folders it created) ─────
+
+const DRIVE_FILES = "https://www.googleapis.com/drive/v3/files";
+const FOLDER_MIME = "application/vnd.google-apps.folder";
+
+/** Default Ottoflow folder structure. Keys are the stable mapping keys stored
+ * in connected_accounts.metadata.folders. */
+export const DRIVE_FOLDER_LAYOUT = {
+  brand_assets: "Brand Assets",
+  creatives: "Generated Creatives",
+  videos: "Generated Videos",
+  reports: "Reports", // mapped now; report-save deferred (no report artifact yet)
+} as const;
+export type DriveFolderKey = keyof typeof DRIVE_FOLDER_LAYOUT;
+export const DRIVE_ROOT_FOLDER = "Ottoflow";
+
+function driveQuote(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+}
+
+/** Find a folder by exact name under a parent (or My Drive root), else create
+ * it. Idempotent — repeated connects reuse the same folder ids. */
+export async function findOrCreateFolder(
+  accessToken: string,
+  name: string,
+  parentId?: string | null,
+): Promise<string> {
+  const parentClause = parentId
+    ? ` and '${driveQuote(parentId)}' in parents`
+    : "";
+  const q = `mimeType='${FOLDER_MIME}' and name='${driveQuote(name)}' and trashed=false${parentClause}`;
+  const findRes = await fetch(
+    `${DRIVE_FILES}?q=${encodeURIComponent(q)}&fields=files(id,name)&pageSize=1`,
+    { headers: { authorization: `Bearer ${accessToken}` } },
+  );
+  if (findRes.ok) {
+    const j = (await findRes.json()) as { files?: { id: string }[] };
+    if (j.files && j.files[0]) return j.files[0].id;
+  }
+  const createRes = await fetch(`${DRIVE_FILES}?fields=id`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      name,
+      mimeType: FOLDER_MIME,
+      ...(parentId ? { parents: [parentId] } : {}),
+    }),
+  });
+  if (!createRes.ok) {
+    const t = await createRes.text().catch(() => "");
+    throw new Error(`Drive folder create "${name}" ${createRes.status}: ${t.slice(0, 200)}`);
+  }
+  const j = (await createRes.json()) as { id: string };
+  return j.id;
+}
+
+export interface DriveFolderMap {
+  root: string;
+  brand_assets: string;
+  creatives: string;
+  videos: string;
+  reports: string;
+}
+
+/** Ensure the Ottoflow/{…} folder tree exists; return the id map. */
+export async function ensureOttoflowFolders(accessToken: string): Promise<DriveFolderMap> {
+  const root = await findOrCreateFolder(accessToken, DRIVE_ROOT_FOLDER, null);
+  const entries = await Promise.all(
+    (Object.entries(DRIVE_FOLDER_LAYOUT) as [DriveFolderKey, string][]).map(
+      async ([key, label]) => [key, await findOrCreateFolder(accessToken, label, root)] as const,
+    ),
+  );
+  const sub = Object.fromEntries(entries) as Record<DriveFolderKey, string>;
+  return { root, ...sub };
+}
+
+/** List the folders the app can see (drive.file → only app-created folders). */
+export async function listAppFolders(
+  accessToken: string,
+): Promise<{ id: string; name: string }[]> {
+  const q = `mimeType='${FOLDER_MIME}' and trashed=false`;
+  const res = await fetch(
+    `${DRIVE_FILES}?q=${encodeURIComponent(q)}&fields=files(id,name)&pageSize=100`,
+    { headers: { authorization: `Bearer ${accessToken}` } },
+  );
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(`Drive folder list ${res.status}: ${t.slice(0, 200)}`);
+  }
+  const j = (await res.json()) as { files?: { id: string; name: string }[] };
+  return j.files ?? [];
+}
+
 /** Identify the connected account (stable id + display email). */
 export async function fetchDriveIdentity(
   accessToken: string,

@@ -46,6 +46,7 @@ import {
   type VideoMergeJobData,
   type FfmpegComposeJobData,
   type CreativeGenerationJobData,
+  type DriveSyncJobData,
 } from "@/lib/queue";
 import { createAdminClient } from "@/lib/supabase";
 import { processBrandResearch } from "./processors/brand-research";
@@ -53,6 +54,7 @@ import { processContentGeneration } from "./processors/content-generation";
 import { processVideoMerge } from "./processors/video-merge";
 import { processFfmpegCompose } from "./processors/ffmpeg-compose";
 import { processCreativeGeneration } from "./processors/creative-generation";
+import { processDriveSync } from "./processors/drive-sync";
 import { recoverStuckJobsAtBoot, markJobFailedFromStall, schedulePeriodicSweep } from "./recovery";
 
 // ─── Logging ─────────────────────────────────────────────────────────────────
@@ -548,6 +550,50 @@ creativeGenerationWorker.on("error", (err) => {
   logError("creative-generation", "worker.error", { error: err.message });
 });
 
+// Sixth Worker instance (Phase 3 / P1). Copies a generated artifact into the
+// user's connected Google Drive. Light network I/O (download + upload) — shares
+// the reduced (half) concurrency budget. The OAuth token is fetched + decrypted
+// inside the processor; it never travels through the queue payload.
+const driveSyncWorker = new Worker<DriveSyncJobData>(
+  QUEUE_NAMES.driveSync,
+  async (job: Job<DriveSyncJobData>) => {
+    log("drive-sync", "job.start", {
+      jobId: job.id,
+      artifactType: job.data.artifactType,
+      artifactId: job.data.artifactId,
+    });
+    const result = await processDriveSync(job.data, (step, progress) => {
+      job.updateProgress(progress).catch(() => {});
+      log("drive-sync", "step", { jobId: job.id, step, progress });
+    });
+    log("drive-sync", "job.done", { jobId: job.id, fileId: result.fileId });
+    return result;
+  },
+  {
+    connection: getRedis(),
+    concurrency: Math.max(1, Math.floor(workerEnv.WORKER_CONCURRENCY / 2)),
+  },
+);
+
+driveSyncWorker.on("failed", (job, err) => {
+  logError("drive-sync", "job.failed", {
+    jobId: job?.id,
+    artifactType: job?.data?.artifactType,
+    artifactId: job?.data?.artifactId,
+    attemptsMade: job?.attemptsMade,
+    error: err?.message,
+  });
+  Sentry.withScope((scope) => {
+    scope.setTag("queue", QUEUE_NAMES.driveSync);
+    if (job?.id) scope.setTag("job.id", String(job.id));
+    Sentry.captureException(err);
+  });
+});
+
+driveSyncWorker.on("error", (err) => {
+  logError("drive-sync", "worker.error", { error: err.message });
+});
+
 // ─── Step 7: Graceful shutdown with hard cap ─────────────────────────────────
 // Railway sends SIGTERM during a deploy and waits for a grace period before
 // SIGKILL. We try a graceful close (lets active jobs finish) but cap at a
@@ -581,6 +627,7 @@ async function shutdown(signal: string): Promise<never> {
     videoMergeWorker.close(),
     ffmpegComposeWorker.close(),
     creativeGenerationWorker.close(),
+    driveSyncWorker.close(),
   ]);
   const deadline = new Promise<"timeout">((resolve) =>
     setTimeout(() => resolve("timeout"), GRACEFUL_SHUTDOWN_TIMEOUT_MS)
@@ -613,6 +660,9 @@ async function shutdown(signal: string): Promise<never> {
       }),
       creativeGenerationWorker.close(true).catch((err) => {
         logError("worker", "shutdown.force_close_failed", { error: err?.message, queue: "creative-generation" });
+      }),
+      driveSyncWorker.close(true).catch((err) => {
+        logError("worker", "shutdown.force_close_failed", { error: err?.message, queue: "drive-sync" });
       }),
     ]);
   } else {
