@@ -28,6 +28,16 @@ export interface OAuthConfig {
   usesPKCE: boolean;
   /** Extra params appended to the authorize URL only (e.g. access_type, prompt). */
   authParams?: Record<string, string>;
+  /** Separator for the authorize-URL `scope` param. Default " "; Meta uses ",". */
+  scopeSeparator?: string;
+}
+
+/** OAuth token set returned by code exchange / refresh / exchangeToken. */
+export interface TokenSet {
+  accessToken: string;
+  refreshToken: string | null;
+  expiresInSec: number;
+  scope: string | null;
 }
 
 export interface ProviderIdentity {
@@ -74,6 +84,13 @@ export interface ProviderDefinition {
   /** Custom token revocation (e.g. Meta `DELETE /me/permissions`). Falls back
    * to the generic revoke-endpoint POST (oauth.ts) when omitted. */
   revoke?: (token: string) => Promise<void>;
+
+  /** Transform the freshly-exchanged token set before the account is created
+   * (P3.1c). The generic callback invokes this immediately after exchangeCode,
+   * before identity/upsert. Meta uses it to convert the short-lived token into
+   * a long-lived one (so a short-lived token is never stored). Omit for
+   * providers whose code-exchange token is already the final token. */
+  exchangeToken?: (tokens: TokenSet) => Promise<TokenSet>;
 }
 
 /** A ProviderDefinition known to be an OAuth provider (oauth is non-null). */

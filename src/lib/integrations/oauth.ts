@@ -11,7 +11,9 @@
  * granted_scopes).
  */
 import { createHash, randomBytes } from "node:crypto";
-import type { OAuthConfig } from "./providers/types";
+import type { OAuthConfig, TokenSet } from "./providers/types";
+
+export type { TokenSet };
 
 export function b64url(buf: Buffer): string {
   return buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -38,7 +40,7 @@ export function buildAuthUrl(
     client_id: cfg.clientId(),
     redirect_uri: cfg.redirectUri(),
     response_type: "code",
-    scope: cfg.scopes.join(" "),
+    scope: cfg.scopes.join(cfg.scopeSeparator ?? " "),
     state: opts.state,
     ...(cfg.authParams ?? {}),
   });
@@ -47,13 +49,6 @@ export function buildAuthUrl(
     p.set("code_challenge_method", "S256");
   }
   return `${cfg.authEndpoint}?${p.toString()}`;
-}
-
-export interface TokenSet {
-  accessToken: string;
-  refreshToken: string | null;
-  expiresInSec: number;
-  scope: string | null;
 }
 
 /** Exchange an authorization code (+ optional PKCE verifier) for tokens. */

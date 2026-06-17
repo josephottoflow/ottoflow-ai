@@ -71,7 +71,10 @@ export async function GET(
     const verifier = st.code_verifier_enc
       ? decryptSecret(st.code_verifier_enc, `oauth_state:${userId}`)
       : undefined;
-    const tokens = await exchangeCode(def.oauth, { code, codeVerifier: verifier });
+    const exchanged = await exchangeCode(def.oauth, { code, codeVerifier: verifier });
+    // P3.1c: providers may upgrade the token before the account is created
+    // (Meta short-lived → long-lived). A short-lived token is never stored.
+    const tokens = def.exchangeToken ? await def.exchangeToken(exchanged) : exchanged;
     const identity = await def.identity(tokens.accessToken);
     const account = await upsertConnectedAccount({
       userId,
