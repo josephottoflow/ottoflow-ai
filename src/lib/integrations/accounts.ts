@@ -11,7 +11,8 @@
  */
 import { createAdminClient } from "@/lib/supabase";
 import { encryptSecret, decryptSecret, secretAad } from "./encryption";
-import { refreshAccessToken, revokeToken } from "./google-drive";
+import { refreshAccessToken, revokeToken } from "./oauth";
+import { getOAuthProvider } from "./providers/registry";
 
 export interface ConnectedAccountRow {
   id: string;
@@ -197,9 +198,10 @@ export async function patchAccountMetadata(
 
 /**
  * Return a usable access token, refreshing (and persisting) if it's expired
- * or about to. On refresh failure → status='reauth_required' + audit + throw.
+ * or about to. Provider-generic: refresh uses the provider's OAuth config from
+ * the registry. On refresh failure → status='reauth_required' + audit + throw.
  */
-export async function getValidDriveAccessToken(
+export async function getValidAccessToken(
   account: ConnectedAccountRow,
 ): Promise<string> {
   const aad = secretAad(account.provider, account.user_id);
@@ -211,11 +213,12 @@ export async function getValidDriveAccessToken(
   }
   if (!account.refresh_token_enc) {
     await setAccountStatus(account.id, "reauth_required");
-    throw new Error("Drive account has no refresh token — reconnect required.");
+    throw new Error(`${account.provider} account has no refresh token — reconnect required.`);
   }
+  const provider = getOAuthProvider(account.provider);
   const refreshToken = decryptSecret(account.refresh_token_enc, aad);
   try {
-    const { accessToken, expiresInSec } = await refreshAccessToken(refreshToken);
+    const { accessToken, expiresInSec } = await refreshAccessToken(provider.oauth, refreshToken);
     const admin = createAdminClient();
     await admin
       .from("connected_accounts")
@@ -239,20 +242,33 @@ export async function getValidDriveAccessToken(
   }
 }
 
-/** Disconnect: revoke at the provider (best-effort) then delete the row. */
+/**
+ * Back-compat alias. Existing Drive callers (folders route, drive-sync,
+ * ffmpeg-compose fallback) keep importing this name; it now delegates to the
+ * generic, provider-agnostic implementation above.
+ */
+export const getValidDriveAccessToken = getValidAccessToken;
+
+/** Disconnect: revoke at the provider (best-effort, via registry) then delete
+ * the row. Provider-generic. */
 export async function disconnectAccount(account: ConnectedAccountRow): Promise<void> {
   const aad = secretAad(account.provider, account.user_id);
-  if (account.refresh_token_enc) {
-    try {
-      await revokeToken(decryptSecret(account.refresh_token_enc, aad));
-    } catch {
-      // best-effort
-    }
-  } else if (account.access_token_enc) {
-    try {
-      await revokeToken(decryptSecret(account.access_token_enc, aad));
-    } catch {
-      // best-effort
+  // Resolve the provider's OAuth config for revocation; tolerate unknown
+  // providers (just delete the row).
+  let oauthCfg: ReturnType<typeof getOAuthProvider>["oauth"] | null = null;
+  try {
+    oauthCfg = getOAuthProvider(account.provider).oauth;
+  } catch {
+    oauthCfg = null;
+  }
+  if (oauthCfg) {
+    const enc = account.refresh_token_enc ?? account.access_token_enc;
+    if (enc) {
+      try {
+        await revokeToken(oauthCfg, decryptSecret(enc, aad));
+      } catch {
+        // best-effort
+      }
     }
   }
   const admin = createAdminClient();
