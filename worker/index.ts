@@ -47,6 +47,8 @@ import {
   type FfmpegComposeJobData,
   type CreativeGenerationJobData,
   type DriveSyncJobData,
+  type PublishJobData,
+  publishQueue,
 } from "@/lib/queue";
 import { createAdminClient } from "@/lib/supabase";
 import { processBrandResearch } from "./processors/brand-research";
@@ -55,6 +57,9 @@ import { processVideoMerge } from "./processors/video-merge";
 import { processFfmpegCompose } from "./processors/ffmpeg-compose";
 import { processCreativeGeneration } from "./processors/creative-generation";
 import { processDriveSync } from "./processors/drive-sync";
+import { processPublish } from "./processors/publish";
+import { isPublishingEnabled } from "@/lib/publishing/flags";
+import { claimDueScheduledJobs } from "@/lib/publishing/jobs";
 import { recoverStuckJobsAtBoot, markJobFailedFromStall, schedulePeriodicSweep } from "./recovery";
 
 // ─── Logging ─────────────────────────────────────────────────────────────────
@@ -594,6 +599,70 @@ driveSyncWorker.on("error", (err) => {
   logError("drive-sync", "worker.error", { error: err.message });
 });
 
+// Seventh Worker instance (PUB-1) — publish jobs. Registered ONLY when
+// PUBLISHING_ENABLED, so the queue idles (dark-launch) otherwise. PUB-1 posts
+// nothing live: the processor marks jobs needs_review (no provider.publish).
+// A DB-driven scheduler sweep (every 30s) claims due scheduled jobs
+// (scheduled→queued) and enqueues them; no BullMQ delayed jobs.
+let publishWorker: Worker<PublishJobData> | null = null;
+let publishSchedulerHandle: ReturnType<typeof setInterval> | null = null;
+
+if (isPublishingEnabled()) {
+  publishWorker = new Worker<PublishJobData>(
+    QUEUE_NAMES.publish,
+    async (job: Job<PublishJobData>) => {
+      log("publish", "job.start", { jobId: job.id, publishJobId: job.data.publishJobId });
+      const result = await processPublish(job.data, (step, progress) => {
+        job.updateProgress(progress).catch(() => {});
+        log("publish", "step", { jobId: job.id, step, progress });
+      });
+      log("publish", "job.done", { jobId: job.id, status: result.status });
+      return result;
+    },
+    {
+      connection: getRedis(),
+      concurrency: Math.max(1, Math.floor(workerEnv.WORKER_CONCURRENCY / 2)),
+    },
+  );
+
+  publishWorker.on("failed", (job, err) => {
+    logError("publish", "job.failed", {
+      jobId: job?.id,
+      publishJobId: job?.data?.publishJobId,
+      attemptsMade: job?.attemptsMade,
+      error: err?.message,
+    });
+    Sentry.withScope((scope) => {
+      scope.setTag("queue", QUEUE_NAMES.publish);
+      if (job?.id) scope.setTag("job.id", String(job.id));
+      Sentry.captureException(err);
+    });
+  });
+  publishWorker.on("error", (err) => {
+    logError("publish", "worker.error", { error: err.message });
+  });
+
+  // DB-driven scheduler: claim due scheduled jobs and enqueue them (attempts:1).
+  publishSchedulerHandle = setInterval(() => {
+    void claimDueScheduledJobs()
+      .then(async (ids) => {
+        for (const id of ids) {
+          await publishQueue().add("publish", { publishJobId: id }, { attempts: 1, jobId: id });
+        }
+        if (ids.length) log("publish", "scheduler.claimed", { count: ids.length });
+      })
+      .catch((err: unknown) => {
+        logError("publish", "scheduler.error", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+  }, 30_000);
+
+  log("publish", "registered", { schedulerIntervalMs: 30_000 });
+} else {
+  log("publish", "disabled", { reason: "PUBLISHING_ENABLED not set" });
+}
+
 // ─── Step 7: Graceful shutdown with hard cap ─────────────────────────────────
 // Railway sends SIGTERM during a deploy and waits for a grace period before
 // SIGKILL. We try a graceful close (lets active jobs finish) but cap at a
@@ -617,6 +686,7 @@ async function shutdown(signal: string): Promise<never> {
 
   // Stop the periodic recovery sweep so it doesn't fire during shutdown.
   clearInterval(periodicSweepHandle);
+  if (publishSchedulerHandle) clearInterval(publishSchedulerHandle);
 
   // Race graceful close against a hard deadline. Close all workers in
   // parallel — they share the same Redis connection so a slow brand-research
@@ -628,6 +698,7 @@ async function shutdown(signal: string): Promise<never> {
     ffmpegComposeWorker.close(),
     creativeGenerationWorker.close(),
     driveSyncWorker.close(),
+    ...(publishWorker ? [publishWorker.close()] : []),
   ]);
   const deadline = new Promise<"timeout">((resolve) =>
     setTimeout(() => resolve("timeout"), GRACEFUL_SHUTDOWN_TIMEOUT_MS)
@@ -664,6 +735,13 @@ async function shutdown(signal: string): Promise<never> {
       driveSyncWorker.close(true).catch((err) => {
         logError("worker", "shutdown.force_close_failed", { error: err?.message, queue: "drive-sync" });
       }),
+      ...(publishWorker
+        ? [
+            publishWorker.close(true).catch((err) => {
+              logError("worker", "shutdown.force_close_failed", { error: err?.message, queue: "publish" });
+            }),
+          ]
+        : []),
     ]);
   } else {
     log("worker", "shutdown.complete", { signal });
