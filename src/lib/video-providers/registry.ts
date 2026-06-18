@@ -8,7 +8,9 @@
  * Pexels is ALWAYS last because it never fails for sensible prompts.
  */
 import { captureFallback } from "@/lib/observability";
+import { isRunwayEnabled, isLumaEnabled } from "@/lib/video/flags";
 import { PexelsFallbackProvider } from "./pexels";
+import { SeedanceProvider } from "./seedance";
 import { RunwayProvider } from "./runway";
 import { LumaProvider } from "./luma";
 import {
@@ -18,27 +20,21 @@ import {
   type VideoProvider,
 } from "./types";
 
-let chain: VideoProvider[] | null = null;
+// NOTE: the chain is NOT memoized — it is rebuilt per call so the paid-fallback
+// flags are honored at request time (and so a flag change doesn't require a
+// worker restart). Provider constructors are trivial.
 function getChain(): VideoProvider[] {
-  if (chain) return chain;
-  // Order matters. Premium quality first, cheaper fallbacks behind.
+  // Provider safety (hardening): the DEFAULT chain is Seedance → Pexels only.
+  // Paid AI fallbacks (Runway gen4.5 ~$0.25/5s, Luma ray-flash ~$0.14/5s) are
+  // OFF unless explicitly enabled (VIDEO_ENABLE_RUNWAY / VIDEO_ENABLE_LUMA), so
+  // a Seedance miss falls straight to FREE Pexels instead of silently spending
+  // on a second/third paid provider. Pexels is ALWAYS last so a scene never 500s.
   //
-  //   Runway gen4.5  $0.25/5s — highest cinematic quality, requires
-  //                  Pexels photo seed + RUNWAYML_API_SECRET
-  //   Luma ray-flash $0.14/5s — pure text-to-video, requires LUMA_API_KEY
-  //   Pexels         free    — stock-clip fallback, always last so we
-  //                            never return 500 just because both AI
-  //                            providers were down
-  //
-  // Higgsfield is intentionally NOT in this chain. It exposes an SSE
-  // MCP server (`.mcp.json` `mcp.higgsfield.ai`) but no documented public
-  // REST API. Adding it later requires running an MCP client inside the
-  // Railway worker — outside this phase's scope.
-  chain = [
-    new RunwayProvider(),
-    new LumaProvider(),
-    new PexelsFallbackProvider(),
-  ];
+  // Higgsfield is intentionally NOT in this chain (SSE MCP only, no REST API).
+  const chain: VideoProvider[] = [new SeedanceProvider()];
+  if (isRunwayEnabled()) chain.push(new RunwayProvider());
+  if (isLumaEnabled()) chain.push(new LumaProvider());
+  chain.push(new PexelsFallbackProvider());
   return chain;
 }
 

@@ -23,7 +23,9 @@
  * background only — backgrounds aren't locked assets.
  */
 import sharp from "sharp";
-import type { CreativeBrief, Placement } from "./types";
+import type { BrandPattern, CreativeBrief, Placement } from "./types";
+import { getTemplateLayout } from "./composition-templates";
+import { renderMotifSvg } from "./motifs";
 
 export interface CompositeInput {
   brief: CreativeBrief;
@@ -34,6 +36,8 @@ export interface CompositeInput {
   headshot: Buffer | null;
   brandName: string;
   founderName: string | null;
+  /** Active Brand Pattern (P4 Phase 2A). Absent → renders exactly as before. */
+  pattern?: BrandPattern | null;
 }
 
 // Native per-platform creative dimensions (px). The background is cover-cropped
@@ -231,6 +235,36 @@ async function decodableOrNull(buf: Buffer | null): Promise<Buffer | null> {
 }
 
 /**
+ * Deterministic brand color grade (P4 Phase 2A, z1) — applied to the
+ * AI-generated background ONLY (never to locked assets). recomb is a 3×3
+ * brand matrix; modulate nudges saturation/hue/brightness. (duotone is in the
+ * schema for future use; sharp has no native duotone, so it's a no-op here.)
+ */
+async function applyColorGrade(
+  buf: Buffer,
+  cd: NonNullable<BrandPattern["color_dna"]>,
+): Promise<Buffer> {
+  let img = sharp(buf);
+  if (cd.recomb && cd.recomb.length === 3) {
+    img = img.recomb(
+      cd.recomb as [
+        [number, number, number],
+        [number, number, number],
+        [number, number, number],
+      ],
+    );
+  }
+  if (cd.modulate) {
+    img = img.modulate({
+      saturation: cd.modulate.saturation,
+      hue: cd.modulate.hue,
+      brightness: cd.modulate.brightness,
+    });
+  }
+  return img.png().toBuffer();
+}
+
+/**
  * Deterministic, guaranteed-clean fallback background — rendered directly with
  * sharp (NEVER Imagen), so it cannot contain text, logos, faces, symbols, or
  * objects. Used when Imagen's background fails safety validation after all
@@ -260,12 +294,18 @@ export async function renderFallbackBackground(brief: CreativeBrief): Promise<Bu
  * Composite the final creative. Returns PNG bytes.
  */
 export async function compositeCreative(input: CompositeInput): Promise<Buffer> {
-  const { brief } = input;
+  const { brief, pattern } = input;
   // Skip any locked asset that can't be decoded rather than failing the job.
   const logo = await decodableOrNull(input.logo);
   const headshot = await decodableOrNull(input.headshot);
   const { w: W, h: H } = resolveCanvas(brief);
-  const m = Math.round(Math.min(W, H) * 0.05);
+  // Composition template (brand spatial signature) × hierarchy. Null → today's
+  // per-hierarchy defaults. spacing_dna/template can override the margin.
+  const tpl = pattern?.composition_dna?.template
+    ? getTemplateLayout(pattern.composition_dna.template, brief.hierarchy)
+    : null;
+  const marginRatio = pattern?.spacing_dna?.margin_ratio ?? tpl?.marginRatio ?? 0.05;
+  const m = Math.round(Math.min(W, H) * marginRatio);
   // Brand accent — never Ottoflow purple. Neutral slate when no palette is set.
   const accent = safeColor(brief.palette.accent ?? brief.palette.primary, NEUTRAL_ACCENT);
   // Scrim tint derived from the brand primary, mixed ~86% toward near-black so
@@ -274,12 +314,38 @@ export async function compositeCreative(input: CompositeInput): Promise<Buffer> 
   const primaryRgb = parseHex(brief.palette.primary ?? brief.palette.accent);
   const scrimRgb = primaryRgb ? mix(primaryRgb, { r: 8, g: 10, b: 14 }, 0.86) : NEUTRAL_SCRIM;
 
-  // 1. Background: cover-resize the GENERATED image to the canvas.
-  const bg = await sharp(input.background)
+  // 1. Background: cover-resize, then apply the deterministic brand color
+  //    grade (z1) when a pattern defines one. Locked assets are NEVER graded.
+  let bg = await sharp(input.background)
     .resize(W, H, { fit: "cover", position: "centre" })
     .toBuffer();
+  if (pattern?.color_dna) bg = await applyColorGrade(bg, pattern.color_dna);
 
   const layers: sharp.OverlayOptions[] = [];
+
+  // z2. Brand motif overlay — deterministic, BELOW the scrim so it reads as a
+  //     brand texture, not clutter over the headline. Only when defined.
+  if (pattern?.motif_dna) {
+    const md = pattern.motif_dna;
+    const cap = pattern.do_not_use?.max_motif_opacity ?? 1;
+    const motifSvg = renderMotifSvg({
+      family: md.family,
+      W,
+      H,
+      primary: safeColor(brief.palette.primary, NEUTRAL_ACCENT),
+      secondary: safeColor(brief.palette.secondary ?? brief.palette.primary, NEUTRAL_ACCENT),
+      accent: safeColor(brief.palette.accent ?? brief.palette.primary, NEUTRAL_ACCENT),
+      opacity: Math.min(md.opacity ?? 0.12, cap),
+      scale: md.scale ?? 0.7,
+      placement: md.placement ?? tpl?.motifPlacement ?? "center_bleed",
+    });
+    layers.push({
+      input: Buffer.from(motifSvg),
+      top: 0,
+      left: 0,
+      blend: (md.blend ?? "screen") as sharp.Blend,
+    });
+  }
 
   // 2. Legibility scrim over the generated background (not a locked asset).
   const scrim = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
@@ -312,7 +378,7 @@ export async function compositeCreative(input: CompositeInput): Promise<Buffer> 
       .png()
       .toBuffer();
     const pos = placementXY(
-      brief.headshot_usage.placement ?? (hero ? "right_third" : "bottom_left"),
+      brief.headshot_usage.placement ?? tpl?.headshotBias ?? (hero ? "right_third" : "bottom_left"),
       d, d, W, H, m,
     );
     headshotLayer = { ...pos, d };
@@ -335,7 +401,7 @@ export async function compositeCreative(input: CompositeInput): Promise<Buffer> 
     const pad = Math.round(Math.min(W, H) * 0.018);
     const chipW = lw + pad * 2;
     const chipH = lh + pad * 2;
-    const placement = brief.logo_usage.placement ?? (hero ? "center" : "bottom_right");
+    const placement = brief.logo_usage.placement ?? tpl?.logoBias ?? (hero ? "center" : "bottom_right");
     let pos = placementXY(placement, chipW, chipH, W, H, m);
     if (hero) {
       // brand_led: logo sits just below vertical center so the headline owns
@@ -368,6 +434,24 @@ export async function compositeCreative(input: CompositeInput): Promise<Buffer> 
     fs = Math.round(W * 0.072); maxW = W - m * 2; tx = Math.round(W / 2); startY = Math.round(H * 0.3);
   } else {
     fs = Math.round(W * 0.05); maxW = W - m * 2; tx = Math.round(W / 2); startY = Math.round(H * 0.26); quote = true;
+  }
+
+  // Brand composition template overrides the SPATIAL signature (anchor/start/
+  // x/maxWidth/CTA placement) while keeping the hierarchy's font size + quote
+  // treatment. founder_led keeps its headshot-aware maxW. Null tpl → unchanged.
+  if (tpl) {
+    anchor = tpl.anchor;
+    startY = Math.round(H * tpl.headlineStartYRatio);
+    tx = anchor === "start" ? m : Math.round(W * tpl.headlineXRatio);
+    if (!(h === "founder_led" && headshotLayer)) {
+      maxW = Math.round(W * tpl.headlineMaxWidthRatio);
+    }
+    ctaFixedY =
+      tpl.cta === "fixed_bottom"
+        ? Math.round(H * (tpl.ctaYRatio ?? 0.82))
+        : tpl.cta === "fixed_center"
+          ? Math.round(H * (tpl.ctaYRatio ?? 0.74))
+          : null;
   }
 
   const hb = headlineBlock(brief.headline, fs, maxW, tx, startY, anchor, quote);

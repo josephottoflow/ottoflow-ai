@@ -177,9 +177,12 @@ export interface FinalizeArgvInput {
   /** Path to a concat-demuxer list file referencing the normalized clips. */
   concatListPath: string;
   assPath: string;
-  narrationInputPath: string;
+  /** Optional (Video V1 AI-first scenes may have no narration → silent/music-only). */
+  narrationInputPath: string | null;
   musicInputPath: string | null;
   musicDuckingDb: number;
+  /** Optional brand logo PNG overlaid bottom-right (Video V1 branding). */
+  logoPath?: string | null;
   width: number;
   height: number;
   fps: number;
@@ -188,50 +191,126 @@ export interface FinalizeArgvInput {
 }
 
 export function buildFinalizeArgv(i: FinalizeArgvInput): string[] {
-  const assFilter = `[0:v]ass='${escapeFilterPath(i.assPath)}'[vout]`;
-
-  // Audio: narration full volume; music (if any) side-chain ducked. Normalize
-  // both to 44.1k/fltp/stereo first so sidechaincompress/amix inputs match.
-  const norm = "aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo";
-  let audioFilter: string;
-  let audioOut: string;
-  // Input 0 = the concat demuxer: it presents all normalized clips as ONE
+  // Input 0 = the concat demuxer: presents all normalized clips as ONE
   // continuous video stream, so only ONE decode runs at a time (vs xfade's
-  // two), which is what fits the 1 GB worker. Hard cuts between scenes.
-  const inputArgs: string[] = [
-    "-f", "concat", "-safe", "0", "-i", i.concatListPath,
-    "-i", i.narrationInputPath,
-  ];
+  // two) — what fits the 1 GB worker. Audio/logo inputs are appended and
+  // referenced by computed index so optional inputs don't shift each other.
+  const inputArgs: string[] = ["-f", "concat", "-safe", "0", "-i", i.concatListPath];
+  let idx = 1;
+  let narrIdx = -1;
+  let musIdx = -1;
+  let logoIdx = -1;
+  if (i.narrationInputPath) {
+    inputArgs.push("-i", i.narrationInputPath);
+    narrIdx = idx++;
+  }
   if (i.musicInputPath) {
     inputArgs.push("-i", i.musicInputPath);
+    musIdx = idx++;
+  }
+  if (i.logoPath) {
+    // `-loop 1` makes the still logo an infinite stream so the overlay always
+    // has a frame for the full video; `shortest=1` (below) then bounds the
+    // output to the main video's length. (A single-frame image + eof_action
+    // is version-dependent on the prod nixpacks ffmpeg — this is deterministic.)
+    inputArgs.push("-loop", "1", "-i", i.logoPath);
+    logoIdx = idx++;
+  }
+
+  // ─── Video: burn captions, then (optional) overlay the logo bottom-right ──
+  let videoFilter: string;
+  if (logoIdx >= 0) {
+    const logoW = Math.round(i.width * 0.22);
+    const marginX = Math.round(i.width * 0.05);
+    const marginY = Math.round(i.height * 0.04);
+    videoFilter =
+      `[0:v]ass='${escapeFilterPath(i.assPath)}'[base];` +
+      `[${logoIdx}:v]scale=${logoW}:-1[lg];` +
+      `[base][lg]overlay=W-w-${marginX}:H-h-${marginY}:shortest=1[vout]`;
+  } else {
+    videoFilter = `[0:v]ass='${escapeFilterPath(i.assPath)}'[vout]`;
+  }
+
+  // ─── Audio: narration full; music side-chain ducked when both present;
+  //     music-only or silent supported for the AI-first path. ───────────────
+  const norm = "aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo";
+  let audioFilter: string | null = null;
+  let audioOut: string | null = null;
+  if (narrIdx >= 0 && musIdx >= 0) {
     const musicLinear = Math.pow(10, i.musicDuckingDb / 20);
     audioFilter =
-      `[1:a]${norm},volume=1.0,asplit=2[narr_main][narr_key];` +
-      `[2:a]${norm},volume=${musicLinear.toFixed(3)}[mus];` +
+      `[${narrIdx}:a]${norm},volume=1.0,asplit=2[narr_main][narr_key];` +
+      `[${musIdx}:a]${norm},volume=${musicLinear.toFixed(3)}[mus];` +
       `[mus][narr_key]sidechaincompress=threshold=0.05:ratio=8:attack=20:release=250[ducked];` +
       `[narr_main][ducked]amix=inputs=2:duration=first:dropout_transition=0[aout]`;
     audioOut = "[aout]";
-  } else {
-    audioFilter = `[1:a]${norm},volume=1.0[aout]`;
+  } else if (narrIdx >= 0) {
+    audioFilter = `[${narrIdx}:a]${norm},volume=1.0[aout]`;
+    audioOut = "[aout]";
+  } else if (musIdx >= 0) {
+    audioFilter = `[${musIdx}:a]${norm},volume=1.0[aout]`;
     audioOut = "[aout]";
   }
+  // else: no audio inputs → silent video (no audio map / codec).
 
-  return [
+  const filterComplex = audioFilter ? `${videoFilter};${audioFilter}` : videoFilter;
+
+  const argv: string[] = [
     "-y",
     ...THREAD_CAP,
     ...inputArgs,
-    "-filter_complex", `${assFilter};${audioFilter}`,
+    "-filter_complex", filterComplex,
     "-map", "[vout]",
-    "-map", audioOut,
+  ];
+  if (audioOut) {
+    argv.push("-map", audioOut, "-c:a", ENC.acodec, "-b:a", ENC.abitrate);
+  }
+  argv.push(
     "-c:v", ENC.vcodec,
     "-preset", ENC.preset,
     "-crf", String(ENC.crf),
     "-pix_fmt", ENC.pixFmt,
-    "-c:a", ENC.acodec,
-    "-b:a", ENC.abitrate,
     "-movflags", "+faststart",
     "-r", String(i.fps),
     "-t", i.durationSec.toFixed(3),
+    i.outputPath,
+  );
+  return argv;
+}
+
+// ─── CTA end card: a still PNG → short CFR clip matching the normalized
+//     scenes, so it concatenates seamlessly as the final "scene". ───────────
+
+export interface CtaCardClipArgvInput {
+  pngPath: string;
+  durationSec: number;
+  width: number;
+  height: number;
+  fps: number;
+  outputPath: string;
+}
+
+export function buildCtaCardClipArgv(i: CtaCardClipArgvInput): string[] {
+  const vf =
+    `scale=${i.width}:${i.height}:force_original_aspect_ratio=increase,` +
+    `crop=${i.width}:${i.height},` +
+    `format=yuv420p,setpts=PTS-STARTPTS,fps=${i.fps}`;
+  return [
+    "-y",
+    ...THREAD_CAP,
+    "-loop", "1",
+    "-r", String(i.fps),
+    "-t", i.durationSec.toFixed(3),
+    "-i", i.pngPath,
+    "-vf", vf,
+    "-an",
+    "-c:v", ENC.vcodec,
+    "-preset", ENC.preset,
+    "-crf", String(ENC.intermediateCrf),
+    "-pix_fmt", ENC.pixFmt,
+    "-r", String(i.fps),
+    "-t", i.durationSec.toFixed(3),
+    "-movflags", "+faststart",
     i.outputPath,
   ];
 }
@@ -245,9 +324,14 @@ export interface MultiPassInput {
   plan: CompositionPlan;
   /** Ordered by sceneId — the downloaded source clip for each scene. */
   sceneInputPaths: string[];
-  narrationInputPath: string;
+  /** Optional: AI-first scenes-only videos may be silent / music-only. */
+  narrationInputPath: string | null;
   musicInputPath: string | null;
   assPath: string;
+  /** Optional brand logo PNG overlaid bottom-right (Video V1 branding). */
+  logoPath?: string | null;
+  /** Optional CTA end card (already rendered PNG) appended as the last clip. */
+  ctaCard?: { pngPath: string; durationSec: number } | null;
   workDir: string;
   outputPath: string;
   /** Runs ffmpeg; MUST reject on non-zero exit. `label` is for logging. */
@@ -268,7 +352,8 @@ export async function composeMultiPass(input: MultiPassInput): Promise<void> {
     );
   }
   const join = (name: string) => `${workDir}/${name}`;
-  const totalSteps = n /* normalize */ + 1 /* finalize */;
+  const hasCta = !!input.ctaCard;
+  const totalSteps = n /* normalize */ + (hasCta ? 1 : 0) /* cta clip */ + 1 /* finalize */;
   let step = 0;
   const tick = () => input.onProgress?.(++step / totalSteps);
 
@@ -290,13 +375,31 @@ export async function composeMultiPass(input: MultiPassInput): Promise<void> {
     tick();
   }
 
+  // ── Optional: render the CTA end card into a clip appended last. ──────────
+  let extraDurationSec = 0;
+  if (input.ctaCard) {
+    const ctaOut = join("cta-card.mp4");
+    await input.runFfmpeg(
+      buildCtaCardClipArgv({
+        pngPath: input.ctaCard.pngPath,
+        durationSec: input.ctaCard.durationSec,
+        width: W, height: H, fps,
+        outputPath: ctaOut,
+      }),
+      "cta-card",
+    );
+    normPaths.push(ctaOut);
+    extraDurationSec = input.ctaCard.durationSec;
+    tick();
+  }
+
   // ── Write the concat-demuxer list (single-quote-escaped absolute paths). ──
   const concatListPath = join("concat-list.txt");
   const listBody =
     normPaths.map((p) => `file '${p.replace(/'/g, "'\\''")}'`).join("\n") + "\n";
   await fs.writeFile(concatListPath, listBody, "utf-8");
 
-  // ── Pass 2 (final): concat-join (0 decode) + captions + audio mix ─────────
+  // ── Pass 2 (final): concat-join (0 decode) + captions + audio + logo ──────
   await input.runFfmpeg(
     buildFinalizeArgv({
       concatListPath,
@@ -304,8 +407,9 @@ export async function composeMultiPass(input: MultiPassInput): Promise<void> {
       narrationInputPath: input.narrationInputPath,
       musicInputPath: input.musicInputPath,
       musicDuckingDb: plan.audio.musicDuckingDb,
+      logoPath: input.logoPath ?? null,
       width: W, height: H, fps,
-      durationSec: plan.output.durationMs / 1000,
+      durationSec: plan.output.durationMs / 1000 + extraDurationSec,
       outputPath: input.outputPath,
     }),
     "finalize",

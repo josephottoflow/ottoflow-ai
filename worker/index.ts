@@ -48,6 +48,7 @@ import {
   type CreativeGenerationJobData,
   type DriveSyncJobData,
   type PublishJobData,
+  type SceneGenerationJobData,
   publishQueue,
 } from "@/lib/queue";
 import { createAdminClient } from "@/lib/supabase";
@@ -61,6 +62,8 @@ import { processPublish } from "./processors/publish";
 import { isPublishingEnabled } from "@/lib/publishing/flags";
 import { claimDueScheduledJobs, reapStuckPublishingJobs, getPublishStatusCounts } from "@/lib/publishing/jobs";
 import { withLock, SCHEDULER_LOCK_KEY, REAPER_LOCK_KEY } from "@/lib/publishing/lock";
+import { processSceneGeneration } from "./processors/scene-generation";
+import { isVideoRenderEnabled } from "@/lib/video/flags";
 import { recoverStuckJobsAtBoot, markJobFailedFromStall, schedulePeriodicSweep } from "./recovery";
 
 // ─── Logging ─────────────────────────────────────────────────────────────────
@@ -700,6 +703,85 @@ if (isPublishingEnabled()) {
   log("publish", "disabled", { reason: "PUBLISHING_ENABLED not set" });
 }
 
+// ─── Step 6f: Scene Generation worker (Ottoflow Video V1 — AI-first) ─────────
+// Consumes a frozen VideoStrategy → one provider clip per scene (Seedance
+// preferred, then Pexels; Runway/Luma opt-in) → R2 copy → scene_generations →
+// builds the CompositionPlan → enqueues `ffmpeg-compose`. Registered ONLY when
+// VIDEO_RENDER_ENABLED (fail-closed): when unset the queue idles, so NO Seedance
+// credit can be spent and the AI-render path stays dark (publishing pattern).
+let sceneGenerationWorker: Worker<SceneGenerationJobData> | null = null;
+if (isVideoRenderEnabled()) {
+  sceneGenerationWorker = new Worker<SceneGenerationJobData>(
+    QUEUE_NAMES.sceneGeneration,
+    async (job: Job<SceneGenerationJobData>) => {
+      log("scene-generation", "job.start", {
+        jobId: job.id,
+        renderJobId: job.data.renderJobId,
+        scenes: job.data.strategy.scenes.length,
+      });
+      const result = await processSceneGeneration(job.data, (step, progress) => {
+        job.updateProgress(progress).catch(() => {});
+        log("scene-generation", "step", { jobId: job.id, step, progress });
+      });
+      log("scene-generation", "job.done", {
+        jobId: job.id,
+        renderJobId: job.data.renderJobId,
+        scenes: result.scenes,
+      });
+      return result;
+    },
+    {
+      connection: getRedis(),
+      concurrency: Math.max(1, Math.floor(workerEnv.WORKER_CONCURRENCY / 2)),
+    },
+  );
+
+  sceneGenerationWorker.on("active", (job) => {
+    log("scene-generation", "job.active", {
+      jobId: job.id,
+      renderJobId: job.data.renderJobId,
+    });
+  });
+
+  sceneGenerationWorker.on("completed", (job) => {
+    log("scene-generation", "job.completed", {
+      jobId: job.id,
+      renderJobId: job.data?.renderJobId,
+      durationMs:
+        job.finishedOn && job.processedOn ? job.finishedOn - job.processedOn : null,
+    });
+  });
+
+  sceneGenerationWorker.on("failed", (job, err) => {
+    logError("scene-generation", "job.failed", {
+      jobId: job?.id,
+      renderJobId: job?.data?.renderJobId,
+      attemptsMade: job?.attemptsMade,
+      error: err?.message,
+    });
+    Sentry.withScope((scope) => {
+      scope.setTag("queue", QUEUE_NAMES.sceneGeneration);
+      if (job?.id) scope.setTag("job.id", String(job.id));
+      if (job?.data?.renderJobId)
+        scope.setTag("render_job.id", String(job.data.renderJobId));
+      scope.setContext("job", {
+        id: job?.id,
+        renderJobId: job?.data?.renderJobId,
+        attemptsMade: job?.attemptsMade,
+      });
+      Sentry.captureException(err ?? new Error("scene-generation job.failed with no error"));
+    });
+  });
+
+  sceneGenerationWorker.on("error", (err) => {
+    logError("scene-generation", "worker.error", { error: err.message });
+  });
+
+  log("scene-generation", "registered", {});
+} else {
+  log("scene-generation", "disabled", { reason: "VIDEO_RENDER_ENABLED not set" });
+}
+
 // ─── Step 7: Graceful shutdown with hard cap ─────────────────────────────────
 // Railway sends SIGTERM during a deploy and waits for a grace period before
 // SIGKILL. We try a graceful close (lets active jobs finish) but cap at a
@@ -737,6 +819,7 @@ async function shutdown(signal: string): Promise<never> {
     creativeGenerationWorker.close(),
     driveSyncWorker.close(),
     ...(publishWorker ? [publishWorker.close()] : []),
+    ...(sceneGenerationWorker ? [sceneGenerationWorker.close()] : []),
   ]);
   const deadline = new Promise<"timeout">((resolve) =>
     setTimeout(() => resolve("timeout"), GRACEFUL_SHUTDOWN_TIMEOUT_MS)
@@ -777,6 +860,13 @@ async function shutdown(signal: string): Promise<never> {
         ? [
             publishWorker.close(true).catch((err) => {
               logError("worker", "shutdown.force_close_failed", { error: err?.message, queue: "publish" });
+            }),
+          ]
+        : []),
+      ...(sceneGenerationWorker
+        ? [
+            sceneGenerationWorker.close(true).catch((err) => {
+              logError("worker", "shutdown.force_close_failed", { error: err?.message, queue: "scene-generation" });
             }),
           ]
         : []),

@@ -56,3 +56,7 @@ Thumbs.db
 spike-output.mp4
 # Remotion's local Chrome Headless cache + bundle cache
 .remotion/
+
+# ─── Claude Code local artifacts ─────────────────────────────────────────────
+.claude/logs/
+.claude/settings.local.json

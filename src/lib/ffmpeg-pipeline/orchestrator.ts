@@ -36,6 +36,11 @@ import type {
   StrategistOutput,
   ScriptOutput,
   ScenePlan,
+  SourceName,
+  Emotion,
+  EmotionalBeat,
+  VideoStrategy,
+  SceneRole,
 } from "./types";
 
 export interface OrchestratorInput {
@@ -242,6 +247,200 @@ export async function runOrchestrator(
   const durSec = narrationDurationSec > 0 ? narrationDurationSec : script.totalDurationSec;
 
   return runCompositionPhase({ ctx, strategy, script, scenes, narrationDurationSec: durSec });
+}
+
+// ─── Ottoflow Video V1 — AI-first composition plan builder ───────────────────
+// The AI-first path REPLACES Agents 4-7 (search/score/select) with one
+// Seedance clip per VideoStrategy scene, but reuses the exact CompositionPlan
+// contract so Agents 11 (compose) + 12 (QC) in the worker run UNCHANGED
+// (preserves ADR-002). Captions/timing/edits are derived deterministically
+// from the strategy — no narration-driven agents, no second creative engine.
+
+const ROLE_EMOTION: Record<SceneRole, Emotion> = {
+  problem: "anxious",
+  tension: "urgent",
+  solution: "hopeful",
+  outcome: "confident",
+};
+
+/** A generated scene clip (already copied to durable storage by the worker). */
+export interface AiFirstClip {
+  sceneId: number;
+  url: string;
+  durationSec: number;
+  width: number;
+  height: number;
+  provider: SourceName;
+  sourceId?: string;
+  attribution?: string;
+}
+
+export interface AiFirstPlanInput {
+  ctx: AgentContext;
+  strategy: VideoStrategy;
+  clips: AiFirstClip[];
+  narrationUrl?: string | null;
+  musicUrl?: string | null;
+  /** Optional deterministic branding (logo overlay + CTA end card). */
+  branding?: CompositionPlan["branding"];
+}
+
+/** Word-wrap a caption to ≤2 lines of ≤22 chars (matches Agent 8 limits). */
+function wrapCaption(text: string): string[] {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let cur = "";
+  for (const w of words) {
+    if ((cur + " " + w).trim().length > 22) {
+      if (cur) lines.push(cur);
+      cur = w;
+    } else {
+      cur = (cur + " " + w).trim();
+    }
+  }
+  if (cur) lines.push(cur);
+  return lines.slice(0, 2);
+}
+
+/**
+ * Build a CompositionPlan from a frozen VideoStrategy + its generated clips.
+ * Hard cuts (transition "cut") for the V1 / 2GB-RAM target; xfade is a V2
+ * change once RAM ≥ 4GB.
+ */
+export function buildAiFirstPlan(input: AiFirstPlanInput): CompositionPlan {
+  const { ctx, strategy, clips } = input;
+  const clipBySceneId = new Map(clips.map((c) => [c.sceneId, c]));
+
+  let cursorMs = 0;
+  const scenes: CompositionPlanScene[] = strategy.scenes.map((s) => {
+    const clip = clipBySceneId.get(s.sceneId);
+    if (!clip) {
+      throw new Error(`buildAiFirstPlan: no generated clip for scene ${s.sceneId}`);
+    }
+    const durMs = Math.round((clip.durationSec || s.durationSec) * 1000);
+    const startMs = cursorMs;
+    const endMs = cursorMs + durMs;
+    cursorMs = endMs;
+
+    const plan: ScenePlan = {
+      sceneId: s.sceneId,
+      narration: "",
+      visualGoal: s.prompt,
+      emotion: ROLE_EMOTION[s.role],
+      searchIntent: s.role,
+      visualStyle: "cinematic",
+      keywords: [],
+      startMs,
+      endMs,
+    };
+
+    const selected: SelectedClip = {
+      source: clip.provider,
+      sourceId: clip.sourceId ?? `${clip.provider}-${ctx.renderJobId}-${s.sceneId}`,
+      url: clip.url,
+      width: clip.width,
+      height: clip.height,
+      durationSec: clip.durationSec || s.durationSec,
+      query: s.role,
+      attribution: clip.attribution ?? `via ${clip.provider}`,
+      // AI-first clips are generated to brief → neutral "perfect" scores so the
+      // existing QC math treats them as selected without a candidate pool.
+      score: 10,
+      reason: "ai-first generated scene",
+      relevance: 1,
+      quality: 1,
+      framing: 1,
+      motion: 0.5,
+      diversityPenalty: 0,
+      consistencyScore: 1,
+      finalScore: 10,
+    };
+
+    const caption: TimedCaption = {
+      sceneId: s.sceneId,
+      text: s.caption,
+      startMs,
+      endMs,
+      lineBreaks: wrapCaption(s.caption),
+    };
+
+    const timing: TimingPlan = {
+      sceneId: s.sceneId,
+      videoStartMs: startMs,
+      videoEndMs: endMs,
+      transitionInMs: 0,
+      transitionOutMs: 0,
+      kenBurnsMs: durMs,
+    };
+
+    const edit: EditDecision = {
+      sceneId: s.sceneId,
+      zoom: { from: 1, to: 1.08 },
+      pan: { fromX: 0.5, fromY: 0.5, toX: 0.5, toY: 0.5 },
+      transition: "cut",
+      transitionDurationMs: 0,
+      grade: "natural",
+    };
+
+    return { plan, clip: selected, caption, timing, edit };
+  });
+
+  const totalDurationMs = cursorMs;
+  const totalDurationSec = Math.round(totalDurationMs / 1000);
+
+  // Minimal synthesized artifacts so the composer/QC/regen path (which reads
+  // plan.artifacts.strategy.emotionalArc) works unchanged.
+  const emotionalArc: EmotionalBeat[] = strategy.scenes.map((s, i) => ({
+    startPct: i / Math.max(1, strategy.scenes.length),
+    emotion: ROLE_EMOTION[s.role],
+    intensity: 0.5 + i * 0.1,
+  }));
+
+  const section = (s: { caption: string }, startMs: number, endMs: number) => ({
+    text: s.caption,
+    startMs,
+    endMs,
+  });
+  const sc = strategy.scenes;
+  const artifactsStrategy: StrategistOutput = {
+    hookStrategy: strategy.video_concept,
+    narrativeStrategy: `${strategy.visual_tension} → ${strategy.visual_metaphor}`,
+    ctaStrategy: strategy.brand_worldview,
+    audienceProfile: ctx.brandIndustry ?? "general",
+    emotionalArc,
+  };
+  const artifactsScript: ScriptOutput = {
+    hook: section(sc[0] ?? { caption: "" }, 0, totalDurationMs),
+    problem: section(sc[0] ?? { caption: "" }, scenes[0]?.timing.videoStartMs ?? 0, scenes[0]?.timing.videoEndMs ?? 0),
+    value: section(sc[2] ?? { caption: "" }, scenes[2]?.timing.videoStartMs ?? 0, scenes[2]?.timing.videoEndMs ?? 0),
+    conclusion: section(sc[3] ?? { caption: "" }, scenes[3]?.timing.videoStartMs ?? 0, scenes[3]?.timing.videoEndMs ?? 0),
+    cta: section(sc[3] ?? { caption: "" }, scenes[3]?.timing.videoStartMs ?? 0, scenes[3]?.timing.videoEndMs ?? 0),
+    totalDurationSec,
+    fullText: strategy.video_concept,
+  };
+
+  ctx.log("orchestrator.aiFirstPlan.done", {
+    sceneCount: scenes.length,
+    durationMs: totalDurationMs,
+    providers: scenes.map((s) => s.clip.source),
+  });
+
+  return {
+    version: "ffmpeg-v2",
+    renderJobId: ctx.renderJobId,
+    userId: ctx.userId,
+    topic: ctx.topic,
+    scenes,
+    audio: {
+      narrationUrl: input.narrationUrl ?? "",
+      musicUrl: input.musicUrl ?? "",
+      musicDuckingDb: -12,
+    },
+    output: { width: 1080, height: 1920, fps: 30, durationMs: totalDurationMs },
+    globalGrade: "natural",
+    artifacts: { strategy: artifactsStrategy, script: artifactsScript },
+    ...(input.branding ? { branding: input.branding } : {}),
+  };
 }
 
 // Re-export for the BullMQ worker — Agent 11 lives in agents/.

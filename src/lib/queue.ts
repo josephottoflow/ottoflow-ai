@@ -6,7 +6,7 @@
  */
 import { Queue, type QueueOptions, type JobsOptions, type ConnectionOptions } from "bullmq";
 import IORedis from "ioredis";
-import type { CompositionPlan } from "./ffmpeg-pipeline/types";
+import type { CompositionPlan, VideoStrategy } from "./ffmpeg-pipeline/types";
 
 // ─── Redis singleton ─────────────────────────────────────────────────────────
 // We hold the actual IORedis instance separately from the BullMQ-shaped
@@ -111,6 +111,12 @@ export const QUEUE_NAMES = {
   // Payload is the publishJobId ONLY; the worker loads the job + decrypts the
   // token server-side. at-most-once (attempts:1, set at enqueue).
   publish: "publish",
+  // Ottoflow Video V1 — AI-first scene generation. Consumes a frozen
+  // VideoStrategy, calls the video-provider registry (preferring Seedance)
+  // once per scene, copies each clip to R2 (provider URLs expire), records
+  // scene_generations, then enqueues `ffmpeg-compose`. Polling lives here
+  // (worker) so it never hits the Vercel 300s SSE ceiling.
+  sceneGeneration: "scene-generation",
 } as const;
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
 
@@ -293,6 +299,43 @@ export interface CreativeGenerationJobData {
   regen?: boolean;
 }
 
+/**
+ * Ottoflow Video V1 — scene-generation payload. The frozen VideoStrategy is
+ * built in the SSE/API route (Agents 1-3 + strategy) so the worker does the
+ * slow per-scene provider polling. Audio URLs are resolved by the route (same
+ * ElevenLabs/Jamendo path as the stock pipeline) and forwarded so the
+ * downstream ffmpeg-compose plan is complete; blank when audio is deferred.
+ */
+export interface SceneGenerationJobData {
+  renderJobId: string;
+  userId: string;
+  topic: string;
+  brandId?: string | null;
+  brandIndustry?: string | null;
+  strategy: VideoStrategy;
+  /** Resolved narration (data: or https URL). Forwarded into the CompositionPlan. */
+  narrationUrl?: string | null;
+  /** Resolved background music URL (optional). */
+  musicUrl?: string | null;
+  /** Deterministic branding for the CompositionPlan (logo overlay + CTA card). */
+  branding?: {
+    brandId: string;
+    brandName?: string | null;
+    logoAssetId?: string | null;
+    ctaText?: string | null;
+    palette?: {
+      primary?: string | null;
+      secondary?: string | null;
+      accent?: string | null;
+    } | null;
+  };
+  /** Forwarded to ffmpeg-compose as the storage fallback when R2 is unset.
+   * Carries the connected-account id ONLY; the worker fetches + decrypts the
+   * Drive OAuth token server-side (no plaintext token in the Redis payload).
+   * Unified with FfmpegComposeJobData during the phase3↔video merge. */
+  connectedAccountId?: string | null;
+}
+
 export interface JobPayloads {
   "brand-research": BrandResearchJobData;
   "content-generation": ContentGenerationJobData;
@@ -301,6 +344,7 @@ export interface JobPayloads {
   "creative-generation": CreativeGenerationJobData;
   "drive-sync": DriveSyncJobData;
   "publish": PublishJobData;
+  "scene-generation": SceneGenerationJobData;
 }
 
 // ─── Queue accessors ──────────────────────────────────────────────────────────
@@ -334,3 +378,4 @@ export const ffmpegComposeQueue = () => getQueue(QUEUE_NAMES.ffmpegCompose);
 export const creativeGenerationQueue = () => getQueue(QUEUE_NAMES.creativeGeneration);
 export const driveSyncQueue = () => getQueue(QUEUE_NAMES.driveSync);
 export const publishQueue = () => getQueue(QUEUE_NAMES.publish);
+export const sceneGenerationQueue = () => getQueue(QUEUE_NAMES.sceneGeneration);
