@@ -1,4 +1,5 @@
-import { Settings as SettingsIcon, User, Bell, Shield, Database } from "lucide-react";
+import Link from "next/link";
+import { Settings as SettingsIcon, User, Bell, Shield, Database, Plug, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 const sections = [
@@ -54,6 +55,22 @@ export default function SettingsPage() {
         </div>
         <Badge variant="purple" className="text-2xs">Coming soon</Badge>
       </div>
+
+      <Link
+        href="/settings/integrations"
+        className="glass rounded-2xl p-5 mb-4 flex items-center justify-between hover:bg-white/[0.04] transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-[rgba(66,133,244,0.12)] text-[#8ab4f8]">
+            <Plug size={18} />
+          </div>
+          <div>
+            <h2 className="text-sm font-semibold text-white mb-0.5">Integrations</h2>
+            <p className="text-xs text-white/45">Connect Google Drive to save creatives & videos. More platforms coming soon.</p>
+          </div>
+        </div>
+        <ChevronRight size={18} className="text-white/30" />
+      </Link>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         {sections.map((s) => (

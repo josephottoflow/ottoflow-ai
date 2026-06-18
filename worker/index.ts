@@ -46,6 +46,10 @@ import {
   type VideoMergeJobData,
   type FfmpegComposeJobData,
   type CreativeGenerationJobData,
+  type DriveSyncJobData,
+  type PublishJobData,
+  type SceneGenerationJobData,
+  publishQueue,
 } from "@/lib/queue";
 import { createAdminClient } from "@/lib/supabase";
 import { processBrandResearch } from "./processors/brand-research";
@@ -53,6 +57,13 @@ import { processContentGeneration } from "./processors/content-generation";
 import { processVideoMerge } from "./processors/video-merge";
 import { processFfmpegCompose } from "./processors/ffmpeg-compose";
 import { processCreativeGeneration } from "./processors/creative-generation";
+import { processDriveSync } from "./processors/drive-sync";
+import { processPublish } from "./processors/publish";
+import { isPublishingEnabled } from "@/lib/publishing/flags";
+import { claimDueScheduledJobs, reapStuckPublishingJobs, getPublishStatusCounts } from "@/lib/publishing/jobs";
+import { withLock, SCHEDULER_LOCK_KEY, REAPER_LOCK_KEY } from "@/lib/publishing/lock";
+import { processSceneGeneration } from "./processors/scene-generation";
+import { isVideoRenderEnabled } from "@/lib/video/flags";
 import { recoverStuckJobsAtBoot, markJobFailedFromStall, schedulePeriodicSweep } from "./recovery";
 
 // ─── Logging ─────────────────────────────────────────────────────────────────
@@ -548,6 +559,229 @@ creativeGenerationWorker.on("error", (err) => {
   logError("creative-generation", "worker.error", { error: err.message });
 });
 
+// Sixth Worker instance (Phase 3 / P1). Copies a generated artifact into the
+// user's connected Google Drive. Light network I/O (download + upload) — shares
+// the reduced (half) concurrency budget. The OAuth token is fetched + decrypted
+// inside the processor; it never travels through the queue payload.
+const driveSyncWorker = new Worker<DriveSyncJobData>(
+  QUEUE_NAMES.driveSync,
+  async (job: Job<DriveSyncJobData>) => {
+    log("drive-sync", "job.start", {
+      jobId: job.id,
+      artifactType: job.data.artifactType,
+      artifactId: job.data.artifactId,
+    });
+    const result = await processDriveSync(job.data, (step, progress) => {
+      job.updateProgress(progress).catch(() => {});
+      log("drive-sync", "step", { jobId: job.id, step, progress });
+    });
+    log("drive-sync", "job.done", { jobId: job.id, fileId: result.fileId });
+    return result;
+  },
+  {
+    connection: getRedis(),
+    concurrency: Math.max(1, Math.floor(workerEnv.WORKER_CONCURRENCY / 2)),
+  },
+);
+
+driveSyncWorker.on("failed", (job, err) => {
+  logError("drive-sync", "job.failed", {
+    jobId: job?.id,
+    artifactType: job?.data?.artifactType,
+    artifactId: job?.data?.artifactId,
+    attemptsMade: job?.attemptsMade,
+    error: err?.message,
+  });
+  Sentry.withScope((scope) => {
+    scope.setTag("queue", QUEUE_NAMES.driveSync);
+    if (job?.id) scope.setTag("job.id", String(job.id));
+    Sentry.captureException(err);
+  });
+});
+
+driveSyncWorker.on("error", (err) => {
+  logError("drive-sync", "worker.error", { error: err.message });
+});
+
+// Seventh Worker instance (PUB-1) — publish jobs. Registered ONLY when
+// PUBLISHING_ENABLED, so the queue idles (dark-launch) otherwise. PUB-1 posts
+// nothing live: the processor marks jobs needs_review (no provider.publish).
+// A DB-driven scheduler sweep (every 30s) claims due scheduled jobs
+// (scheduled→queued) and enqueues them; no BullMQ delayed jobs.
+let publishWorker: Worker<PublishJobData> | null = null;
+let publishSchedulerHandle: ReturnType<typeof setInterval> | null = null;
+let publishReaperHandle: ReturnType<typeof setInterval> | null = null;
+
+const SCHED_LOCK_MS = Number(process.env.PUBLISH_SCHEDULER_LOCK_MS ?? 25_000);
+const REAPER_INTERVAL_MS = Number(process.env.PUBLISH_REAPER_INTERVAL_MS ?? 300_000);
+const REAPER_LOCK_MS = Number(process.env.PUBLISH_REAPER_LOCK_MS ?? 120_000);
+const ORPHAN_THRESHOLD_MS = Number(process.env.PUBLISH_ORPHAN_THRESHOLD_MS ?? 900_000);
+
+if (isPublishingEnabled()) {
+  publishWorker = new Worker<PublishJobData>(
+    QUEUE_NAMES.publish,
+    async (job: Job<PublishJobData>) => {
+      log("publish", "job.start", { jobId: job.id, publishJobId: job.data.publishJobId });
+      const result = await processPublish(job.data, (step, progress) => {
+        job.updateProgress(progress).catch(() => {});
+        log("publish", "step", { jobId: job.id, step, progress });
+      });
+      log("publish", "job.done", { jobId: job.id, status: result.status });
+      return result;
+    },
+    {
+      connection: getRedis(),
+      concurrency: Math.max(1, Math.floor(workerEnv.WORKER_CONCURRENCY / 2)),
+    },
+  );
+
+  publishWorker.on("failed", (job, err) => {
+    logError("publish", "job.failed", {
+      jobId: job?.id,
+      publishJobId: job?.data?.publishJobId,
+      attemptsMade: job?.attemptsMade,
+      error: err?.message,
+    });
+    Sentry.withScope((scope) => {
+      scope.setTag("queue", QUEUE_NAMES.publish);
+      if (job?.id) scope.setTag("job.id", String(job.id));
+      Sentry.captureException(err);
+    });
+  });
+  publishWorker.on("error", (err) => {
+    logError("publish", "worker.error", { error: err.message });
+  });
+
+  // DB-driven scheduler (single-instance via Redis lock): claim due scheduled
+  // jobs and enqueue them (attempts:1). If another replica holds the lock, this
+  // tick is a no-op.
+  publishSchedulerHandle = setInterval(() => {
+    const started = Date.now();
+    void withLock(SCHEDULER_LOCK_KEY, SCHED_LOCK_MS, async () => {
+      const ids = await claimDueScheduledJobs();
+      for (const id of ids) {
+        await publishQueue().add("publish", { publishJobId: id }, { attempts: 1, jobId: id });
+      }
+      return ids.length;
+    })
+      .then((claimed) => {
+        if (claimed === null) return; // lock held elsewhere
+        if (claimed > 0) {
+          log("publish", "scheduler.swept", { claimed, durationMs: Date.now() - started });
+        }
+      })
+      .catch((err: unknown) => {
+        logError("publish", "scheduler.error", { error: err instanceof Error ? err.message : String(err) });
+      });
+  }, 30_000);
+
+  // Reaper (single-instance): recover jobs stuck in 'publishing' past the
+  // orphan threshold → needs_review (never re-posts). Emits status metrics.
+  publishReaperHandle = setInterval(() => {
+    const started = Date.now();
+    void withLock(REAPER_LOCK_KEY, REAPER_LOCK_MS, async () => {
+      const { found, reaped } = await reapStuckPublishingJobs(ORPHAN_THRESHOLD_MS);
+      const counts = await getPublishStatusCounts();
+      return { found, reaped, counts };
+    })
+      .then((res) => {
+        if (res === null) return; // lock held elsewhere
+        log("publish", "reaper.swept", { found: res.found, reaped: res.reaped, durationMs: Date.now() - started });
+        log("publish", "metrics", res.counts);
+      })
+      .catch((err: unknown) => {
+        logError("publish", "reaper.error", { error: err instanceof Error ? err.message : String(err) });
+      });
+  }, REAPER_INTERVAL_MS);
+
+  log("publish", "registered", {
+    schedulerIntervalMs: 30_000,
+    reaperIntervalMs: REAPER_INTERVAL_MS,
+    orphanThresholdMs: ORPHAN_THRESHOLD_MS,
+  });
+} else {
+  log("publish", "disabled", { reason: "PUBLISHING_ENABLED not set" });
+}
+
+// ─── Step 6f: Scene Generation worker (Ottoflow Video V1 — AI-first) ─────────
+// Consumes a frozen VideoStrategy → one provider clip per scene (Seedance
+// preferred, then Pexels; Runway/Luma opt-in) → R2 copy → scene_generations →
+// builds the CompositionPlan → enqueues `ffmpeg-compose`. Registered ONLY when
+// VIDEO_RENDER_ENABLED (fail-closed): when unset the queue idles, so NO Seedance
+// credit can be spent and the AI-render path stays dark (publishing pattern).
+let sceneGenerationWorker: Worker<SceneGenerationJobData> | null = null;
+if (isVideoRenderEnabled()) {
+  sceneGenerationWorker = new Worker<SceneGenerationJobData>(
+    QUEUE_NAMES.sceneGeneration,
+    async (job: Job<SceneGenerationJobData>) => {
+      log("scene-generation", "job.start", {
+        jobId: job.id,
+        renderJobId: job.data.renderJobId,
+        scenes: job.data.strategy.scenes.length,
+      });
+      const result = await processSceneGeneration(job.data, (step, progress) => {
+        job.updateProgress(progress).catch(() => {});
+        log("scene-generation", "step", { jobId: job.id, step, progress });
+      });
+      log("scene-generation", "job.done", {
+        jobId: job.id,
+        renderJobId: job.data.renderJobId,
+        scenes: result.scenes,
+      });
+      return result;
+    },
+    {
+      connection: getRedis(),
+      concurrency: Math.max(1, Math.floor(workerEnv.WORKER_CONCURRENCY / 2)),
+    },
+  );
+
+  sceneGenerationWorker.on("active", (job) => {
+    log("scene-generation", "job.active", {
+      jobId: job.id,
+      renderJobId: job.data.renderJobId,
+    });
+  });
+
+  sceneGenerationWorker.on("completed", (job) => {
+    log("scene-generation", "job.completed", {
+      jobId: job.id,
+      renderJobId: job.data?.renderJobId,
+      durationMs:
+        job.finishedOn && job.processedOn ? job.finishedOn - job.processedOn : null,
+    });
+  });
+
+  sceneGenerationWorker.on("failed", (job, err) => {
+    logError("scene-generation", "job.failed", {
+      jobId: job?.id,
+      renderJobId: job?.data?.renderJobId,
+      attemptsMade: job?.attemptsMade,
+      error: err?.message,
+    });
+    Sentry.withScope((scope) => {
+      scope.setTag("queue", QUEUE_NAMES.sceneGeneration);
+      if (job?.id) scope.setTag("job.id", String(job.id));
+      if (job?.data?.renderJobId)
+        scope.setTag("render_job.id", String(job.data.renderJobId));
+      scope.setContext("job", {
+        id: job?.id,
+        renderJobId: job?.data?.renderJobId,
+        attemptsMade: job?.attemptsMade,
+      });
+      Sentry.captureException(err ?? new Error("scene-generation job.failed with no error"));
+    });
+  });
+
+  sceneGenerationWorker.on("error", (err) => {
+    logError("scene-generation", "worker.error", { error: err.message });
+  });
+
+  log("scene-generation", "registered", {});
+} else {
+  log("scene-generation", "disabled", { reason: "VIDEO_RENDER_ENABLED not set" });
+}
+
 // ─── Step 7: Graceful shutdown with hard cap ─────────────────────────────────
 // Railway sends SIGTERM during a deploy and waits for a grace period before
 // SIGKILL. We try a graceful close (lets active jobs finish) but cap at a
@@ -571,6 +805,8 @@ async function shutdown(signal: string): Promise<never> {
 
   // Stop the periodic recovery sweep so it doesn't fire during shutdown.
   clearInterval(periodicSweepHandle);
+  if (publishSchedulerHandle) clearInterval(publishSchedulerHandle);
+  if (publishReaperHandle) clearInterval(publishReaperHandle);
 
   // Race graceful close against a hard deadline. Close all workers in
   // parallel — they share the same Redis connection so a slow brand-research
@@ -581,6 +817,9 @@ async function shutdown(signal: string): Promise<never> {
     videoMergeWorker.close(),
     ffmpegComposeWorker.close(),
     creativeGenerationWorker.close(),
+    driveSyncWorker.close(),
+    ...(publishWorker ? [publishWorker.close()] : []),
+    ...(sceneGenerationWorker ? [sceneGenerationWorker.close()] : []),
   ]);
   const deadline = new Promise<"timeout">((resolve) =>
     setTimeout(() => resolve("timeout"), GRACEFUL_SHUTDOWN_TIMEOUT_MS)
@@ -614,6 +853,23 @@ async function shutdown(signal: string): Promise<never> {
       creativeGenerationWorker.close(true).catch((err) => {
         logError("worker", "shutdown.force_close_failed", { error: err?.message, queue: "creative-generation" });
       }),
+      driveSyncWorker.close(true).catch((err) => {
+        logError("worker", "shutdown.force_close_failed", { error: err?.message, queue: "drive-sync" });
+      }),
+      ...(publishWorker
+        ? [
+            publishWorker.close(true).catch((err) => {
+              logError("worker", "shutdown.force_close_failed", { error: err?.message, queue: "publish" });
+            }),
+          ]
+        : []),
+      ...(sceneGenerationWorker
+        ? [
+            sceneGenerationWorker.close(true).catch((err) => {
+              logError("worker", "shutdown.force_close_failed", { error: err?.message, queue: "scene-generation" });
+            }),
+          ]
+        : []),
     ]);
   } else {
     log("worker", "shutdown.complete", { signal });

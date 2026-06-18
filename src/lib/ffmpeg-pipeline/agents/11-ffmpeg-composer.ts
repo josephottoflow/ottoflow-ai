@@ -24,12 +24,17 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { renderAss } from "../ass-captions";
 import { composeMultiPass } from "../ffmpeg";
+import { renderCtaCard, fetchLogoBytes } from "../branding";
+import { createAdminClient } from "@/lib/supabase";
 import type {
   AgentContext,
   CompositionPlan,
   CompositionResult,
   FfmpegComposerInput,
 } from "../types";
+
+/** CTA end card duration (seconds) for the Video V1 branding layer. */
+const CTA_CARD_SEC = 3;
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -126,12 +131,12 @@ export async function runFfmpegComposer(
   const scenePaths = await downloadAllScenes(plan, workDir, ctx);
   ctx.log("agent.ffmpegComposer.scenes_downloaded");
 
-  // 2. Narration
-  const narrationPath = path.join(workDir, "narration.mp3");
-  if (!plan.audio.narrationUrl) {
-    throw new Error("composer: narrationUrl is empty — orchestrator must populate before enqueue");
+  // 2. Narration (OPTIONAL — AI-first scenes-only videos may be silent/music-only)
+  let narrationPath: string | null = null;
+  if (plan.audio.narrationUrl) {
+    narrationPath = path.join(workDir, "narration.mp3");
+    await downloadTo(plan.audio.narrationUrl, narrationPath);
   }
-  await downloadTo(plan.audio.narrationUrl, narrationPath);
 
   // 3. Music (optional)
   let musicPath: string | null = null;
@@ -153,7 +158,38 @@ export async function runFfmpegComposer(
   const assContent = renderAss(plan.scenes.map((s) => s.caption));
   await fs.writeFile(assPath, assContent, "utf-8");
 
-  // 5-6. Low-memory multi-pass compose (normalize → pairwise xfade → finalize).
+  // 4b. Deterministic branding (Video V1) — logo overlay + CTA end card.
+  // Brand asset bytes are written to disk and composited by FFmpeg; they are
+  // NEVER sent to a model. Absent on the stock pipeline (plan.branding unset)
+  // → no logo, no CTA card, behaviour unchanged.
+  let logoPath: string | null = null;
+  let ctaCard: { pngPath: string; durationSec: number } | null = null;
+  if (plan.branding) {
+    const admin = createAdminClient();
+    let logoBytes: Buffer | null = null;
+    if (plan.branding.logoAssetId) {
+      logoBytes = await fetchLogoBytes(admin, plan.branding.logoAssetId);
+      if (logoBytes) {
+        logoPath = path.join(workDir, "logo.png");
+        await fs.writeFile(logoPath, logoBytes);
+      }
+    }
+    if (plan.branding.ctaText) {
+      const cardPng = await renderCtaCard({
+        width: plan.output.width,
+        height: plan.output.height,
+        ctaText: plan.branding.ctaText,
+        brandName: plan.branding.brandName ?? null,
+        palette: plan.branding.palette ?? null,
+        logo: logoBytes,
+      });
+      const cardPath = path.join(workDir, "cta-card.png");
+      await fs.writeFile(cardPath, cardPng);
+      ctaCard = { pngPath: cardPath, durationSec: CTA_CARD_SEC };
+    }
+  }
+
+  // 5-6. Low-memory multi-pass compose (normalize → concat → finalize).
   // Each ffmpeg invocation keeps ≤2 concurrent 1080x1920 decodes so peak RSS
   // stays under the 1 GB worker cap. A single all-scenes filtergraph OOM'd.
   const outputPath = path.join(workDir, "out.mp4");
@@ -175,6 +211,8 @@ export async function runFfmpegComposer(
     narrationInputPath: narrationPath,
     musicInputPath: musicPath,
     assPath,
+    logoPath,
+    ctaCard,
     workDir,
     outputPath,
     runFfmpeg: runOne,

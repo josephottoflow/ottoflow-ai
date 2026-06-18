@@ -52,6 +52,105 @@ export type Placement = (typeof PLACEMENTS)[number];
 export const ASPECT_RATIOS = ["1:1", "3:4", "16:9", "9:16"] as const;
 export type AspectRatio = (typeof ASPECT_RATIOS)[number];
 
+// ─── P4 Phase 2A — Brand Pattern Library (deterministic brand identity) ──────
+// The DNA the sharp compositor consumes to stamp brand identity (color grade,
+// motif overlay, composition template, typography, spacing). NEVER sent to a
+// model. Every field is optional → a brand with no pattern (or partial DNA)
+// renders exactly as today; the compositor only applies what is present.
+
+export const MOTIF_FAMILIES = [
+  "interlocking_hub", "diagonal_bars", "orbital_dots", "fine_grid", "mono_line",
+] as const;
+export type MotifFamily = (typeof MOTIF_FAMILIES)[number];
+
+export const COMPOSITION_TEMPLATES = [
+  "center_convergence", "diagonal_precision", "orbital_growth", "grid_authority", "open_canvas",
+] as const;
+export type CompositionTemplate = (typeof COMPOSITION_TEMPLATES)[number];
+
+export const MOTIF_PLACEMENTS = ["center_bleed", "corner", "edge", "full_tile"] as const;
+export type MotifPlacement = (typeof MOTIF_PLACEMENTS)[number];
+
+export const brandPatternSchema = z
+  .object({
+    color_dna: z
+      .object({
+        // sharp recomb 3×3 brand grade applied to the background buffer.
+        recomb: z.array(z.array(z.number()).length(3)).length(3).optional(),
+        modulate: z
+          .object({
+            saturation: z.number().min(0).max(3).optional(),
+            hue: z.number().optional(),
+            brightness: z.number().min(0).max(3).optional(),
+          })
+          .optional(),
+        duotone: z
+          .object({ shadow: z.string(), highlight: z.string(), strength: z.number().min(0).max(1) })
+          .optional(),
+        scrim_strength: z.number().min(0).max(1).optional(),
+      })
+      .optional(),
+    composition_dna: z
+      .object({
+        template: z.enum(COMPOSITION_TEMPLATES),
+        focal: z.string().optional(),
+        negative_space: z.number().min(0).max(1).optional(),
+      })
+      .optional(),
+    motif_dna: z
+      .object({
+        family: z.enum(MOTIF_FAMILIES),
+        placement: z.enum(MOTIF_PLACEMENTS).default("center_bleed"),
+        opacity: z.number().min(0).max(1).default(0.12),
+        scale: z.number().min(0.1).max(2).default(0.7),
+        blend: z.enum(["screen", "overlay", "soft-light", "over"]).default("screen"),
+      })
+      .optional(),
+    typography_dna: z
+      .object({
+        headline: z
+          .object({
+            font_id: z.string().optional(),
+            weight: z.number().optional(),
+            case: z.enum(["sentence", "upper", "title"]).optional(),
+            tracking: z.number().optional(),
+          })
+          .optional(),
+        cta: z
+          .object({
+            font_id: z.string().optional(),
+            weight: z.number().optional(),
+            case: z.enum(["sentence", "upper", "title"]).optional(),
+          })
+          .optional(),
+      })
+      .optional(),
+    energy_dna: z.object({ level: z.number().min(0).max(1) }).optional(),
+    spacing_dna: z
+      .object({
+        margin_ratio: z.number().min(0.01).max(0.2).optional(),
+        gap_ratio: z.number().min(0).max(2).optional(),
+      })
+      .optional(),
+    framing_dna: z
+      .object({
+        mode: z.enum(["full_bleed", "inset", "border"]).optional(),
+        border: z.string().nullable().optional(),
+        corner_radius: z.number().optional(),
+      })
+      .optional(),
+    do_not_use: z
+      .object({
+        colors: z.array(z.string()).optional(),
+        placements: z.array(z.string()).optional(),
+        max_motif_opacity: z.number().min(0).max(1).optional(),
+        border: z.boolean().optional(),
+      })
+      .optional(),
+  })
+  .passthrough();
+export type BrandPattern = z.infer<typeof brandPatternSchema>;
+
 const assetUsageSchema = z.object({
   use: z.boolean(),
   /** brand_assets.id — present iff use=true and an asset backs the usage. */

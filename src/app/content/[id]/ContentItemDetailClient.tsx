@@ -19,6 +19,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CreativePanel } from "@/components/CreativePanel";
+import { AiFirstVideoButton } from "@/components/AiFirstVideoButton";
 import type { DbContentItem } from "@/lib/types";
 
 const platformConfig: Record<
@@ -250,6 +251,16 @@ export function ContentItemDetailClient({ item, brandName }: Props) {
               : null,
         }}
       />
+
+      {/* Ottoflow Video V1 — turn this item's creative brief into a video */}
+      {item.brand_id && (
+        <div className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.02] px-4 py-3">
+          <div className="text-2xs text-white/40">
+            Generate a brand-aligned video from this creative (Seedance → FFmpeg).
+          </div>
+          <AiFirstVideoButton brandId={item.brand_id} contentItemId={item.id} />
+        </div>
+      )}
 
       {/* Footer actions */}
       <div className="flex items-center justify-between text-2xs text-white/30">
