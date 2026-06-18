@@ -23,6 +23,10 @@ import { rateLimit } from "@/lib/rate-limit";
 import { captureFallback } from "@/lib/observability";
 import { sceneGenerationQueue } from "@/lib/queue";
 import { buildVideoStrategy } from "@/lib/ffmpeg-pipeline/video-strategy";
+import { isVideoRenderEnabled } from "@/lib/video/flags";
+import { estimateRenderCost } from "@/lib/video/cost";
+import { buildAiFirstPlan, type AiFirstClip } from "@/lib/ffmpeg-pipeline/orchestrator";
+import type { AgentContext, SourceName } from "@/lib/ffmpeg-pipeline/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 120; // buildVideoStrategy is one Gemini call.
@@ -31,6 +35,12 @@ const Schema = z.object({
   brandId: z.string().uuid(),
   contentItemId: z.string().uuid(),
   platform: z.enum(["linkedin"]).default("linkedin"),
+  /** Dry run: build strategy + plan + cost estimate, make NO provider calls and
+   * enqueue NOTHING. For wiring validation without spend. */
+  dryRun: z.boolean().optional().default(false),
+  /** Explicit cost approval. Without it (and not a dry run) the route returns a
+   * cost estimate and enqueues NOTHING (requiresApproval). */
+  approve: z.boolean().optional().default(false),
 });
 
 const RATE_LIMIT = { limit: 20, windowSeconds: 60 * 60 } as const; // 20/hr
@@ -49,6 +59,12 @@ interface CreativeBriefLite {
 }
 
 export async function POST(req: NextRequest) {
+  // Feature flag (fail-closed): the AI-render path is dark unless explicitly
+  // enabled. 404 (not 403) so the route is invisible when off.
+  if (!isVideoRenderEnabled()) {
+    return Response.json({ error: "Not found" }, { status: 404 });
+  }
+
   const { userId } = await auth();
   if (!userId) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
@@ -74,7 +90,7 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
-  const { brandId, contentItemId } = parsed.data;
+  const { brandId, contentItemId, dryRun, approve } = parsed.data;
 
   const admin = createAdminClient();
 
@@ -120,6 +136,7 @@ export async function POST(req: NextRequest) {
 
   try {
     // ─── Video Strategy (reuses tension/metaphor — no second creative engine) ─
+    // One Gemini call. No Seedance/provider call, no render — safe pre-spend.
     const strategy = await buildVideoStrategy({
       topic,
       visualTension: brief.visual_tension,
@@ -128,6 +145,71 @@ export async function POST(req: NextRequest) {
       palette: brief.palette ?? null,
       totalDurationSec: 20,
     });
+
+    // ─── Cost estimate (computed BEFORE any spend) ────────────────────────────
+    const estimate = estimateRenderCost(strategy);
+
+    // ─── Dry run: build strategy + scene plan + composition plan, NO spend ────
+    // Synthesizes placeholder clips so buildAiFirstPlan produces an inspectable
+    // CompositionPlan. Makes ZERO provider calls, writes NO render_jobs row, and
+    // enqueues NOTHING.
+    if (dryRun) {
+      const dryCtx: AgentContext = {
+        renderJobId: "dry-run",
+        userId,
+        topic,
+        brandId,
+        brandIndustry: (brand.industry as string | null) ?? null,
+        includeAiScenes: true,
+        budgetMode: "standard",
+        log: () => {},
+      };
+      const dryClips: AiFirstClip[] = strategy.scenes.map((s) => ({
+        sceneId: s.sceneId,
+        url: `dryrun://scene-${s.sceneId}`,
+        durationSec: s.durationSec,
+        width: 720,
+        height: 1280,
+        provider: "seedance" as SourceName,
+        sourceId: `dryrun-${s.sceneId}`,
+      }));
+      const compositionPlan = buildAiFirstPlan({
+        ctx: dryCtx,
+        strategy,
+        clips: dryClips,
+        branding: {
+          brandId,
+          brandName: (brand.name as string | null) ?? null,
+          logoAssetId: brief.logo_usage?.use ? brief.logo_usage.asset_id ?? null : null,
+          ctaText: brief.cta ?? null,
+          palette: brief.palette ?? null,
+        },
+      });
+      return Response.json(
+        {
+          mode: "dry-run",
+          strategy,
+          scenePlan: strategy.scenes,
+          compositionPlan,
+          estimate,
+          note: "Dry run: no provider calls, no render_jobs row, nothing enqueued.",
+        },
+        { status: 200 },
+      );
+    }
+
+    // ─── Cost approval gate: no explicit approval → estimate only, NO enqueue ──
+    if (!approve) {
+      return Response.json(
+        {
+          mode: "estimate",
+          requiresApproval: true,
+          estimate,
+          note: "Re-POST with { approve: true } to authorize this spend and enqueue the render.",
+        },
+        { status: 200 },
+      );
+    }
 
     // ─── render_jobs row ──────────────────────────────────────────────────────
     const { data: job, error: jobErr } = await admin
@@ -152,23 +234,33 @@ export async function POST(req: NextRequest) {
     }
 
     // ─── Enqueue scene-generation (worker does the provider + FFmpeg work) ────
-    await sceneGenerationQueue().add("scene-gen", {
-      renderJobId: job.id as string,
-      userId,
-      topic,
-      brandId,
-      brandIndustry: (brand.industry as string | null) ?? null,
-      strategy,
-      branding: {
+    // attempts:1 — retry-spend protection. A BullMQ retry would re-run the whole
+    // scene loop; the worker's resume support skips already-stored scenes, but we
+    // also disable auto-retry so a transient failure never silently re-charges.
+    await sceneGenerationQueue().add(
+      "scene-gen",
+      {
+        renderJobId: job.id as string,
+        userId,
+        topic,
         brandId,
-        brandName: (brand.name as string | null) ?? null,
-        logoAssetId: brief.logo_usage?.use ? brief.logo_usage.asset_id ?? null : null,
-        ctaText: brief.cta ?? null,
-        palette: brief.palette ?? null,
+        brandIndustry: (brand.industry as string | null) ?? null,
+        strategy,
+        branding: {
+          brandId,
+          brandName: (brand.name as string | null) ?? null,
+          logoAssetId: brief.logo_usage?.use ? brief.logo_usage.asset_id ?? null : null,
+          ctaText: brief.cta ?? null,
+          palette: brief.palette ?? null,
+        },
       },
-    });
+      { attempts: 1, jobId: job.id as string },
+    );
 
-    return Response.json({ renderJobId: job.id, status: "queued" }, { status: 202 });
+    return Response.json(
+      { renderJobId: job.id, status: "queued", estimate },
+      { status: 202 },
+    );
   } catch (err) {
     captureFallback("video.generate.failed", err, { brandId, contentItemId, userId });
     const message = err instanceof Error ? err.message : String(err);

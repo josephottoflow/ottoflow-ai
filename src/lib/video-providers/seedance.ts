@@ -39,7 +39,17 @@ type SeedanceStatus =
   | "running"
   | "succeeded"
   | "failed"
-  | "cancelled";
+  | "cancelled"
+  | "expired"; // Ark expires un-retrieved results — terminal, fail fast (not a poll-to-timeout).
+
+/** Terminal Seedance statuses. `succeeded` is handled separately (returns URL). */
+const TERMINAL_FAILURE_STATUSES: readonly SeedanceStatus[] = ["failed", "cancelled", "expired"];
+
+/** Per-second USD estimate by resolution tier. Single source of truth for the
+ * pre-render cost estimator (src/lib/video/cost.ts) and the post-gen ledger. */
+export function seedancePerSecondUsd(): number {
+  return RESOLUTION === "1080p" ? 0.07 : 0.015;
+}
 
 interface SeedanceCreateResp {
   id: string;
@@ -66,8 +76,9 @@ function seedanceRatio(aspect: "9:16" | "16:9" | "1:1" | undefined): string {
   }
 }
 
-/** Round to a Seedance-supported duration (4,5,6,8,10,12,15). */
-function seedanceDuration(target: number): number {
+/** Round to a Seedance-supported duration (4,5,6,8,10,12,15). Exported so the
+ * pre-render cost estimator bills the SAME rounded seconds Seedance charges. */
+export function seedanceDuration(target: number): number {
   const supported = [4, 5, 6, 8, 10, 12, 15];
   return supported.reduce((best, v) =>
     Math.abs(v - target) < Math.abs(best - target) ? v : best,
@@ -176,7 +187,7 @@ export async function pollTask(taskId: string, apiKey: string): Promise<string> 
       slog("task.succeeded", { taskId });
       return url;
     }
-    if (task.status === "failed" || task.status === "cancelled") {
+    if (TERMINAL_FAILURE_STATUSES.includes(task.status)) {
       throw new Error(
         `Seedance task ${task.status}: ${task.error?.message ?? task.error?.code ?? "unknown"}`,
       );
@@ -221,8 +232,8 @@ export class SeedanceProvider implements VideoProvider {
       width,
       height,
       provider: this.name,
-      // Estimate; refine once real per-second pricing is confirmed.
-      costUsd: duration * (RESOLUTION === "1080p" ? 0.07 : 0.015),
+      // Estimate; shared rate so the pre-render approval gate and this ledger agree.
+      costUsd: duration * seedancePerSecondUsd(),
       metadata: {
         taskId,
         generationTimeMs: Date.now() - startMs,
@@ -232,4 +243,85 @@ export class SeedanceProvider implements VideoProvider {
       },
     };
   }
+}
+
+// ─── Contract validation (config-level; NO network call) ──────────────────────
+/**
+ * Static, offline validation of the Seedance integration contract. Confirms the
+ * settings a live call depends on are present and well-formed WITHOUT making a
+ * request (so it costs nothing and cannot trigger a render):
+ *
+ *   - base URL          parses as http(s)
+ *   - model id          set + non-default-looking (operator must override the
+ *                       placeholder `seedance-2-0-t2v`)
+ *   - tasks path        starts with "/"
+ *   - resolution tier   one of 480p/720p/1080p
+ *   - status enum       documents queued|running|succeeded|failed|cancelled|expired
+ *   - content.video_url the success field pollTask reads
+ *
+ * The RESPONSE-shape fields (content.video_url, status values) cannot be proven
+ * without a live task; `responseContractVerified=false` until an operator runs
+ * one approved probe. This function never does that.
+ */
+export interface SeedanceContractReport {
+  ok: boolean;
+  issues: string[];
+  config: {
+    baseUrl: string;
+    model: string;
+    tasksPath: string;
+    resolution: string;
+    apiKeyPresent: boolean;
+    pollIntervalMs: number;
+    pollTimeoutMs: number;
+  };
+  statusEnum: SeedanceStatus[];
+  successField: string;
+  responseContractVerified: false;
+}
+
+export function validateSeedanceContract(): SeedanceContractReport {
+  const issues: string[] = [];
+
+  try {
+    const u = new URL(SEEDANCE_BASE);
+    if (u.protocol !== "https:" && u.protocol !== "http:") {
+      issues.push(`SEEDANCE_BASE_URL has non-http(s) protocol: ${u.protocol}`);
+    }
+  } catch {
+    issues.push(`SEEDANCE_BASE_URL is not a valid URL: ${SEEDANCE_BASE}`);
+  }
+
+  if (!SEEDANCE_MODEL) {
+    issues.push("SEEDANCE_MODEL is not set");
+  } else if (SEEDANCE_MODEL === "seedance-2-0-t2v") {
+    issues.push(
+      "SEEDANCE_MODEL is still the placeholder 'seedance-2-0-t2v' — set the operator's real model/endpoint id",
+    );
+  }
+
+  if (!TASKS_PATH.startsWith("/")) {
+    issues.push(`SEEDANCE_TASKS_PATH must start with '/': ${TASKS_PATH}`);
+  }
+
+  if (!["480p", "720p", "1080p"].includes(RESOLUTION)) {
+    issues.push(`SEEDANCE_RESOLUTION is not a known tier (480p/720p/1080p): ${RESOLUTION}`);
+  }
+
+  return {
+    ok: issues.length === 0,
+    issues,
+    config: {
+      baseUrl: SEEDANCE_BASE,
+      model: SEEDANCE_MODEL,
+      tasksPath: TASKS_PATH,
+      resolution: RESOLUTION,
+      apiKeyPresent: !!process.env.SEEDANCE_API_KEY,
+      pollIntervalMs: POLL_INTERVAL_MS,
+      pollTimeoutMs: POLL_TIMEOUT_MS,
+    },
+    statusEnum: ["queued", "running", "succeeded", "failed", "cancelled", "expired"],
+    successField: "content.video_url",
+    responseContractVerified: false,
+  };
 }

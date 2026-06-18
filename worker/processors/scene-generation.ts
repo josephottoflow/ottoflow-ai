@@ -86,8 +86,41 @@ export async function processSceneGeneration(
     const clips: AiFirstClip[] = [];
     const total = strategy.scenes.length;
 
+    // ─── Resume support (retry-spend protection) ──────────────────────────────
+    // A retry of this job MUST NOT re-charge the provider for scenes a prior
+    // attempt already generated + stored durably. Load existing scene_generations
+    // rows that have a storage_url and skip those scenes' provider calls. With
+    // attempts:1 (set at enqueue) this is belt-and-suspenders, but it also makes
+    // a manual re-enqueue safe and idempotent.
+    const { data: existingRows } = await admin
+      .from("scene_generations")
+      .select("scene_number, provider, storage_url, storage_key, duration_sec, width, height, attribution")
+      .eq("render_job_id", data.renderJobId);
+    const resumable = new Map<number, NonNullable<typeof existingRows>[number]>();
+    for (const r of existingRows ?? []) {
+      if (r.storage_url) resumable.set(r.scene_number as number, r);
+    }
+
     for (let i = 0; i < total; i++) {
       const scene = strategy.scenes[i];
+
+      // Already generated + stored on a prior attempt → reuse, no provider spend.
+      const cached = resumable.get(scene.sceneId);
+      if (cached?.storage_url) {
+        clips.push({
+          sceneId: scene.sceneId,
+          url: cached.storage_url as string,
+          durationSec: (cached.duration_sec as number) ?? scene.durationSec,
+          width: (cached.width as number) ?? 720,
+          height: (cached.height as number) ?? 1280,
+          provider: (cached.provider as SourceName) ?? ("seedance" as SourceName),
+          sourceId: `${cached.provider}-${data.renderJobId}-${scene.sceneId}`,
+          attribution: (cached.attribution as string | null) ?? undefined,
+        });
+        report("scene-gen", 10 + Math.round(((i + 1) / total) * 60));
+        continue;
+      }
+
       const startedAt = Date.now();
       let fallbackReason: string | null = null;
 
