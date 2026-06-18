@@ -8,7 +8,7 @@
  * Pexels is ALWAYS last because it never fails for sensible prompts.
  */
 import { captureFallback } from "@/lib/observability";
-import { isRunwayEnabled, isLumaEnabled } from "@/lib/video/flags";
+import { isVideoRenderEnabled, isRunwayEnabled, isLumaEnabled } from "@/lib/video/flags";
 import { PexelsFallbackProvider } from "./pexels";
 import { SeedanceProvider } from "./seedance";
 import { RunwayProvider } from "./runway";
@@ -20,17 +20,31 @@ import {
   type VideoProvider,
 } from "./types";
 
-// NOTE: the chain is NOT memoized — it is rebuilt per call so the paid-fallback
-// flags are honored at request time (and so a flag change doesn't require a
-// worker restart). Provider constructors are trivial.
+// NOTE: the chain is NOT memoized — it is rebuilt per call so the flags below are
+// honored at request time (and so a flag change doesn't require a worker
+// restart). Provider constructors are trivial.
+//
+// DARK-LAUNCH CONTRACT (Option C): VIDEO_RENDER_ENABLED is the single
+// authoritative gate for Seedance reachability across BOTH the legacy
+// /api/generate→video-merge path and the new scene-generation path (they share
+// this registry).
+//
+//   VIDEO_RENDER_ENABLED unset (dark) → EXACT production chain [Runway, Luma,
+//     Pexels]. Seedance is NOT in the chain, so it is unreachable even if
+//     SEEDANCE_API_KEY is set; Runway/Luma behave exactly as in prod (each
+//     gated only by its own isConfigured()). Legacy behavior is byte-preserved.
+//
+//   VIDEO_RENDER_ENABLED=true → hardened chain: Seedance first, paid Runway/Luma
+//     fallbacks opt-in (VIDEO_ENABLE_RUNWAY / VIDEO_ENABLE_LUMA), free Pexels
+//     always last so a scene never 500s.
+//
+// Higgsfield is intentionally NOT in this chain (SSE MCP only, no REST API).
 function getChain(): VideoProvider[] {
-  // Provider safety (hardening): the DEFAULT chain is Seedance → Pexels only.
-  // Paid AI fallbacks (Runway gen4.5 ~$0.25/5s, Luma ray-flash ~$0.14/5s) are
-  // OFF unless explicitly enabled (VIDEO_ENABLE_RUNWAY / VIDEO_ENABLE_LUMA), so
-  // a Seedance miss falls straight to FREE Pexels instead of silently spending
-  // on a second/third paid provider. Pexels is ALWAYS last so a scene never 500s.
-  //
-  // Higgsfield is intentionally NOT in this chain (SSE MCP only, no REST API).
+  // Dark: reproduce production exactly (no Seedance, Runway/Luma always present).
+  if (!isVideoRenderEnabled()) {
+    return [new RunwayProvider(), new LumaProvider(), new PexelsFallbackProvider()];
+  }
+  // Live: Seedance leads; paid fallbacks opt-in; Pexels last.
   const chain: VideoProvider[] = [new SeedanceProvider()];
   if (isRunwayEnabled()) chain.push(new RunwayProvider());
   if (isLumaEnabled()) chain.push(new LumaProvider());

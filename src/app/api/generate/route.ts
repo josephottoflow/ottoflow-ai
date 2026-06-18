@@ -43,7 +43,6 @@ import { createAdminClient } from "@/lib/supabase";
 import { rateLimit } from "@/lib/rate-limit";
 import { captureFallback } from "@/lib/observability";
 import { videoMergeQueue, ffmpegComposeQueue } from "@/lib/queue";
-import { isVideoRenderEnabled } from "@/lib/video/flags";
 import { getBudgetStatus, recordAIUsage, COST } from "@/lib/budget";
 import {
   runScriptPhase,
@@ -304,15 +303,6 @@ async function runFfmpegV2Pipeline(args: FfmpegV2Args): Promise<void> {
 
 // ─── Handler ─────────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
-  // Feature flag (fail-closed): the video render pipeline is dark unless
-  // explicitly enabled. 404 so the route is invisible when off.
-  if (!isVideoRenderEnabled()) {
-    return new Response(JSON.stringify({ error: "Not found" }), {
-      status: 404,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-
   const { userId } = await auth();
   if (!userId) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
