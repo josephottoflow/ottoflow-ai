@@ -1,69 +1,108 @@
 /**
- * Seedance 2.0 provider — ByteDance/BytePlus ModelArk text-to-video.
+ * Seedance 2.0 provider — AtlasCloud backend (text-to-video).
+ *
+ * NOTE: the model is still ByteDance Seedance 2.0; only the API *wrapper* is
+ * AtlasCloud's (`api.atlascloud.ai`), NOT BytePlus/Volcengine ModelArk. The
+ * provider keeps `name = "seedance"` and the same exported surface so registry
+ * wiring, scene-generation, SourceName, cost.ts and route labels are unchanged
+ * (Option B — minimal surface; a dedicated atlascloud.ts is a Phase-2 cleanup).
  *
  * Scene GENERATOR only: returns a single clip URL per scene. No branding, no
  * captions, no audio mixing — FFmpeg (Agents 11/12) owns composition. Slots
  * into the existing VideoProvider chain exactly like runway.ts / luma.ts.
  *
- * Async task API (Volcengine/BytePlus ModelArk Ark video generation): create a
- * task → poll until it succeeds → read the output MP4 URL. Mirrors the
- * create→poll shape already used by Runway and Luma.
+ * AtlasCloud contract (Seedance 2.0 T2V), async create → poll → download:
+ *   POST  {BASE}/api/v1/model/generateVideo
+ *         body { model, prompt, duration, resolution, ratio,
+ *                generate_audio:false, watermark:false }
+ *         → { data: { id } }
+ *   GET   {BASE}/api/v1/model/prediction/{id}
+ *         → { data: { status, outputs:[<video_url>] } }
+ *   status "completed" | "succeeded" → outputs[0]; "failed" → error.
  *
- * Contract verified against the Ark video API (POST /api/v3/contents/
- * generations/tasks): generation params (ratio/resolution/duration/seed) are
- * passed as `--key value` SUFFIXES on the text prompt inside a `content`
- * array — NOT as flat JSON fields. Response status lifecycle is
- * queued→running→succeeded|failed|cancelled; the MP4 is at content.video_url.
+ * Cloudflare: AtlasCloud is fronted by Cloudflare, which blocks non-browser
+ * clients (403 / "error code 1010"). We send a browser User-Agent on every
+ * call. Override with ATLASCLOUD_USER_AGENT if needed.
  *
- * The base URL + model id are account/region-specific → env-overridable.
- * SEEDANCE_MODEL MUST be set to the operator's real model/endpoint id;
- * SEEDANCE_BASE_URL to their region host. No live call unless SEEDANCE_API_KEY
- * is set (isConfigured()=false otherwise → registry skips cleanly).
+ * Config is env-overridable; SEEDANCE_* names are accepted as fallbacks so any
+ * pre-existing wiring keeps working. No live call unless an API key is set
+ * (isConfigured()=false otherwise → registry skips cleanly).
  *
- * Pricing (estimate, verify at provisioning): ~$0.01–0.02/s @720p,
- * ~$0.05–0.10/s @1080p. We default to 720p for cost.
+ * Pricing (AtlasCloud, verify at provisioning): ~$0.081/s Fast, ~$0.10/s
+ * standard. We bill the standard rate as a conservative upper bound for the
+ * pre-render cost-approval gate. Default 720p for cost.
  */
 import type { SceneRequest, SceneResult, VideoProvider } from "./types";
 
-const SEEDANCE_BASE =
-  process.env.SEEDANCE_BASE_URL ?? "https://ark.ap-southeast.bytepluses.com/api/v3";
-const SEEDANCE_MODEL = process.env.SEEDANCE_MODEL ?? "seedance-2-0-t2v";
-/** Path for create/list; a task id is appended for retrieve/cancel. */
-const TASKS_PATH = process.env.SEEDANCE_TASKS_PATH ?? "/contents/generations/tasks";
-const RESOLUTION = process.env.SEEDANCE_RESOLUTION ?? "720p";
+const ATLAS_BASE = (
+  process.env.ATLASCLOUD_BASE_URL ??
+  process.env.SEEDANCE_BASE_URL ??
+  "https://api.atlascloud.ai"
+).replace(/\/$/, "");
+const ATLAS_MODEL =
+  process.env.ATLASCLOUD_MODEL ??
+  process.env.SEEDANCE_MODEL ??
+  "bytedance/seedance-2.0/text-to-video";
+/** Create + poll paths (AtlasCloud); env-overridable for forward-compat. */
+const GENERATE_PATH = process.env.ATLASCLOUD_GENERATE_PATH ?? "/api/v1/model/generateVideo";
+const PREDICTION_PATH = process.env.ATLASCLOUD_PREDICTION_PATH ?? "/api/v1/model/prediction";
+const RESOLUTION =
+  process.env.ATLASCLOUD_RESOLUTION ?? process.env.SEEDANCE_RESOLUTION ?? "720p";
+/** Browser UA so Cloudflare doesn't 403/1010 a server-side fetch. */
+const DEFAULT_UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+  "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+const USER_AGENT = process.env.ATLASCLOUD_USER_AGENT ?? DEFAULT_UA;
 const POLL_INTERVAL_MS = 4_000;
 const POLL_TIMEOUT_MS = 180_000; // Seedance typical 30–120s; 180s headroom.
 
-type SeedanceStatus =
+/** Read the API key (ATLASCLOUD_* primary, SEEDANCE_* fallback). */
+function apiKey(): string | undefined {
+  return process.env.ATLASCLOUD_API_KEY ?? process.env.SEEDANCE_API_KEY;
+}
+
+/** AtlasCloud prediction lifecycle. Terminal-failure handled in pollTask. */
+type AtlasStatus =
   | "queued"
+  | "starting"
+  | "processing"
   | "running"
   | "succeeded"
+  | "completed"
   | "failed"
-  | "cancelled"
-  | "expired"; // Ark expires un-retrieved results — terminal, fail fast (not a poll-to-timeout).
+  | "canceled"
+  | "cancelled";
 
-/** Terminal Seedance statuses. `succeeded` is handled separately (returns URL). */
-const TERMINAL_FAILURE_STATUSES: readonly SeedanceStatus[] = ["failed", "cancelled", "expired"];
+const TERMINAL_SUCCESS: readonly AtlasStatus[] = ["succeeded", "completed"];
+const TERMINAL_FAILURE: readonly AtlasStatus[] = ["failed", "canceled", "cancelled"];
 
-/** Per-second USD estimate by resolution tier. Single source of truth for the
- * pre-render cost estimator (src/lib/video/cost.ts) and the post-gen ledger. */
+/** Per-second USD estimate. Single source of truth for the pre-render cost
+ * estimator (src/lib/video/cost.ts) and the post-gen ledger. Conservative
+ * (standard-tier) upper bound for the approval gate. */
 export function seedancePerSecondUsd(): number {
-  return RESOLUTION === "1080p" ? 0.07 : 0.015;
+  return 0.1; // ~$0.10/s standard; Fast tier ~$0.081/s.
 }
 
-interface SeedanceCreateResp {
-  id: string;
+interface AtlasCreateResp {
+  data?: { id?: string; task_id?: string };
+  id?: string;
+  task_id?: string;
 }
 
-interface SeedanceTaskResp {
-  id: string;
-  status: SeedanceStatus;
-  /** Output location on success. Field name verified at provisioning. */
-  content?: { video_url?: string };
-  error?: { code?: string; message?: string };
+interface AtlasPredictionResp {
+  data?: {
+    id?: string;
+    status?: string;
+    task_status?: string;
+    outputs?: Array<string | { url?: string }>;
+    task_result?: { videos?: Array<{ url?: string }> };
+  };
+  status?: string;
+  outputs?: Array<string | { url?: string }>;
+  error?: { code?: string; message?: string } | string;
 }
 
-/** Map 9:16 / 16:9 / 1:1 → Seedance ratio strings. */
+/** Map 9:16 / 16:9 / 1:1 → AtlasCloud ratio strings (pass-through). */
 function seedanceRatio(aspect: "9:16" | "16:9" | "1:1" | undefined): string {
   switch (aspect) {
     case "16:9":
@@ -76,13 +115,11 @@ function seedanceRatio(aspect: "9:16" | "16:9" | "1:1" | undefined): string {
   }
 }
 
-/** Round to a Seedance-supported duration (4,5,6,8,10,12,15). Exported so the
- * pre-render cost estimator bills the SAME rounded seconds Seedance charges. */
+/** Clamp/round a target duration into AtlasCloud's supported 4–15 s window.
+ * Exported so the cost estimator bills the SAME seconds the provider charges. */
 export function seedanceDuration(target: number): number {
-  const supported = [4, 5, 6, 8, 10, 12, 15];
-  return supported.reduce((best, v) =>
-    Math.abs(v - target) < Math.abs(best - target) ? v : best,
-  );
+  if (!Number.isFinite(target)) return 5;
+  return Math.min(15, Math.max(4, Math.round(target)));
 }
 
 /** Pixel dims for the returned ratio at the configured resolution tier. */
@@ -94,136 +131,159 @@ function dimsFor(ratio: string): { width: number; height: number } {
   return { width: short, height: long }; // 9:16
 }
 
-function authHeaders(apiKey: string): Record<string, string> {
+function authHeaders(key: string): Record<string, string> {
   return {
-    Authorization: `Bearer ${apiKey}`,
+    Authorization: `Bearer ${key}`,
     "Content-Type": "application/json",
     Accept: "application/json",
+    "User-Agent": USER_AGENT,
   };
 }
 
 /** Structured log line (consistent with the worker's JSON logging). */
 function slog(event: string, extra?: Record<string, unknown>): void {
-  console.log(JSON.stringify({ scope: "seedance", event, ...extra }));
+  console.log(JSON.stringify({ scope: "seedance", event, backend: "atlascloud", ...extra }));
+}
+
+/** Detect a Cloudflare bot-block so the error is actionable (set a browser UA). */
+function looksLikeCloudflareBlock(status: number, body: string): boolean {
+  return (
+    status === 403 &&
+    (/error code: ?1010/i.test(body) || /cloudflare/i.test(body) || /just a moment/i.test(body))
+  );
 }
 
 /**
- * Build the Ark text command: prompt + `--key value` parameter suffixes.
- * (Ark passes ratio/resolution/duration/seed this way, not as JSON fields.)
+ * Create an AtlasCloud Seedance 2.0 generation task. Returns the prediction id.
+ * `prompt` carries the abstract-safe scene description (brand-palette + metaphor
+ * seeded upstream). Brand logo/headshot are NEVER sent — branding stays
+ * deterministic in FFmpeg. `generate_audio:false` (FFmpeg owns audio).
  */
-function buildCommandText(req: SceneRequest, ratio: string, duration: number): string {
-  const parts = [
-    req.prompt.trim(),
-    `--ratio ${ratio}`,
-    `--resolution ${RESOLUTION}`,
-    `--duration ${duration}`,
-  ];
-  if (typeof req.seed === "number") parts.push(`--seed ${req.seed}`);
-  return parts.join(" ");
-}
-
-/**
- * Create a Seedance generation task. Returns the task id.
- * `prompt` carries the abstract-safe scene description (brand-palette +
- * metaphor seeded upstream). Brand logo/headshot are NEVER sent to Seedance —
- * branding stays deterministic in FFmpeg.
- */
-export async function createTask(
-  req: SceneRequest,
-  apiKey: string,
-): Promise<string> {
+export async function createTask(req: SceneRequest, key: string): Promise<string> {
   const ratio = seedanceRatio(req.aspectRatio);
   const duration = seedanceDuration(req.durationSec);
-  // Ark contract: a `content` array of typed parts; params as text suffixes.
   const body = {
-    model: SEEDANCE_MODEL,
-    content: [{ type: "text", text: buildCommandText(req, ratio, duration) }],
+    model: ATLAS_MODEL,
+    prompt: req.prompt.trim(),
+    duration,
+    resolution: RESOLUTION,
+    ratio,
+    generate_audio: false,
+    watermark: false,
   };
-  const res = await fetch(`${SEEDANCE_BASE}${TASKS_PATH}`, {
+  const url = `${ATLAS_BASE}${GENERATE_PATH}`;
+  const res = await fetch(url, {
     method: "POST",
-    headers: authHeaders(apiKey),
+    headers: authHeaders(key),
     body: JSON.stringify(body),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
+    if (looksLikeCloudflareBlock(res.status, text)) {
+      throw new Error(
+        `AtlasCloud create blocked by Cloudflare (403/1010) @ ${url} — set a browser ATLASCLOUD_USER_AGENT.`,
+      );
+    }
     throw new Error(
-      `Seedance create ${res.status} ${res.statusText} @ ${SEEDANCE_BASE}${TASKS_PATH}: ${text.slice(0, 400)}`,
+      `AtlasCloud create ${res.status} ${res.statusText} @ ${url}: ${text.slice(0, 400)}`,
     );
   }
-  const created = (await res.json().catch(() => null)) as SeedanceCreateResp | null;
-  if (!created?.id) {
-    throw new Error("Seedance create response had no task id (check SEEDANCE_MODEL / contract)");
+  const created = (await res.json().catch(() => null)) as AtlasCreateResp | null;
+  const id = created?.data?.id ?? created?.id ?? created?.data?.task_id ?? created?.task_id;
+  if (!id) {
+    throw new Error(
+      "AtlasCloud create response had no prediction id (check ATLASCLOUD_MODEL / contract)",
+    );
   }
-  slog("task.created", { taskId: created.id, model: SEEDANCE_MODEL, ratio, duration });
-  return created.id;
+  slog("task.created", { predictionId: id, model: ATLAS_MODEL, ratio, duration });
+  return id;
+}
+
+/** Defensively extract the output MP4 URL from a prediction body. */
+function extractOutputUrl(resp: AtlasPredictionResp): string | null {
+  const d = resp.data ?? resp;
+  const out = d.outputs ?? resp.outputs;
+  const first = Array.isArray(out) ? out[0] : undefined;
+  const fromOutputs = typeof first === "string" ? first : first?.url;
+  const fromTaskResult = resp.data?.task_result?.videos?.[0]?.url;
+  return fromOutputs ?? fromTaskResult ?? null;
 }
 
 /**
- * Poll a task until it succeeds (returns the MP4 URL) or fails/ times out.
- * Transient non-2xx polls are retried (Seedance occasionally 5xx's mid-run).
+ * Poll a prediction until it succeeds (returns the MP4 URL) or fails / times
+ * out. Transient non-2xx polls are retried (AtlasCloud occasionally 5xx's
+ * mid-run).
  */
-export async function pollTask(taskId: string, apiKey: string): Promise<string> {
-  const headers = authHeaders(apiKey);
+export async function pollTask(predictionId: string, key: string): Promise<string> {
+  const headers = authHeaders(key);
+  const url = `${ATLAS_BASE}${PREDICTION_PATH}/${predictionId}`;
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    const res = await fetch(`${SEEDANCE_BASE}${TASKS_PATH}/${taskId}`, { headers });
+    const res = await fetch(url, { headers });
     if (!res.ok) {
       await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
       continue;
     }
-    const task = (await res.json().catch(() => null)) as SeedanceTaskResp | null;
-    if (!task) {
+    const resp = (await res.json().catch(() => null)) as AtlasPredictionResp | null;
+    if (!resp) {
       await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
       continue;
     }
-    if (task.status === "succeeded") {
-      const url = downloadResult(task);
-      // Defensive: the result MUST be a usable absolute http(s) URL.
-      if (!url || !/^https?:\/\//i.test(url)) {
+    const status = (resp.data?.status ?? resp.status ?? resp.data?.task_status ?? "")
+      .toString()
+      .toLowerCase() as AtlasStatus;
+
+    if (TERMINAL_SUCCESS.includes(status)) {
+      const outUrl = extractOutputUrl(resp);
+      if (!outUrl || !/^https?:\/\//i.test(outUrl)) {
         throw new Error(
-          `Seedance succeeded but content.video_url is missing/invalid: ${JSON.stringify(task.content ?? null).slice(0, 200)}`,
+          `AtlasCloud succeeded but outputs URL is missing/invalid: ${JSON.stringify(
+            resp.data ?? resp,
+          ).slice(0, 200)}`,
         );
       }
-      slog("task.succeeded", { taskId });
-      return url;
+      slog("task.succeeded", { predictionId });
+      return outUrl;
     }
-    if (TERMINAL_FAILURE_STATUSES.includes(task.status)) {
-      throw new Error(
-        `Seedance task ${task.status}: ${task.error?.message ?? task.error?.code ?? "unknown"}`,
-      );
+    if (TERMINAL_FAILURE.includes(status)) {
+      const err =
+        typeof resp.error === "string"
+          ? resp.error
+          : resp.error?.message ?? resp.error?.code ?? "unknown";
+      throw new Error(`AtlasCloud prediction ${status}: ${err}`);
     }
-    // queued / running (or an unknown status) → keep polling within deadline.
+    // queued / starting / processing / running (or unknown) → keep polling.
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
-  throw new Error(`Seedance task ${taskId} timed out after ${POLL_TIMEOUT_MS}ms`);
+  throw new Error(`AtlasCloud prediction ${predictionId} timed out after ${POLL_TIMEOUT_MS}ms`);
 }
 
 /**
- * Extract the output MP4 URL from a succeeded task. The worker performs the
- * actual byte download + R2 copy (provider URLs expire ~1h) — consistent with
+ * Extract the output MP4 URL from a succeeded prediction body. The worker
+ * performs the byte download + R2 copy (provider URLs expire) — consistent with
  * how runway/luma return a CDN URL the merge step fetches.
  */
-export function downloadResult(task: SeedanceTaskResp): string | null {
-  return task.content?.video_url ?? null;
+export function downloadResult(task: AtlasPredictionResp): string | null {
+  return extractOutputUrl(task);
 }
 
 export class SeedanceProvider implements VideoProvider {
   name = "seedance";
 
   isConfigured(): boolean {
-    return !!process.env.SEEDANCE_API_KEY;
+    return !!apiKey();
   }
 
   async generateScene(request: SceneRequest): Promise<SceneResult> {
-    const apiKey = process.env.SEEDANCE_API_KEY;
-    if (!apiKey) throw new Error("SEEDANCE_API_KEY not configured");
+    const key = apiKey();
+    if (!key) throw new Error("ATLASCLOUD_API_KEY (or SEEDANCE_API_KEY) not configured");
 
     const startMs = Date.now();
     const ratio = seedanceRatio(request.aspectRatio);
     const duration = seedanceDuration(request.durationSec);
 
-    const taskId = await createTask(request, apiKey);
-    const url = await pollTask(taskId, apiKey);
+    const predictionId = await createTask(request, key);
+    const url = await pollTask(predictionId, key);
 
     const { width, height } = dimsFor(ratio);
     return {
@@ -235,9 +295,10 @@ export class SeedanceProvider implements VideoProvider {
       // Estimate; shared rate so the pre-render approval gate and this ledger agree.
       costUsd: duration * seedancePerSecondUsd(),
       metadata: {
-        taskId,
+        predictionId,
         generationTimeMs: Date.now() - startMs,
-        model: SEEDANCE_MODEL,
+        backend: "atlascloud",
+        model: ATLAS_MODEL,
         resolution: RESOLUTION,
         seed: request.seed ?? null,
       },
@@ -247,21 +308,20 @@ export class SeedanceProvider implements VideoProvider {
 
 // ─── Contract validation (config-level; NO network call) ──────────────────────
 /**
- * Static, offline validation of the Seedance integration contract. Confirms the
- * settings a live call depends on are present and well-formed WITHOUT making a
- * request (so it costs nothing and cannot trigger a render):
+ * Static, offline validation of the AtlasCloud integration contract. Confirms
+ * the settings a live call depends on are present and well-formed WITHOUT making
+ * a request (so it costs nothing and cannot trigger a render):
  *
  *   - base URL          parses as http(s)
- *   - model id          set + non-default-looking (operator must override the
- *                       placeholder `seedance-2-0-t2v`)
- *   - tasks path        starts with "/"
+ *   - model id          set (AtlasCloud Seedance 2.0 id)
+ *   - generate path     starts with "/"
  *   - resolution tier   one of 480p/720p/1080p
- *   - status enum       documents queued|running|succeeded|failed|cancelled|expired
- *   - content.video_url the success field pollTask reads
+ *   - api key present   ATLASCLOUD_API_KEY or SEEDANCE_API_KEY
+ *   - user-agent        present (Cloudflare requires a browser UA)
  *
- * The RESPONSE-shape fields (content.video_url, status values) cannot be proven
- * without a live task; `responseContractVerified=false` until an operator runs
- * one approved probe. This function never does that.
+ * The RESPONSE-shape fields (data.outputs[0], status values) cannot be proven
+ * without a live prediction; `responseContractVerified=false` until an operator
+ * runs one approved probe. This function never does that.
  */
 export interface SeedanceContractReport {
   ok: boolean;
@@ -269,13 +329,15 @@ export interface SeedanceContractReport {
   config: {
     baseUrl: string;
     model: string;
-    tasksPath: string;
+    generatePath: string;
+    predictionPath: string;
     resolution: string;
     apiKeyPresent: boolean;
+    userAgentPresent: boolean;
     pollIntervalMs: number;
     pollTimeoutMs: number;
   };
-  statusEnum: SeedanceStatus[];
+  statusEnum: AtlasStatus[];
   successField: string;
   responseContractVerified: false;
 }
@@ -284,44 +346,50 @@ export function validateSeedanceContract(): SeedanceContractReport {
   const issues: string[] = [];
 
   try {
-    const u = new URL(SEEDANCE_BASE);
+    const u = new URL(ATLAS_BASE);
     if (u.protocol !== "https:" && u.protocol !== "http:") {
-      issues.push(`SEEDANCE_BASE_URL has non-http(s) protocol: ${u.protocol}`);
+      issues.push(`ATLASCLOUD_BASE_URL has non-http(s) protocol: ${u.protocol}`);
     }
   } catch {
-    issues.push(`SEEDANCE_BASE_URL is not a valid URL: ${SEEDANCE_BASE}`);
+    issues.push(`ATLASCLOUD_BASE_URL is not a valid URL: ${ATLAS_BASE}`);
   }
 
-  if (!SEEDANCE_MODEL) {
-    issues.push("SEEDANCE_MODEL is not set");
-  } else if (SEEDANCE_MODEL === "seedance-2-0-t2v") {
-    issues.push(
-      "SEEDANCE_MODEL is still the placeholder 'seedance-2-0-t2v' — set the operator's real model/endpoint id",
-    );
+  if (!ATLAS_MODEL) issues.push("ATLASCLOUD_MODEL is not set");
+  if (!GENERATE_PATH.startsWith("/")) {
+    issues.push(`ATLASCLOUD_GENERATE_PATH must start with '/': ${GENERATE_PATH}`);
   }
-
-  if (!TASKS_PATH.startsWith("/")) {
-    issues.push(`SEEDANCE_TASKS_PATH must start with '/': ${TASKS_PATH}`);
-  }
-
   if (!["480p", "720p", "1080p"].includes(RESOLUTION)) {
-    issues.push(`SEEDANCE_RESOLUTION is not a known tier (480p/720p/1080p): ${RESOLUTION}`);
+    issues.push(`ATLASCLOUD_RESOLUTION is not a known tier (480p/720p/1080p): ${RESOLUTION}`);
   }
+  if (!apiKey()) issues.push("ATLASCLOUD_API_KEY (or SEEDANCE_API_KEY) is not set");
+  if (!USER_AGENT) issues.push("ATLASCLOUD_USER_AGENT is empty (Cloudflare needs a browser UA)");
 
   return {
     ok: issues.length === 0,
     issues,
     config: {
-      baseUrl: SEEDANCE_BASE,
-      model: SEEDANCE_MODEL,
-      tasksPath: TASKS_PATH,
+      baseUrl: ATLAS_BASE,
+      model: ATLAS_MODEL,
+      generatePath: GENERATE_PATH,
+      predictionPath: PREDICTION_PATH,
       resolution: RESOLUTION,
-      apiKeyPresent: !!process.env.SEEDANCE_API_KEY,
+      apiKeyPresent: !!apiKey(),
+      userAgentPresent: !!USER_AGENT,
       pollIntervalMs: POLL_INTERVAL_MS,
       pollTimeoutMs: POLL_TIMEOUT_MS,
     },
-    statusEnum: ["queued", "running", "succeeded", "failed", "cancelled", "expired"],
-    successField: "content.video_url",
+    statusEnum: [
+      "queued",
+      "starting",
+      "processing",
+      "running",
+      "succeeded",
+      "completed",
+      "failed",
+      "canceled",
+      "cancelled",
+    ],
+    successField: "data.outputs[0]",
     responseContractVerified: false,
   };
 }
