@@ -6,7 +6,11 @@
  * sharp-rendered palette gradient + SVG typography. Nothing here is sent to a
  * model. FFmpeg overlays the logo and concatenates the CTA card.
  */
-import sharp from "sharp";
+// NOTE: `sharp` is imported lazily inside renderCtaCard (the only consumer).
+// Top-level `import sharp from "sharp"` would crash the Vercel /api/video/generate
+// route at module-init ("Could not load the sharp module"), because that route
+// transitively imports this file via orchestrator → agent 11. sharp only ever
+// runs in the worker, so a dynamic import keeps it out of the Vercel import graph.
 import { createAdminClient } from "@/lib/supabase";
 
 export interface VideoPalette {
@@ -46,6 +50,7 @@ function esc(s: string): string {
  * composited on top, never drawn by a model.
  */
 export async function renderCtaCard(input: CtaCardInput): Promise<Buffer> {
+  const { default: sharp } = await import("sharp");
   const { width, height } = input;
   const top = input.palette?.primary || NEUTRAL_TOP;
   const bottom = input.palette?.secondary || NEUTRAL_BOTTOM;
