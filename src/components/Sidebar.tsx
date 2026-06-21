@@ -13,7 +13,6 @@ import {
   Settings,
   Zap,
   ChevronRight,
-  Sparkles,
   CreditCard,
   Bell,
   HelpCircle,
@@ -149,13 +148,10 @@ export function Sidebar() {
               <Briefcase size={13} />
               Research a Brand
             </Link>
-            <Link
-              href="/video/generate"
-              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 mt-1 bg-cyan-500/[0.08] border border-cyan-500/15 text-cyan-300"
-            >
-              <Sparkles size={13} />
-              Generate Video
-            </Link>
+            {/* Legacy "Generate Video" (Script→Voice→Footage) removed from primary
+                nav. Canonical video path is Content → Creative brief → the gated
+                "Generate Video" button on a content item. The legacy page remains
+                reachable at /video/generate (labeled Legacy) but is de-emphasized. */}
             <Link
               href="/content/generate"
               className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 mt-1 bg-fuchsia-500/[0.08] border border-fuchsia-500/15 text-fuchsia-400"

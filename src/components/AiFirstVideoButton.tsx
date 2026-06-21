@@ -95,7 +95,9 @@ export function AiFirstVideoButton({
       const res = await fetch("/api/video/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brandId, contentItemId, platform: "linkedin", approve: true }),
+        // Re-send the dryRun strategy so the render matches the previewed
+        // cost/strategy exactly (route reuses it — no second generation, no drift).
+        body: JSON.stringify({ brandId, contentItemId, platform: "linkedin", approve: true, strategy: strategy ?? undefined }),
       });
       const json = (await res.json().catch(() => ({}))) as { renderJobId?: string; error?: string };
       if (!res.ok || !json.renderJobId) {

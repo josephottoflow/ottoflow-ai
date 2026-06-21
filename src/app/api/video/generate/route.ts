@@ -26,10 +26,31 @@ import { buildVideoStrategy } from "@/lib/ffmpeg-pipeline/video-strategy";
 import { isVideoRenderEnabled } from "@/lib/video/flags";
 import { estimateRenderCost } from "@/lib/video/cost";
 import { buildAiFirstPlan, type AiFirstClip } from "@/lib/ffmpeg-pipeline/orchestrator";
-import type { AgentContext, SourceName } from "@/lib/ffmpeg-pipeline/types";
+import type { AgentContext, SourceName, VideoStrategy } from "@/lib/ffmpeg-pipeline/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 120; // buildVideoStrategy is one Gemini call.
+
+/** The strategy a prior dryRun returned, re-submitted on approve so the render
+ * matches the previewed cost/strategy exactly (no second generation = no drift). */
+const StrategySchema = z.object({
+  video_concept: z.string(),
+  visual_tension: z.string(),
+  visual_metaphor: z.string(),
+  brand_worldview: z.string(),
+  scenes: z
+    .array(
+      z.object({
+        role: z.string(),
+        sceneId: z.number(),
+        prompt: z.string(),
+        caption: z.string().optional().default(""),
+        seed: z.number().optional(),
+        durationSec: z.number(),
+      }),
+    )
+    .min(1),
+});
 
 const Schema = z.object({
   brandId: z.string().uuid(),
@@ -41,6 +62,8 @@ const Schema = z.object({
   /** Explicit cost approval. Without it (and not a dry run) the route returns a
    * cost estimate and enqueues NOTHING (requiresApproval). */
   approve: z.boolean().optional().default(false),
+  /** Optional: reuse a dryRun's strategy on approve (prevents preview/cost drift). */
+  strategy: StrategySchema.optional(),
 });
 
 const RATE_LIMIT = { limit: 20, windowSeconds: 60 * 60 } as const; // 20/hr
@@ -90,7 +113,7 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
-  const { brandId, contentItemId, dryRun, approve } = parsed.data;
+  const { brandId, contentItemId, dryRun, approve, strategy: passedStrategy } = parsed.data;
 
   const admin = createAdminClient();
 
@@ -137,14 +160,25 @@ export async function POST(req: NextRequest) {
   try {
     // ─── Video Strategy (reuses tension/metaphor — no second creative engine) ─
     // One Gemini call. No Seedance/provider call, no render — safe pre-spend.
-    const strategy = await buildVideoStrategy({
-      topic,
-      visualTension: brief.visual_tension,
-      visualMetaphor: brief.visual_metaphor,
-      brandIndustry: (brand.industry as string | null) ?? null,
-      palette: brief.palette ?? null,
-      totalDurationSec: 20,
-    });
+    // Reuse the dryRun strategy on approve so the render matches the previewed
+    // cost/strategy (no second Gemini generation → no drift). Re-pin
+    // tension/metaphor from the server-side brief so a client-supplied strategy
+    // can't override the authoritative creative fields. dryRun always generates.
+    const strategy: VideoStrategy =
+      approve && passedStrategy
+        ? {
+            ...(passedStrategy as unknown as VideoStrategy),
+            visual_tension: brief.visual_tension,
+            visual_metaphor: brief.visual_metaphor,
+          }
+        : await buildVideoStrategy({
+            topic,
+            visualTension: brief.visual_tension,
+            visualMetaphor: brief.visual_metaphor,
+            brandIndustry: (brand.industry as string | null) ?? null,
+            palette: brief.palette ?? null,
+            totalDurationSec: 20,
+          });
 
     // ─── Cost estimate (computed BEFORE any spend) ────────────────────────────
     const estimate = estimateRenderCost(strategy);

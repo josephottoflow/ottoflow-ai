@@ -170,6 +170,10 @@ export async function createTask(req: SceneRequest, key: string): Promise<string
     ratio,
     generate_audio: false,
     watermark: false,
+    // Seed the generation for look continuity across the 4 scenes. Was computed
+    // upstream (video-strategy) but previously never sent — so it had no effect.
+    // AtlasCloud ignores unknown fields, so this is safe even if unsupported.
+    ...(typeof req.seed === "number" ? { seed: req.seed } : {}),
   };
   const url = `${ATLAS_BASE}${GENERATE_PATH}`;
   const res = await fetch(url, {

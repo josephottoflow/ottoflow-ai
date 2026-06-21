@@ -28,9 +28,32 @@ import { ffmpegComposeQueue, type SceneGenerationJobData } from "@/lib/queue";
 import { generateScene } from "@/lib/video-providers/registry";
 import { uploadToR2, isR2Configured } from "@/lib/ffmpeg-pipeline/r2";
 import { buildAiFirstPlan, type AiFirstClip } from "@/lib/ffmpeg-pipeline/orchestrator";
-import type { AgentContext, SourceName } from "@/lib/ffmpeg-pipeline/types";
+import type { AgentContext, SourceName, VideoStrategy } from "@/lib/ffmpeg-pipeline/types";
 
 type Reporter = (step: string, progress: number) => void;
+
+/**
+ * A shared style preamble prepended to EVERY scene prompt so the 4 clips read
+ * as one continuous video (consistent worldview, palette, camera language,
+ * grade) — not four unrelated abstract clips. Paired with a shared seed below.
+ */
+function buildStyleBlock(
+  strategy: VideoStrategy,
+  palette: { primary?: string | null; secondary?: string | null; accent?: string | null } | null | undefined,
+): string {
+  const colors = [
+    palette?.primary && `primary ${palette.primary}`,
+    palette?.secondary && `secondary ${palette.secondary}`,
+    palette?.accent && `accent ${palette.accent}`,
+  ]
+    .filter(Boolean)
+    .join(", ");
+  return [
+    `Consistent visual language across the whole video — ${strategy.brand_worldview}.`,
+    colors ? `Palette: ${colors}.` : "Restrained, cohesive palette.",
+    "Vertical 9:16, steady slow cinematic camera motion, matched lighting, texture and color grade so every scene reads as one continuous piece.",
+  ].join(" ");
+}
 
 function makeCtx(data: SceneGenerationJobData): AgentContext {
   return {
@@ -86,6 +109,12 @@ export async function processSceneGeneration(
     const clips: AiFirstClip[] = [];
     const total = strategy.scenes.length;
 
+    // Cross-scene consistency (Task 3): a shared style preamble + a single shared
+    // seed across all scenes so the clips share look/grade/camera and read as one
+    // video. Per-scene prompts still drive the distinct beat (problem→outcome).
+    const styleBlock = buildStyleBlock(strategy, data.branding?.palette ?? null);
+    const sharedSeed = strategy.scenes[0]?.seed ?? Math.floor(Math.random() * 2 ** 31);
+
     // ─── Resume support (retry-spend protection) ──────────────────────────────
     // A retry of this job MUST NOT re-charge the provider for scenes a prior
     // attempt already generated + stored durably. Load existing scene_generations
@@ -126,10 +155,11 @@ export async function processSceneGeneration(
 
       const result = await generateScene(
         {
-          prompt: scene.prompt,
+          // Shared style preamble + beat-specific prompt (Task 3).
+          prompt: `${styleBlock} ${scene.prompt}`,
           durationSec: scene.durationSec,
           aspectRatio: "9:16",
-          seed: scene.seed,
+          seed: sharedSeed,
           brandIndustry: data.brandIndustry ?? null,
           topicTitle: data.topic,
         },
@@ -180,7 +210,7 @@ export async function processSceneGeneration(
           clip_url: result.url,
           storage_url: storageUrl,
           storage_key: storageKey,
-          seed: String(scene.seed),
+          seed: String(sharedSeed),
           duration_sec: result.durationSec,
           width: result.width,
           height: result.height,

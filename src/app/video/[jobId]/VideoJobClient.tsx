@@ -174,6 +174,9 @@ export function VideoJobClient({ job: initialJob, brand, scenes: initialScenes }
           </div>
         </header>
 
+        {/* Strategy + cost summary (Task 5) */}
+        <StrategyCostSummary job={job} scenesTotal={status.scenesTotal} />
+
         {/* Stuck banner */}
         {status.isStuck && (
           <div className="rounded-xl px-4 py-3 text-2xs flex items-start gap-2"
@@ -289,6 +292,41 @@ export function VideoJobClient({ job: initialJob, brand, scenes: initialScenes }
         )}
       </div>
     </div>
+  );
+}
+
+/** Strategy summary (concept + 4 beats) + cost summary, read off render_jobs.video_strategy. */
+function StrategyCostSummary({ job, scenesTotal }: { job: DbRenderJob; scenesTotal: number }) {
+  const vs = (job as {
+    video_strategy?: {
+      video_concept?: string;
+      scenes?: { role?: string; caption?: string; durationSec?: number }[];
+    };
+  }).video_strategy;
+  if (!vs) return null;
+  const scenes = vs.scenes ?? [];
+  const totalSec = scenes.reduce((a, s) => a + (s.durationSec ?? 5), 0) || scenesTotal * 5;
+  const estUsd = totalSec * 0.1; // seedance standard rate (matches video/cost.ts)
+  return (
+    <section className="rounded-2xl p-4 space-y-3"
+      style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-3xs uppercase tracking-wider text-white/40 font-semibold">Strategy</p>
+        <span className="text-2xs text-white/55">
+          seedance · {scenes.length || scenesTotal} scenes · {totalSec}s · ~${estUsd.toFixed(2)}
+        </span>
+      </div>
+      {vs.video_concept && <p className="text-xs text-white/75 leading-relaxed">{vs.video_concept}</p>}
+      {scenes.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {scenes.map((s, i) => (
+            <Badge key={i} variant="purple" className="text-3xs">
+              {s.role ?? `Scene ${i + 1}`}{s.caption ? ` — ${s.caption}` : ""}
+            </Badge>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 

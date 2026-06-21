@@ -522,6 +522,22 @@ export function VideoGenerateClient({
   return (
     <div className="p-6 max-w-[1200px] mx-auto">
 
+      {/* Legacy notice — this is the older stock-footage (script→voice→footage)
+          generator. The canonical Video V1 path is strategy-driven from a
+          content item's approved creative brief. */}
+      <div
+        className="mb-5 rounded-xl px-4 py-3 flex items-start gap-2 text-2xs"
+        style={{ background: "rgba(245,158,11,0.07)", border: "1px solid rgba(245,158,11,0.22)" }}
+      >
+        <AlertCircle size={14} className="text-amber-400 shrink-0 mt-0.5" />
+        <span className="text-amber-100/85">
+          <span className="font-semibold">Legacy Video Generator</span> (stock footage).
+          The new strategy-driven video is created from a content item — open{" "}
+          <Link href="/content" className="underline hover:text-amber-200">Content Pipeline</Link>,
+          approve a creative, then click <span className="font-medium">Generate Video</span>.
+        </span>
+      </div>
+
       {/* Header */}
       <div className="flex items-center gap-3 mb-8">
         <Link href="/video">
@@ -530,7 +546,7 @@ export function VideoGenerateClient({
           </button>
         </Link>
         <span className="text-white/20">/</span>
-        <span className="text-xs text-cyan-400 font-medium">Generate</span>
+        <span className="text-xs text-amber-400/90 font-medium">Legacy Video Generator</span>
         {/* Cross-link to the social-post generator — this page makes videos;
             written posts live in the content pipeline. */}
         <Link
