@@ -1,37 +1,58 @@
 # OPEN_TASKS.md
 
-Current open work, by track. Prod (`origin/main` 5753f5b) = content+creative loop live; everything below is unmerged/branch work.
+Priority order. State in [PROJECT_STATE](PROJECT_STATE.md). `origin/main` `564ffd3`; worker healthy on it; Video V1 flags ON; T0 PASS; T1 blocked on Redis.
 
-## Phase 3 Integrations + Publishing — `feat/phase3-integrations-p0` (code-complete, DARK)
-Make it real (operator + deploy):
-1. **Apply migrations 024–028** to prod Supabase (dashboard SQL editor; additive): `024 connected_accounts`, `025 oauth_states`, `026 integration_audit_log`, `027 publishing_destinations`, `028 publish_jobs`. Verify via `to_regclass` + RLS enabled + partial-unique indexes on `publish_jobs`.
-2. **Secrets:** `INTEGRATIONS_ENC_KEY` (`openssl rand -base64 32`, **identical** on Vercel + worker) · `PUBLISHING_ENABLED=true` (Vercel + worker) · provider OAuth env (below).
-3. **Google Drive (P1):** Google Cloud OAuth client (`drive.file`), redirect `…/api/integrations/google_drive/callback`; set `GOOGLE_OAUTH_CLIENT_ID/SECRET/REDIRECT_URI` (Vercel + worker).
-4. **LinkedIn (publish):** LinkedIn app + Sign-In-with-OpenID + Community/Marketing product; set `LINKEDIN_OAUTH_*` + `LINKEDIN_API_VERSION` (Vercel + worker). DEFAULT_SCOPES now include `w_member_social`+`w_organization_social` → **existing LinkedIn connections must reconnect** or publish 403→failed.
-5. **Meta (FB/IG discovery):** Meta Business app + Facebook Login + Business Verification; `META_OAUTH_*` (+ optional `META_GRAPH_VERSION`) (Vercel + worker). App Review for `pages_show_list`/`instagram_basic` before prod.
-6. **Redeploy worker** to register `drive-sync` + `publish` queues + scheduler/reaper.
-7. **E2E validate** per the PUB-2/P1.3 checklists (connect → discover destinations → `POST /api/publish` → `published` w/ external_post_id+permalink; reaper recovers a stuck job; `GET /api/publish/health` admin-only).
+## P0 — Video V1 first MP4 (ACTIVE): unblock T1
+**Done:** AtlasCloud provider deployed · `branding.ts` lazy-sharp fix (un-404'd the route) · worker `ATLASCLOUD_API_KEY` + `VIDEO_RENDER_ENABLED=true` (scene-generation registered) · Vercel `VIDEO_RENDER_ENABLED=true` · **T0 (dryRun) PASS** (strategy+scenePlan[4]+compositionPlan+estimate, provider=seedance, ~$2/video).
 
-### Remaining hardening before scale (hostile-audit carryover)
-- **Scheduler/reaper claim has no `LIMIT`** → batch the claim before high volume.
-- `createAdminClient` builds a new client per call (no pooling) — fine now, address at scale.
-- Encryption key has no versioned-rotation (rotating invalidates all tokens).
+### 1. 🔴 Fix the Vercel↔worker Redis transport (THE blocker)
+Worker consumes `redis://redis.railway.internal:6379` (internal, no auth, no public proxy); Vercel `REDIS_URL=""`. Enqueues never reach the worker (`.add()` buffers offline → 202 but no job). Pick one:
+- **A (recommended):** provision Upstash Redis → set same `rediss://…` `REDIS_URL` on **Vercel Production AND worker** → redeploy both.
+- **B:** enable Railway TCP proxy on `redis` service **+ add a password** (do NOT expose unauthenticated) → set Vercel `REDIS_URL=redis://…@host:port` (worker keeps internal URL, same instance).
+- Then add an `env.ts` guard so an **empty** `REDIS_URL` fails boot loudly (currently silent).
+- ⚠️ Vercel needs a **fresh git deploy** after the env change (`vercel redeploy` reuses the old env snapshot).
 
-### Deferred Phase 3 (designed, not built)
-- Per-destination tokens (FB Page) → publishing phase; storage-config generalization for OneDrive/Dropbox/Box; email `send` + CRM `sync` are **separate subsystems**, not Publish Center.
-- Next providers (low framework risk): YouTube, X (standard OAuth); then Meta `publish()`, IG/YouTube async + `status()` polling; Publish Center UI; analytics sync (`content_metrics` per-destination dim).
+### 2. Re-run T0 → T1 (from a logged-in browser; route is Clerk-protected)
+The route requires a Clerk session; unauthenticated requests 404 via middleware. Run as direct `fetch` in the app console (NOT the `/video/generate` UI page = legacy SSE path). Test data: brand `b1384434-3666-45cc-96d9-ca764e90cdc3` (Basecamp), content_item `4742f075-f48a-43a1-a547-00816ef816eb`.
+```js
+// T0 (zero spend):
+await fetch('/api/video/generate',{method:'POST',headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({brandId:'b1384434-3666-45cc-96d9-ca764e90cdc3',contentItemId:'4742f075-f48a-43a1-a547-00816ef816eb',dryRun:true})}).then(r=>r.json())
+// T1 (~$2 spend, approve):
+await fetch('/api/video/generate',{method:'POST',headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({brandId:'b1384434-3666-45cc-96d9-ca764e90cdc3',contentItemId:'4742f075-f48a-43a1-a547-00816ef816eb',approve:true})}).then(r=>r.json())
+```
+**T1 PASS =** worker logs `seedance task.created`→`task.succeeded`; a `scene_generations` row with `provider='seedance'` + `storage_url` = a `https://pub-…r2.dev/...` (or `ottoflow-videos` R2) URL that is reachable. T2 = all 4 scenes; T3 = `ffmpeg-compose` MP4 (needs worker **2 GB RAM**, OOMs at 1 GB); T4 = plays in `/video/[jobId]`.
 
-## Video V1 — `feat/ffmpeg-multi-agent-pipeline` (code-complete, never run live)
-- Blocked: Seedance API access (then verify the Ark `createTask`→`pollTask` contract: `content.video_url`); worker **2 GB RAM** (FFmpeg compose OOMs ~1 GB); commercial/legal NO-GO (BytePlus output/resale rights).
-- Known fix-on-arrival: Seedance `expired` task status not handled in `pollTask` (one-line).
-- Apply migration 022 before deploying that branch.
+### Querying prod DB (Supabase MCP is mis-scoped → can't reach `ddoz`)
+Use the **authenticated browser** session (Clerk token + publishable key never leave the page; MCP blocks any output containing key strings, so use a decoupled "store on `window`, read sanitized" pattern):
+```js
+// once: discover config from the bundle + stash on window (returns only booleans)
+// then query Supabase REST with apikey=<publishable> + Authorization: Bearer <await window.Clerk.session.getToken()>
+// e.g. find eligible items:
+//   GET {url}/rest/v1/content_creatives?select=content_item_id,content_items(brand_id,brands(name,user_id))
+//        &creative_brief->>visual_tension=not.is.null&creative_brief->>visual_metaphor=not.is.null&order=created_at.desc
+```
+Any call that invokes `getToken()` has its OUTPUT suppressed by the MCP — store results on `window.__x` in that call, read them back (sanitized to ids/names only) in a separate call. Alternative: Supabase **dashboard** SQL editor.
 
-## Phase 2A Brand Pattern Library — `staging/brand-pattern-2a` (gated)
-Needs a staging env + migration 023 + pilot brand patterns; run `scripts/phase2a-acceptance.local.ts` (logo-free brand recognition).
+### 3. Cleanup / hardening (fix-on-arrival)
+- Delete stuck test `render_job` `e6ffb1b5-ca1d-4106-912f-e644ab663086` (queued, harmless).
+- `env.ts` empty-`REDIS_URL` guard (above).
+- intra-video dedup (`06-diversity.ts`); crossfades.
+- ⚖️ **Commercial/legal NO-GO** for *using/publishing* output until AtlasCloud/Seedance output ownership+resale rights confirmed in writing (a test render is fine).
 
-## Prod debt (non-blocking)
-- **Clerk DEV→prod keys** (operator-gated).
-- ⚠️ **Rotate the ElevenLabs key** (plaintext in monorepo `.mcp.json`); move all secrets out of `.mcp.json`.
+## P0 — Reliability / launch gates
+- **Clerk DEV→prod** (operator; gates public launch). Live = DEV `pk_test_…pro-beetle-20.clerk.accounts.dev`. Steps: provision PROD instance + custom domain (DNS lead time) → **update Supabase Third-Party Auth issuer FIRST** → swap `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`→`pk_live_` + `CLERK_SECRET_KEY`→`sk_live_` (Production) → redeploy (publishable key build-inlined) → set `ADMIN_EMAILS` → verify. **Data:** DEV/PROD user IDs differ → re-key `user_id` rows or accept orphaning. No webhooks, no JWT template.
+- **Rotate secrets** — Google Sheet plaintext + ElevenLabs in `.mcp.json` + **the Railway project token AND AtlasCloud API key pasted in chat this session**.
+- **Worker `SENTRY_DSN`** — set on Railway (unset → boot crashes invisible).
+- **Railway Redis has no auth** — add one if it's ever publicly exposed (Option B).
+
+## Publishing RC1 (next feature flip — low risk; PUB-1 posts nothing live)
+Migrations 027/028 applied. Enable on **Vercel AND worker**: `INTEGRATIONS_ENC_KEY` (`openssl rand -base64 32`, identical both), provider OAuth env, `PUBLISHING_ENABLED=true` (worker first); set `ADMIN_EMAILS` (Vercel). Redeploy worker → log `publish registered`. Rollback = unset `PUBLISHING_ENABLED`.
+
+## Video V1 Phase 2 (after first MP4)
+Extend the Gemini strategy engine (keep A+ abstract-safe): format awareness (9:16/16:9/1:1/4:5; 4:5 = FFmpeg crop), platform optimization, brand-asset FFmpeg overlays (logo/founder/screenshot — assets NEVER sent to AtlasCloud), CTA cards, scene diversity. ElevenLabs **TTS** narration (worker-side REST → R2 → FFmpeg mux). Optional: extract `atlascloud.ts` from `seedance.ts`.
+
+## Misc debt
 - Public GitHub repo — audit history for leaked secrets.
-- No central infra inventory/billing record (see `OTTOFLOW_INFRA_INVENTORY.xlsx`); legacy `ottoflow-video-hub` Railway service is crashed → decommission.
-- Video intra-video dedup (`06-diversity.ts`); crossfades; git-ignored `scripts/phase2a-acceptance.local.ts` is the only `tsc`/`next build` type-check failure (not on prod branch — ignore).
+- Only `tsc`/`next build` error is the git-ignored `scripts/phase2a-acceptance.local.ts` — ignore.

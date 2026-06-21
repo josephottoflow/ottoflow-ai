@@ -1,41 +1,39 @@
 # DECISIONS.md
 
-Current decisions only. Superseded approaches noted in one line, not expanded.
+Current decisions only. Superseded approaches noted in one line.
 
-## Integrations framework (Phase 3)
-- **Generic provider framework, not per-provider trees.** One `ProviderDefinition` (registry) drives generic `[provider]` routes + token service. Adding a provider = a module + a registry line. Validated across three OAuth shapes: standard-refresh (Google), client-cred revoke (LinkedIn), long-lived exchange (Meta).
-- **Single dynamic route segment `[provider]`.** Next.js allows only one slug name per level → OAuth sub-routes key by provider, account sub-routes (DELETE/destinations) by id, same segment. Keeps all existing URLs (incl. the Google redirect URI) byte-identical.
-- **Ownership = `user_id`** (Clerk id). Ottoflow has **no workspace/tenant table**; the user is the isolation boundary. Optional `brand_id` for per-brand scoping; reserved nullable `workspace_id` (unused).
-- **Optional hooks, generic fallback.** `refresh`/`revoke` override the RFC-6749 defaults; `exchangeToken` (Meta short→long-lived) runs in the generic callback before account creation (short-lived tokens never stored); `enumerateDestinations` returns the generic `Destination[]`.
-- **Meta = ONE connection** surfacing both `facebook_page` + `ig_business` (IG Business is reached via Facebook Login + a linked Page; there is no separate IG-Business OAuth). Meta refresh = re-exchange (stores the long-lived token as the refresh anchor, rolled on refresh).
-- **Tokens AES-256-GCM at rest** (`INTEGRATIONS_ENC_KEY`, AAD `provider:userId`); never in queue payloads or client; secret-bearing tables are service-role-only (RLS, no client policies). Audit writes are token/JWT-redacted.
+## Video V1 — AtlasCloud via seedance.ts rewrite (2026-06-20)
+- **Provider = AtlasCloud Seedance 2.0, not BytePlus.** Funded $25 credit is on **AtlasCloud** (`api.atlascloud.ai`). SUPERSEDED: original BytePlus/Volcengine ModelArk target (incompatible with AtlasCloud's flat JSON + Cloudflare browser-UA requirement).
+- **Option B — rewrite `seedance.ts` internals in place** (keep `name="seedance"` + export surface). One file changed; registry/scene-gen/cost/types/route unchanged. `atlascloud.ts` extraction deferred to Phase 2 (naming only).
+- **Contract:** `POST /api/v1/model/generateVideo` (Bearer + browser UA) `{model:"bytedance/seedance-2.0/text-to-video",prompt,duration,resolution,ratio,generate_audio:false,watermark:false}` → `{data:{id}}`; poll `GET /api/v1/model/prediction/{id}` → `data.status` (completed|succeeded) → `data.outputs[0]`. ~$0.10/s.
+- **A+ "abstract-safe" direction.** AtlasCloud generates environments/motion ONLY — no AI founder/avatar/talking-head, no AI logos. Brand logo/founder/CTA = deterministic FFmpeg overlays (Phase 2), assets never sent to a model.
+- **Cost-approval gate kept.** `/api/video/generate` requires `approve:true` (returns estimate otherwise); `dryRun:true` builds strategy+plan, zero spend. Deliberate manual step — do not auto-remove.
 
-## Publishing (Phase 3, flag-dark)
-- **`publish_jobs` is the per-destination source of truth** (fan-out: 1 content item → N jobs); the 015 `content_items` publishing columns are a denormalized "primary publish" cache. `publishing_destinations` is a write-through cache (P3.1c discovery still authoritative).
-- **At-most-once over at-least-once.** `attempts:1`, compare-and-set claim (`queued`→`publishing`), `external_post_id` guard; ambiguous/post_send failures → `needs_review` (manual reconcile, **never auto re-post**). LinkedIn has no idempotency key → enforced upstream.
-- **DB is the scheduler**, not BullMQ delayed jobs (Redis-eviction-safe): atomic `scheduled`→`queued` claim sweep under a **Redis distributed lock** (single-instance); a reaper recovers stuck `publishing` jobs.
-- **Idempotency = unique-partial index** on `(content_item_id, publishing_destination_id)` over non-terminal statuses (dedupe in-flight, allow re-publish after terminal) + optional `client_request_id`.
-- **No `publish_attempts` table** — capped `attempts` jsonb on the job (YAGNI until volume).
-- **Dark-launch:** `PUBLISHING_ENABLED` gates API + worker + scheduler; off in prod by default.
+## sharp must be lazy on Vercel (2026-06-20)
+- **`branding.ts` imports `sharp` lazily inside `renderCtaCard`**, not at module top. A top-level `import sharp from "sharp"` crashed `/api/video/generate` at module-init (`Could not load the sharp module`) because the route transitively imports it (route → orchestrator → agent11 → branding) — a hard 500 before the handler ran. sharp executes worker-only. Generalizes the standing "sharp unreliable on Vercel" rule: **never let sharp (or ffmpeg native deps) load at import time in a Vercel route's graph.**
 
-## Creative Orchestrator
-- **Two-layer, safety-first.** AI does strategy + background ONLY; uploaded brand assets are locked/immutable and **never touch a model**; composited deterministically with `sharp` (resize/crop/mask/position whitelist).
-- **Approval gate before Imagen** (`generating` reachable only from `approved`).
-- **Deterministic hierarchy priority** `founder_led > data_led > quote_led > brand_led` (not score-ranked); scores only drive the confidence display; `<0.55` forces brand_led.
-- **Creative Brief jsonb = source of truth**; `creative_hierarchy`+`creative_confidence` denormalized for attribution. Topic→visual_tension→visual_metaphor precedes the background prompt. Platform-native px (1200×627/1200×630/1600×900/1080×1350).
+## Redis transport — must be one shared, reachable instance (2026-06-20, OPEN)
+- Worker consumes `redis://redis.railway.internal:6379` (Railway-internal, no auth, no public proxy). Vercel `REDIS_URL=""`. **Not shared** → Vercel enqueues never reach the worker (BullMQ `.add()` buffers offline, route still 202s). This blocks T1.
+- **Decision pending (operator):** Option A shared **Upstash** (recommended — TLS+auth, reachable by both) vs Option B Railway TCP proxy + password. Set the SAME `REDIS_URL` on both surfaces either way. Add an `env.ts` guard so empty `REDIS_URL` fails boot loudly.
 
 ## Video composition
-- **ADR-001 Hybrid Remotion — REVERSED** (Remotion+Chrome OOM'd ~800 MB on the 1 GB worker).
-- **ADR-002 (current): FFmpeg 12-agent pipeline.** Validation showed 4 scenes → 2 unique clips (no intra-video dedup in `06-diversity.ts`). Decision: **keep FFmpeg**, add the cheap intra-video dedup; do not re-adopt Remotion.
-- **Video V1 = Seedance→FFmpeg** (text-to-video provider via the registry). Customer-facing use NOT authorized until BytePlus confirms (in writing) output ownership, resale rights, competing-offering clause, and pricing — engineering fit is fine; the block is commercial/legal.
+- **ADR-002 FFmpeg 12-agent pipeline** is the permanent render backend. SUPERSEDED: ADR-001 Hybrid Remotion (OOM'd at 1 GB). Provider-agnostic — works on clip URLs. Customer-facing video NOT authorized until output ownership/resale rights confirmed in writing.
 
 ## Platform / infra
-- **Migrations-first deploy order.** Apply the migration BEFORE pushing whenever code WRITES a new column. DDL via Supabase dashboard SQL editor (no CLI/token on the machine). Additive-only, idempotent (`IF NOT EXISTS`/`OR REPLACE`).
-- **Migration numbering:** prod = 001–021. 022 (Video V1) on `feat/ffmpeg`; 023 (brand_patterns) on `staging`; 024–028 (integrations+publishing) on `feat/phase3-integrations-p0` — none applied yet.
-- **BullMQ custom jobIds: no `:`** (use hyphens). **Imagen: no `seed` config** (text generateContent accepts it; image generateImages rejects it). **Embeddings:** `gemini-embedding-001` @768-dim L2-normalized.
-- **sharp on Vercel: don't depend on it loading** — upload route validates by magic bytes + lazy `await import("sharp")`; keep `serverExternalPackages:["sharp"]` + the linux lockfile entry. Worker runs sharp fine.
-- **Verify from real state (git/API/DB), never assertions.** "It's deployed/upgraded/pushed" reports have repeatedly been false — trust the dashboard/`git status`/DB catalog.
-- **Lazy env for new optional integrations** — provider OAuth + `INTEGRATIONS_ENC_KEY` + `PUBLISHING_ENABLED` are read on use, NOT in `env.ts`, so prod boots without them (dark).
+- **Migrations-first deploy.** Apply DDL BEFORE pushing code that writes a new column. Supabase dashboard SQL editor (no CLI/token). Additive-only, idempotent. Applied: **001–028**.
+- **Deploy from `main`.** Vercel + Railway both track `main`. `git push origin HEAD:main`. Gates before push: `npx tsc --noEmit` (ignore git-ignored `phase2a-acceptance.local.ts`) + `npm run build:worker`.
+- **`vercel redeploy` reuses the old env snapshot** — to apply a new/changed Vercel env var, trigger a **fresh git deploy** (e.g. push to main). `vercel promote`/`alias set` alone won't help.
+- **Verify from real state (git/API/DB/`railway logs`/`vercel` CLI), never assertions** — "deployed/set" reports have repeatedly been false. Unauthenticated `curl` of app routes is NOT a valid flag probe (Clerk middleware 404s all anon).
+- **Worker requires `NEXT_PUBLIC_SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` + `REDIS_URL` + `GOOGLE_API_KEY`** (boot Step-2 hard-fails without them). No Clerk vars (service-role bypasses RLS).
+- **BullMQ jobIds: no `:`**. **Imagen: no `seed`**. **Embeddings:** `gemini-embedding-001` @768 L2-normalized.
+- **Cloudflare-fronted AtlasCloud blocks non-browser clients** (403/1010) → browser User-Agent header.
+
+## Auth (Clerk → Supabase Third-Party Auth)
+- **Native TPA, no JWT template, no webhooks.** Clerk default session JWT → Supabase verifies via Clerk JWKS; RLS keys on `sub`. Migrating DEV→PROD changes the issuer → update Supabase TPA provider AND re-key data. Domain allowlist + admin gate are email-based (`ALLOWED_EMAIL_DOMAINS`, `ADMIN_EMAILS`) → survive migration.
+- **`src/middleware.ts` `auth.protect()` 404s all unauthenticated requests.** T0/T1 (and any prod-DB query under RLS) require a logged-in browser session; cannot be run headless.
+
+## Integrations / Publishing (Phase 3, flag-dark)
+- Generic provider framework (registry + one `ProviderDefinition` per provider). Ownership=`user_id`. Tokens AES-256-GCM (`INTEGRATIONS_ENC_KEY`, identical app+worker). **At-most-once** publishing (`attempts:1`, CAS claim, `external_post_id` guard; ambiguous→`needs_review`). **DB is the scheduler** (Redis-lock sweep).
 
 ## Standing constraints
-Commits authored `josephottoflow` + `Co-Authored-By: Claude`. **Never `git add -u`/`git add .`** — stage explicit paths (avoids sweeping DO-NOT-COMMIT stragglers + the git-ignored `*.local.ts`). Local gates before deploy: `npx tsc --noEmit` (ignore the one git-ignored `phase2a-acceptance.local.ts` error) + `npm run build:worker`. Local `next build` fails type-check only on that same git-ignored script.
+Commits authored `josephottoflow` + `Co-Authored-By: Claude`. **Never `git add -u`/`git add .`** — explicit paths. **Secrets entered by the operator**, never the assistant, unless the operator explicitly authorizes a specific secret-set. Flip a dark flag on **both** Vercel + worker (worker first); rollback = unset.

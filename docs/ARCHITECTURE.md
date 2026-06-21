@@ -1,56 +1,57 @@
 # ARCHITECTURE.md
 
+All components merged in `origin/main` (`564ffd3`). Publishing dark by unset flag; Video V1 flag-on but blocked on Redis transport (see [PROJECT_STATE](PROJECT_STATE.md)). Rationale in [DECISIONS](DECISIONS.md).
+
 ## Topology
-- **Web/API — Vercel** (Next.js 15 App Router). UI + `src/app/api/*`. All *synchronous* work (auth, DB, brief composition, OAuth flows, enqueue).
-- **Worker — Railway** (`worker/index.ts`, esbuild → `worker/dist/index.js`, `npm run start:worker`). All *async/heavy* work via BullMQ.
-- **Redis** — BullMQ broker + distributed lock (`REDIS_URL`). Shared app↔worker.
-- **Supabase** — Postgres (RLS by Clerk JWT `sub` via `current_clerk_user_id()`), Storage (public buckets), Realtime.
-- **Clerk** — auth (DEV keys in prod — debt). **Cloudflare R2** — render/asset object store (worker, SigV4 over fetch).
-- **Gemini** (`@google/genai`): `gemini-2.5-flash` (text), `gemini-embedding-001` @768-dim L2-normalized (vectors), `imagen-4.0-fast-generate-001` (images). `GOOGLE_API_KEY`.
+- **Web/API — Vercel** (Next.js 15 App Router). UI + `src/app/api/*`. Synchronous only (auth, DB, brief composition, Gemini strategy, OAuth, **enqueue**). Must not load native modules (sharp/ffmpeg) at import time.
+- **Worker — Railway** service `ottoflow-video-hub` (`worker/index.ts`, esbuild → `worker/dist/index.js`, `npm run start:worker`). All async/heavy work via BullMQ. nixpacks installs `ffmpeg-full` + fonts + chromium. Node 22, **single replica** (do NOT scale >1).
+- **Redis** — BullMQ broker + distributed lock. ⚠️ **Worker uses `redis://redis.railway.internal:6379` (internal, no auth, no public proxy); Vercel `REDIS_URL` is empty.** They do NOT currently share a reachable Redis → Vercel enqueues never reach the worker. Fix = one shared Redis (Upstash recommended) on both surfaces.
+- **Supabase** `ddozknywcdpyfdokmfrp` — Postgres (RLS by Clerk JWT `sub` via `current_clerk_user_id()`), Storage, Realtime (unreliable on content tables → ~2.5s polling fallback).
+- **Clerk** — auth via **Supabase Third-Party Auth** (Clerk session JWT verified through Clerk JWKS; no JWT template, no webhooks). DEV keys in prod (debt). `src/middleware.ts` runs `auth.protect()` on all non-public routes → unauthenticated requests get `notFound()` (404), not a redirect.
+- **Cloudflare R2** — render/scene-clip store (worker, SigV4 over fetch). Bucket `ottoflow-videos`, account `4b53de9208a4ecc628a9bad59b2272e4`.
+- **Gemini** (`@google/genai`): `gemini-2.5-flash` (text), `gemini-embedding-001` @768-dim L2-normalized, `imagen-4.0-fast-generate-001`. `GOOGLE_API_KEY`.
+- **AtlasCloud** — Seedance 2.0 text-to-video (worker scene generation).
 
 ## Request → work split
-Route handler does auth + validation + DB, then **enqueues a BullMQ job**; the worker processes it and writes status back; client subscribes via Supabase Realtime (content tables fall back to polling — Realtime unreliable there).
+Route does auth + validation + DB + (for video) the Gemini strategy, then **enqueues a BullMQ job**; worker processes + writes status; client polls/subscribes.
+
+## Worker boot order (`worker/index.ts` — do not reorder)
+1. dotenv → **2. `worker-env` validation (throws+exits if `NEXT_PUBLIC_SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`/`REDIS_URL`/`GOOGLE_API_KEY` missing)** → 3. Sentry init (no-op if `SENTRY_DSN` unset) → 4. BullMQ → 5. Redis logger → 6. stuck-job sweep (5 min; covers brand/content/merge — **NOT scene-generation**) → 7. Workers + signal handlers.
 
 ## Worker queues (`src/lib/queue.ts`; `Worker` instances in `worker/index.ts`)
-| Queue | Processor | Purpose |
+| Queue | Purpose | Gating |
 |---|---|---|
-| `brand-research` | `processBrandResearch` | Gemini research → evidence + embeddings |
-| `content-generation` | `processContentGeneration` | post body from brand+topic |
-| `video-merge` | `processVideoMerge` | legacy Pexels+narration+music merge |
-| `ffmpeg-compose` | `processFfmpegCompose` | ADR-002 12-agent video compose+QC |
-| `creative-generation` | `processCreativeGeneration` | Imagen bg → validate → sharp composite → storage |
-| `drive-sync` | `processDriveSync` | copy creative/video to user's Google Drive (Phase 3) |
-| `publish` | `processPublish` | publish one `publish_job` to its destination (Phase 3, flag-gated) |
+| `brand-research` | Gemini research → evidence + embeddings | always |
+| `content-generation` | post body from brand+topic | always |
+| `creative-generation` | Imagen bg → validate → sharp composite → storage | always |
+| `video-merge` | legacy Pexels+narration+music merge | always |
+| `ffmpeg-compose` | ADR-002 12-agent compose+QC → R2 | always |
+| `drive-sync` | copy creative/video to user's Drive | always |
+| `publish` | publish one job to its destination | only if `PUBLISHING_ENABLED` |
+| `scene-generation` | Video V1: provider clip per scene → R2 → CompositionPlan → enqueue `ffmpeg-compose` | only if `VIDEO_RENDER_ENABLED` (**registered now**) |
 
-Plus two worker intervals (flag-gated, Redis-locked single-instance): **publish scheduler** (30s; `scheduled`→`queued` atomic claim) and **publish reaper** (5m; stuck `publishing`→`needs_review`). BullMQ: `attempts:2` default (publish uses `attempts:1`). **Custom jobIds must NOT contain `:`** → use hyphens.
+BullMQ default `attempts:2` (publish/scene-gen use `attempts:1`). **Custom jobIds must NOT contain `:`** → hyphens.
 
 ## Intelligence loop (V2) — LIVE
-research_runs/research_documents (pgvector 768 + HNSW + FTS, content-hash dedupe) → brand_topics (`source='evidence-mined'`, grounded_on) → content_items (status machine draft→in_review→approved/rejected→scheduled→published; status_history jsonb) → content_metrics (snapshots; engagement_rate frozen at write) → recommendations (`src/lib/recommendations.ts`, pure rule engine).
+research_runs/research_documents (pgvector 768 + HNSW + FTS, content-hash dedupe) → brand_topics (`source='evidence-mined'`) → content_items (status machine) → content_metrics → recommendations (`src/lib/recommendations.ts`, pure rule engine).
 
-## Creative Orchestrator (`src/lib/creative/`) — LIVE, two-layer safety-first
-- **hierarchy.ts** — pure engine; deterministic priority `founder_led > data_led > quote_led > brand_led`; blended confidence (display) `<0.55` forces brand_led.
-- **brief.ts** `composeCreativeBrief` — ranks hierarchy + ONE Gemini concept call (asset *descriptions* only) → Zod `CreativeBrief` jsonb (source of truth: hierarchy, confidence, visual_tension, visual_metaphor, concept, headline/subheadline/cta, background_prompt, usage, palette). Background prompt guarded vs forbidden tokens → deterministic gradient fallback.
-- **gemini.ts** — `generateCreativeConcept` (text incl. visual_tension/metaphor), `generateCreativeBackground` (Imagen, **background only**, no `seed`), `validateGeneratedBackground` (multimodal; ≤3 attempts then sharp fallback).
-- **compositor.ts** — deterministic `sharp` **whitelist: resize/crop/circular-mask/position** + SVG typography + scrim. Platform-native px: LinkedIn 1200×627, FB 1200×630, X 1600×900, IG 1080×1350.
-- **Safety invariants:** uploaded logo/headshot bytes are immutable, never sent to any model; Imagen = background only; compositor never enhances/recolors/regenerates; image-gen reachable only from an `approved` brief.
+## Creative Orchestrator (`src/lib/creative/`) — LIVE, two-layer, safety-first
+- **hierarchy.ts** deterministic priority `founder_led>data_led>quote_led>brand_led`; `<0.55` → brand_led.
+- **brief.ts** `composeCreativeBrief` → Zod `CreativeBrief` jsonb (hierarchy, visual_tension, visual_metaphor, concept, headline/cta, background_prompt, palette).
+- **gemini.ts** Imagen background only (no `seed`); `validateGeneratedBackground` (≤3 attempts → deterministic sharp gradient fallback; `background_source` imagen|fallback).
+- **compositor.ts** deterministic `sharp` whitelist + SVG typography + scrim.
+- **Invariants:** uploaded logo/headshot bytes immutable, never sent to a model; Imagen = background only; image-gen reachable only from an `approved` brief.
 
-## Integrations framework (Phase 3, `src/lib/integrations/`) — branch only
-- **registry.ts** — single provider lookup (`getProvider`/`getOAuthProvider`). **providers/{google-drive,linkedin,meta,meta-oauth,instagram}.ts** + **types.ts** (`ProviderDefinition` with optional hooks: `enumerateDestinations`, `refresh`, `revoke`, `exchangeToken`, `publish`, `uploadMedia`, `status`; `Destination`, `MediaSpec`, `PublishError{phase}`).
-- **oauth.ts** — generic auth-code(+PKCE) build/exchange/refresh/revoke (`scopeSeparator`, `authParams` per provider).
-- **accounts.ts** — sole reader/writer of `connected_accounts` (service-role + user_id filter); encrypt-at-rest, `getValidAccessToken` (refresh via provider hook or generic; rolls Meta anchor), `disconnectAccount`, `logIntegrationAudit` (deep token/JWT redaction).
-- **encryption.ts** — AES-256-GCM, `INTEGRATIONS_ENC_KEY`, `v1.iv.tag.ct`, AAD `provider:userId`.
-- **Routes:** `src/app/api/integrations/[provider]/{connect,callback,folders,destinations}` + `[provider]` DELETE + `/api/integrations` (list) + `/api/drive/save`. UI: `/settings/integrations` (Drive/LinkedIn/Meta cards, connect/disconnect/discover-destinations).
-- **Ownership = `user_id`** (no workspace table). Secret-bearing tables (`connected_accounts`, `oauth_states`, `publishing_destinations`) are RLS-enabled with **no client policies** (service-role only).
+## Video pipeline (Video V1, AI-first) — merged, flag-on, blocked on Redis
+`POST /api/video/generate` (Vercel): reads creative brief (visual_tension/metaphor/cta/palette) → `buildVideoStrategy` (1 Gemini call → 4-beat arc problem/tension/solution/outcome, abstract-safe 9:16 prompts; brand assets NEVER described) → dryRun/cost-approval gate → `render_jobs` (`render_kind='ai-first'`) + enqueue `scene-generation`.
+⚠️ The `/video/generate` **UI page** drives the *legacy* `/api/generate` SSE path, NOT this route — invoke T0/T1 by direct `fetch`, not that UI.
+Worker `scene-generation`: per scene `registry.generateScene({preferProvider:"seedance"})` → copy clip to **R2** (durability gate fails fast if R2 unconfigured) → upsert `scene_generations` → `buildAiFirstPlan` → enqueue `ffmpeg-compose`.
+- **Provider registry** (`src/lib/video-providers/`): `getChain()` — live `[Seedance, (Runway?), (Luma?), Pexels]`. **`seedance.ts` targets AtlasCloud Seedance 2.0** (`name="seedance"`): `POST api.atlascloud.ai/api/v1/model/generateVideo` (Bearer + browser UA for Cloudflare) `{model:"bytedance/seedance-2.0/text-to-video",prompt,duration,resolution,ratio,generate_audio:false,watermark:false}` → `{data:{id}}`; poll `GET /api/v1/model/prediction/{id}` → `data.status` (completed|succeeded) → `data.outputs[0]`. Reads `ATLASCLOUD_*` (SEEDANCE_* fallback). Provider-agnostic downstream — FFmpeg/R2 only see clip URLs.
+- **branding.ts** (`renderCtaCard`, `fetchLogoBytes`): deterministic FFmpeg overlay assets. **Imports `sharp` lazily inside `renderCtaCard`** — top-level import crashes the Vercel route at module-init (route → orchestrator → agent11 → branding). sharp runs worker-only.
+- **ffmpeg-compose** (ADR-002): 12 agents (`src/lib/ffmpeg-pipeline/agents/01..12`), multi-pass FFmpeg, libass captions, QC + bounded 1-pass regen → R2 (primary) / Drive (fallback) → `render_jobs.merged_video_url`. Needs **2 GB RAM** (OOMs at 1 GB). Known defect: `06-diversity.ts` no intra-video uniqueness.
 
-## Publishing layer (Phase 3, branch only, flag-gated `PUBLISHING_ENABLED`)
-`src/lib/publishing/{flags,jobs,lock}.ts` + `worker/processors/publish.ts` + `src/app/api/publish/{route,[id],health}`.
-- `publish_jobs` = per-destination fan-out + denormalized destination snapshot + capped `attempts` jsonb; `publishing_destinations` = write-through cache (P3.1c discovery still authoritative).
-- **At-most-once:** compare-and-set claim (`queued`→`publishing`) + `external_post_id` guard + `attempts:1`; failures classified `pre_send→failed` / `post_send|unknown→needs_review` (never auto re-post).
-- **Scheduler** = DB atomic claim (no BullMQ delay) under a Redis lock; **reaper** recovers orphans; both single-instance.
-- LinkedIn `publish()` (text + single image; personal + company; `/rest/posts`+`/rest/images`) is the only live publisher.
+## Integrations + Publishing (`src/lib/integrations/`, `src/lib/publishing/`) — merged, dark
+Generic `ProviderDefinition` registry (google-drive/linkedin/meta) + `[provider]` routes; OAuth (auth-code+PKCE); tokens AES-256-GCM at rest (`INTEGRATIONS_ENC_KEY`, AAD `provider:userId`); ownership=`user_id`. `publish_jobs` per-destination; at-most-once (CAS claim + `attempts:1` + `external_post_id` guard; ambiguous→`needs_review`); DB-driven scheduler + reaper, Redis-locked. PUB-1 posts nothing live.
 
-## Storage buckets (Supabase, public-read, service-role writes)
-`merged-videos` (004) · `brand-assets` (017) · `content-creatives` (018). Renders/scene clips → Cloudflare R2 (`ottoflow-renders`).
-
-## Video (ADR-002, separate branch, RAM-blocked)
-12 FFmpeg agents (`src/lib/ffmpeg-pipeline/agents/01..12`). Video V1 adds a Seedance provider + `scene-generation` queue on `feat/ffmpeg-multi-agent-pipeline`. Known defect: `06-diversity.ts` lacks intra-video uniqueness → repeated footage. See [DECISIONS.md](DECISIONS.md).
+## Storage buckets (Supabase public-read, service-role writes)
+`merged-videos` · `brand-assets` · `content-creatives`. Renders/scene clips → Cloudflare R2 (`ottoflow-videos`).
