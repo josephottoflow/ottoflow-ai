@@ -19,6 +19,7 @@ import { getVideoGeneration } from "@/lib/db-video";
 import { getBrand } from "@/lib/db-brands";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { VideoDetailClient } from "./VideoDetailClient";
+import { VideoJobClient } from "./VideoJobClient";
 import type { DbSceneGeneration } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -45,11 +46,14 @@ export default async function VideoDetailPage({
     .order("scene_number", { ascending: true });
   const scenes = (sceneRows ?? []) as DbSceneGeneration[];
 
-  return (
-    <VideoDetailClient
-      job={job}
-      brand={brand ? { id: brand.id, name: brand.name } : null}
-      scenes={scenes}
-    />
-  );
+  const brandRef = brand ? { id: brand.id, name: brand.name } : null;
+
+  // ai-first renders (render_kind='ai-first', migration 022) get the live
+  // status view; legacy /api/generate jobs keep the script/storyboard view.
+  const renderKind = (job as { render_kind?: string | null }).render_kind;
+  if (renderKind === "ai-first") {
+    return <VideoJobClient job={job} brand={brandRef} scenes={scenes} />;
+  }
+
+  return <VideoDetailClient job={job} brand={brandRef} scenes={scenes} />;
 }
