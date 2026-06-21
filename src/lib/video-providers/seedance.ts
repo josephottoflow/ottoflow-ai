@@ -54,7 +54,9 @@ const DEFAULT_UA =
   "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 const USER_AGENT = process.env.ATLASCLOUD_USER_AGENT ?? DEFAULT_UA;
 const POLL_INTERVAL_MS = 4_000;
-const POLL_TIMEOUT_MS = 180_000; // Seedance typical 30–120s; 180s headroom.
+// Live runs show AtlasCloud Seedance often exceeds 180s under load → scenes were
+// falling through to Pexels. 360s keeps generation on Seedance. Env-overridable.
+const POLL_TIMEOUT_MS = Number(process.env.ATLASCLOUD_POLL_TIMEOUT_MS) || 360_000;
 
 /** Read the API key (ATLASCLOUD_* primary, SEEDANCE_* fallback). */
 function apiKey(): string | undefined {
