@@ -17,7 +17,7 @@
  * the exact reason beneath it — never a dead, unexplained button. The route
  * enforces the same requirement server-side, surfaced inline as a backstop.
  */
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Clapperboard, Loader2 } from "lucide-react";
@@ -53,12 +53,16 @@ export function AiFirstVideoButton({
   const [estimate, setEstimate] = useState<RenderCostEstimate | null>(null);
   const [strategy, setStrategy] = useState<StrategySummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Synchronous in-flight guard: blocks duplicate dryRun/approve from rapid
+  // double-clicks BEFORE React re-renders + disables the button (state lags a click).
+  const inFlight = useRef(false);
 
   const gated = !!disabledReason;
   const busy = phase === "estimating" || phase === "approving";
 
   async function onEstimate() {
-    if (gated) return;
+    if (gated || inFlight.current) return;
+    inFlight.current = true;
     setPhase("estimating");
     setError(null);
     try {
@@ -77,10 +81,14 @@ export function AiFirstVideoButton({
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setPhase("idle");
+    } finally {
+      inFlight.current = false;
     }
   }
 
   async function onApprove() {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setPhase("approving");
     setError(null);
     try {
@@ -93,10 +101,14 @@ export function AiFirstVideoButton({
       if (!res.ok || !json.renderJobId) {
         throw new Error(json.error ?? `Request failed (${res.status})`);
       }
+      // Leave inFlight=true on success: we're navigating away; never allow a
+      // second approve (= second render_job + second spend) to slip through.
       router.push(`/video/${json.renderJobId}`);
+      return;
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setPhase("review"); // keep the modal open so the user sees the error + can retry
+      inFlight.current = false;
     }
   }
 
