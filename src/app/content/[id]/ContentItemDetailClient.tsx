@@ -88,9 +88,11 @@ function formatRelative(iso: string): string {
 interface Props {
   item: DbContentItem;
   brandName: string | null;
+  /** Task 2 gating: when set, the Generate Video button is disabled with this reason. */
+  videoDisabledReason?: string | null;
 }
 
-export function ContentItemDetailClient({ item, brandName }: Props) {
+export function ContentItemDetailClient({ item, brandName, videoDisabledReason }: Props) {
   const [copied, setCopied] = useState(false);
   const platform = platformConfig[item.platform] ?? platformConfig.blog;
   const PIcon = platform.icon;
@@ -258,7 +260,11 @@ export function ContentItemDetailClient({ item, brandName }: Props) {
           <div className="text-2xs text-white/40">
             Generate a brand-aligned video from this creative (Seedance → FFmpeg).
           </div>
-          <AiFirstVideoButton brandId={item.brand_id} contentItemId={item.id} />
+          <AiFirstVideoButton
+            brandId={item.brand_id}
+            contentItemId={item.id}
+            disabledReason={videoDisabledReason}
+          />
         </div>
       )}
 
