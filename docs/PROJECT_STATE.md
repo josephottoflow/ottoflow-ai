@@ -1,5 +1,11 @@
 # PROJECT_STATE.md
 
+> **⚡ UPDATE 2026-06-21 — FIRST MP4 RENDERED; Redis SOLVED. (Supersedes the 2026-06-20 body below.)**
+> `origin/main` = **`01fa671`** (Track B UI + Video-V1 Tasks 1–3,5 + 360s seedance timeout; Vercel + worker both deployed). **Redis split-brain FIXED** via shared **Upstash** `rediss://default:<token>@pet-lamb-125717.upstash.io:6379` set on BOTH Vercel Production + Railway worker. Full pipeline proven end-to-end: render `234a069e-c02b-4614-9a17-f3f52f0ac2b0` → 4/4 Seedance scenes → R2 → ffmpeg-compose (no OOM) → **`ffmpeg-v2.mp4` (14,509,357 B) exists in R2 bucket `ottoflow-videos`** (verified via S3 API); `merge_status=done`, `merged_video_url` populated.
+> **🔴 ONE OPEN BLOCKER:** the R2 **public URL doesn't serve** — `R2_PUBLIC_BASE_URL=https://pub-3e67736a889849bab6c5fde844f9521a.r2.dev` is a dead/disabled per-bucket dev URL (DNS-unresolvable; browser error page). Objects exist; no public endpoint. **Fix:** operator enables R2 Public Development URL (or custom domain) on `ottoflow-videos` in Cloudflare → set `R2_PUBLIC_BASE_URL` on worker+Vercel → rewrite the stored `merged_video_url` base (or re-render) → prove HTTP 200. No code change (`r2.ts` correct). Full detail + access/creds/test-data in [SESSION_RESTART_PROMPT.md](SESSION_RESTART_PROMPT.md).
+> **🔁 Rotate:** Railway token · AtlasCloud key · Upstash token · **R2 secret key** (leaked in a var dump).
+
+
 **App:** Ottoflow AI — Next.js 15 SaaS "AI Content Operating System" (`ottoflow-ai/` in the `tiktok-product-video-factory` monorepo). **Date:** 2026-06-20.
 **Prod:** https://ottoflow-ai.vercel.app · Vercel (web/API) · BullMQ worker on Railway (`ottoflow-video-hub`) · Supabase (Postgres+Storage+Realtime) · Clerk auth · Cloudflare R2 (renders) · Google Gemini/Imagen · **AtlasCloud** (Seedance 2.0 video).
 Companions: [ARCHITECTURE](ARCHITECTURE.md) · [DECISIONS](DECISIONS.md) · [OPEN_TASKS](OPEN_TASKS.md) · [DEPLOYMENT](DEPLOYMENT.md) · [SESSION_RESTART_PROMPT](SESSION_RESTART_PROMPT.md).

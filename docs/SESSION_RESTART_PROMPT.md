@@ -4,57 +4,42 @@ Paste this to a fresh Claude session to continue immediately.
 
 ---
 
-You are continuing work on **Ottoflow AI** — a Next.js 15 SaaS "AI Content Operating System" at `D:\tiktok-product-video-factory\ottoflow-ai` (inside the `tiktok-product-video-factory` monorepo).
+You are continuing work on **Ottoflow AI** — a Next.js 15 SaaS "AI Content Operating System" at `D:\tiktok-product-video-factory\ottoflow-ai`.
 
-**First:** read these 6 docs in `ottoflow-ai/docs/` and treat them as the ONLY source of truth (ignore the ~60 other older `docs/` files — they contradict current state): `PROJECT_STATE.md`, `ARCHITECTURE.md`, `OPEN_TASKS.md`, `DECISIONS.md`, `DEPLOYMENT.md`, this file. Do not re-analyze project history. Verify claims from real state (git / `vercel` CLI / `railway` / DB / logs), never from assertions.
+**First:** read these in `ottoflow-ai/docs/` and treat as the ONLY source of truth (ignore the ~60 older `docs/` files): `PROJECT_STATE.md`, `ARCHITECTURE.md`, `OPEN_TASKS.md`, `DECISIONS.md`, `DEPLOYMENT.md`, `OTTOFLOW_VIDEO_V1_AUDIT.md`, `OTTOFLOW_VIDEO_V1_UX_SPEC.md`, this file. Verify from real state (git / `vercel` / `railway` / DB / logs), never assertions.
 
-## Where things stand
-- `origin/main` = **`564ffd3`**; Vercel prod AND Railway worker both deployed on it. Migrations 001–028 applied.
-- The LIVE product (research→content→creative→Imagen→composite→review→metrics→recommendations) works and is untouched.
-- **Active milestone = Video V1 first MP4** (Topic → Gemini Strategy → AtlasCloud Seedance 2.0 → R2 → FFmpeg → MP4).
-  - **T0 (dryRun) PASSES** end-to-end on Vercel: strategy + scenePlan[4] + compositionPlan + estimate (provider=`seedance`, ~$2.00/video for 4×5s @ $0.10/s). $0 spent so far; $25 AtlasCloud credit funded.
-  - **T1 (approve) is BLOCKED** — render_job is created (HTTP 202) but never reaches the worker.
+## ✅ MAJOR MILESTONE (2026-06-21): the first MP4 rendered end-to-end
+The Redis split-brain blocker is **SOLVED** and the full Video V1 pipeline ran:
+`Content → Gemini Strategy → 4× Seedance scenes → R2 → ffmpeg-compose → MP4`.
+- `origin/main` = **`01fa671`** (Track B UI + Tasks 1–3,5 + 360s seedance timeout all merged; Vercel + worker both deployed on it).
+- **Redis = shared Upstash**, set on BOTH Vercel Production + Railway worker: `REDIS_URL=rediss://default:<UPSTASH_TOKEN>@pet-lamb-125717.upstash.io:6379` (the Upstash REST token doubles as the TCP password). Verified: enqueue→consume→AtlasCloud→R2→compose all worked.
+- **Proof render** `234a069e-c02b-4614-9a17-f3f52f0ac2b0`: 4/4 scenes `provider=seedance` (no Pexels fallback), `merge_status=done`, `progress=100`, `merged_video_url` populated. **MP4 exists in R2**: bucket `ottoflow-videos`, key `user_3EU5v1pvYzamGINC5tUKbr8g1Ff/234a069e…/ffmpeg-v2.mp4`, **14,509,357 bytes** (verified via authenticated S3 API). Worker RAM held (no OOM at compose).
 
-## THE blocker (do this first)
-**Vercel and the worker do not share a reachable Redis.**
-- Worker consumes BullMQ from `redis://redis.railway.internal:6379` (Railway-internal, **no auth, no public TCP proxy**).
-- Vercel `REDIS_URL = ""` (empty) → BullMQ `.add()` buffers offline and silently no-ops; route still returns 202; no job enqueued → worker idle → 0 `scene_generations`.
+## 🔴 THE ONE OPEN BLOCKER: R2 public URL doesn't serve
+The objects EXIST in R2 (verified), but the public URL is dead → users can't preview/download.
+- `R2_PUBLIC_BASE_URL = https://pub-3e67736a889849bab6c5fde844f9521a.r2.dev` (worker + `R2_PUBLIC_URL` alias). That host **does not resolve / returns a Chrome error page** (browser + shell). It's a per-bucket R2 Public-Dev URL that is **disabled / stale** for `ottoflow-videos` (the bucket was switched from `ottoflow-renders`; `r2.ts` is correct, the env var points at a dead endpoint).
+- **Fix (operator — needs Cloudflare dashboard or a CF API token; the R2 *S3* keys can't toggle this):** Cloudflare → R2 → bucket `ottoflow-videos` → Settings → **enable "Public Development URL"** (new `pub-<hash>.r2.dev`) OR connect a **custom domain** (e.g. `cdn.ottoflow.ai`).
+- **Then (you can do):** set `R2_PUBLIC_BASE_URL` (+`R2_PUBLIC_URL`) to the new base on worker (`railway`) + Vercel (`vercel env`, fresh git deploy); rewrite the stored `render_jobs.merged_video_url` + `scene_generations.storage_url` base for `234a069e` (or re-render); prove `curl -I <base>/…/ffmpeg-v2.mp4` → HTTP 200 `video/mp4` `content-length: 14509357`.
+- **No code change needed** (`src/lib/ffmpeg-pipeline/r2.ts` is correct).
 
-**Fix (operator picks; involves a secret + security choice — confirm before placing secrets):**
-- **A (recommended):** provision an **Upstash** Redis; set the same `rediss://…` `REDIS_URL` on **Vercel Production AND the Railway worker**; redeploy both (Vercel needs a **fresh git deploy** — `vercel redeploy` reuses the old env snapshot).
-- **B:** enable Railway's TCP proxy on the `redis` service **and add a password** (do NOT expose the unauthenticated Redis); set Vercel `REDIS_URL` to the public `redis://…@host:port` (worker keeps internal URL, same instance).
-- Also add an `src/lib/env.ts` guard so an **empty** `REDIS_URL` fails boot loudly.
+## Access & tooling
+- **Railway:** `RAILWAY_TOKEN=<project-token-UUID>` (operator-provided; **ROTATE** — it's in old transcripts). `railway status/logs/variables -s ottoflow-video-hub`.
+- **Vercel:** CLI authed `joseph-8605`. `vercel … --scope team_MrIWWj7J9L2KLG58IRFcnDK7`. Runtime errors via Vercel MCP `get_runtime_logs` (project `prj_2NKyZ4EvEYWpmDolFiCZuPnfHyh3`).
+- **R2:** S3 API at `https://4b53de9208a4ecc628a9bad59b2272e4.r2.cloudflarestorage.com` (reachable); `pub-*.r2.dev` is NOT reachable from the sandbox. R2 S3 keys live in worker env (`R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`). A Node SigV4 client works (see how the last session listed objects).
+- **Prod DB:** Supabase MCP is mis-scoped (can't reach `ddoz`). Query via the **authenticated browser** (Clerk `getToken()` + publishable key) — store results on `window.__x` then read back sanitized (the Chrome MCP suppresses outputs containing key/uuid-like strings).
+- **Browser:** Chrome MCP, `Browser 1`, logged into `ottoflow-ai.vercel.app`. T0/T1 are Clerk-gated → must run in the logged-in browser.
+- **Test data:** brand Basecamp `b1384434-3666-45cc-96d9-ca764e90cdc3` · content `4742f075-f48a-43a1-a547-00816ef816eb` · user `user_3EU5v1pvYzamGINC5tUKbr8g1Ff`.
 
-## Then prove T1 (Clerk-protected → needs a logged-in browser)
-The route requires a Clerk session; `src/middleware.ts` `auth.protect()` returns 404 for ALL unauthenticated requests, so T0/T1 **cannot** run headless. Use the Chrome MCP against the operator's logged-in browser (they must sign in to `ottoflow-ai.vercel.app` first), and run direct `fetch`es in the app console (NOT the `/video/generate` UI page = legacy SSE path).
+## Gotchas (verified this session)
+- A render takes ~14 min (4 Seedance scenes at ~2–6 min each) + ~18s compose. AtlasCloud is slow under load; 360s timeout keeps scenes on Seedance.
+- `pub-*.r2.dev` unreachable from BOTH sandbox and browser (DNS + CORS); use the S3 API or a working public base to verify objects.
+- `render_jobs.status` stays `queued` even when done — the real terminal signal is `merge_status=done` + `merged_video_url`.
+- ffmpeg-compose ships even on QC soft-fail (qcScore < threshold → "regen_unactionable" → uploads anyway).
 
-Test data (verified, owned by the test user `user_3EU5v1pvYzamGINC5tUKbr8g1Ff`):
-- brandId `b1384434-3666-45cc-96d9-ca764e90cdc3` (Basecamp) · contentItemId `4742f075-f48a-43a1-a547-00816ef816eb`.
-```js
-// T1 (~$2): in the logged-in app console
-await fetch('/api/video/generate',{method:'POST',headers:{'Content-Type':'application/json'},
-  body:JSON.stringify({brandId:'b1384434-3666-45cc-96d9-ca764e90cdc3',contentItemId:'4742f075-f48a-43a1-a547-00816ef816eb',approve:true})}).then(r=>r.json())
-```
-**T1 PASS =** worker logs `seedance task.created`→`task.succeeded`; a `scene_generations` row with `provider='seedance'` and a reachable `storage_url` (R2 `…r2.dev` / `ottoflow-videos`). Then STOP and report — do NOT proceed to FFmpeg/T3 yet (T3 needs the worker bumped to **2 GB RAM**).
+## 🔁 Rotate (all exposed in transcripts)
+Railway project token · AtlasCloud API key (`apikey-a62a…`) · Upstash REST token (`gQAA…`) · **R2 secret key** (`4015f3…`, leaked in a variable dump).
 
-## Access & tooling notes
-- **Railway CLI:** needs `RAILWAY_TOKEN=<project-token-UUID>` (operator provides; last session's token should be ROTATED). Then `railway status --json -s ottoflow-video-hub`, `railway logs -s ottoflow-video-hub`, `railway variables -s ottoflow-video-hub --kv` (mask secrets in output).
-- **Vercel CLI:** authed as `joseph-8605`. `vercel ls/inspect/env ls --scope team_MrIWWj7J9L2KLG58IRFcnDK7`. Runtime errors via the Vercel MCP `get_runtime_logs` (project `prj_2NKyZ4EvEYWpmDolFiCZuPnfHyh3`, team `team_MrIWWj7J9L2KLG58IRFcnDK7`).
-- **Prod DB:** Supabase MCP is mis-scoped (only sees INACTIVE `avymp`, permission-denied on `ddoz`). Query `ddoz` via the **authenticated browser** (Clerk `getToken()` + publishable key) or the Supabase **dashboard** SQL editor. In the browser, any JS call that invokes `getToken()` has its OUTPUT suppressed by the Chrome MCP — store results on `window.__x`, read them back sanitized (ids/names only) in a separate call. Keys/tokens must never leave the page.
-- **Secrets:** never place a secret unless the operator explicitly authorizes that specific secret. Don't reprint secret values.
-- **Deploy gotchas:** deploy from `main`; gates `npx tsc --noEmit` + `npm run build:worker`; a Railway env change auto-redeploys the worker; a Vercel env change needs a fresh git deploy; unauthenticated `curl` is not a valid flag probe (Clerk 404s anon; Vercel deployment URLs are SSO-protected — only the prod alias reflects real app behavior).
+## Remaining after R2 public-serving
+- Worker `SENTRY_DSN` unset. · Clerk still DEV keys (gates public launch). · Track-B FFmpeg quality items (crossfades/grade — spec in the audit doc, deferred).
 
-## Cleanup / debt (after T1)
-- Delete stuck test `render_job` `e6ffb1b5-ca1d-4106-912f-e644ab663086`.
-- Rotate the Railway token + AtlasCloud API key (both were pasted in chat).
-- Worker `SENTRY_DSN` unset; Railway Redis unauthenticated; Clerk still on DEV keys (gates public launch).
-
-## Verify current state quickly
-```
-cd D:\tiktok-product-video-factory\ottoflow-ai
-git rev-parse origin/main                         # expect 564ffd3…
-RAILWAY_TOKEN=<uuid> railway status --json -s ottoflow-video-hub | grep commitHash
-RAILWAY_TOKEN=<uuid> railway logs -s ottoflow-video-hub | grep -E "scene-generation|redis.ready"
-```
-
-**Goal this session: make Vercel and the worker share one Redis, redeploy, and get T1 to produce the first `scene_generations.storage_url` on R2.** That proves Topic → Gemini → AtlasCloud → R2. Stop there and report.
+**Goal this session: enable R2 public serving on `ottoflow-videos`, wire `R2_PUBLIC_BASE_URL`, and prove `render_jobs.merged_video_url` returns HTTP 200 + plays.** That's the last gap to a user-viewable first video.
