@@ -15,6 +15,8 @@ import {
   Clock,
   Hash,
   MessageCircle,
+  Clapperboard,
+  Play,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -135,6 +137,15 @@ export function ContentItemDetailClient({ item, brandName, videoDisabledReason }
     setTimeout(() => setCopied(false), 1800);
   }
 
+  // Scrolls to the existing (unchanged) Generate Video control. The prominent
+  // top card highlights the action above the fold without moving or duplicating
+  // the workflow.
+  function scrollToVideo() {
+    document
+      .getElementById("generate-video")
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
   return (
     <div className="p-6 max-w-[900px] mx-auto">
       <Link href="/content">
@@ -142,6 +153,55 @@ export function ContentItemDetailClient({ item, brandName, videoDisabledReason }
           <ArrowLeft size={12} /> Back to Content
         </button>
       </Link>
+
+      {/* Ready for Video Generation — prominent, above-the-fold highlight of the
+          EXISTING Generate Video action. The button scrolls to that control; it
+          does not move, duplicate, or change the workflow. Gated identically to
+          the button (videoDisabledReason) so it never over-promises. */}
+      {item.brand_id && (
+        <div
+          className={`rounded-2xl border p-4 mb-4 flex items-center justify-between gap-4 flex-wrap ${
+            videoDisabledReason
+              ? "border-amber-500/20 bg-amber-500/[0.06]"
+              : "border-emerald-500/25 bg-emerald-500/[0.07]"
+          }`}
+        >
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <div
+              className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                videoDisabledReason ? "bg-amber-500/15" : "bg-emerald-500/15"
+              }`}
+            >
+              <Clapperboard
+                size={18}
+                className={videoDisabledReason ? "text-amber-300" : "text-emerald-300"}
+              />
+            </div>
+            <div className="min-w-0">
+              <p
+                className={`text-sm font-medium ${
+                  videoDisabledReason ? "text-amber-200" : "text-emerald-200"
+                }`}
+              >
+                {videoDisabledReason ? "Video generation" : "Ready for video generation"}
+              </p>
+              <p className="text-2xs text-white/50">
+                {videoDisabledReason ??
+                  "This creative has everything needed — turn it into a branded video (Seedance → FFmpeg)."}
+              </p>
+            </div>
+          </div>
+          {!videoDisabledReason && (
+            <button
+              type="button"
+              onClick={scrollToVideo}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-2 text-xs font-medium text-emerald-200 hover:bg-emerald-500/15 transition-colors flex-shrink-0"
+            >
+              <Play size={13} /> Generate Video
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Header card */}
       <div className="glass rounded-2xl p-6 mb-4">

@@ -134,7 +134,7 @@ export function AiFirstVideoButton({
         ) : (
           <Clapperboard className="h-4 w-4" />
         )}
-        {phase === "estimating" ? "Estimating…" : "Generate Video (LinkedIn)"}
+        {phase === "estimating" ? "Estimating…" : "Generate Video"}
       </Button>
 
       {/* Task 2: explain WHY it's disabled — never a dead button. */}
