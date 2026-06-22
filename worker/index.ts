@@ -141,6 +141,14 @@ const periodicSweepHandle = schedulePeriodicSweep(recoveryAdmin, (msg, extra) =>
   }
 }
 
+// Shared BullMQ polling tuning — applied to every worker. Idle command burn on
+// a metered Redis is dominated by the blocking BZPOPMIN (every `drainDelay`) and
+// the stalled-jobs check (every `stalledInterval`). Raising both cuts idle Redis
+// commands ~8-11x with no job-pickup latency cost: BullMQ wakes the blocked pop
+// immediately via the marker when a job is enqueued — `drainDelay` is only the
+// idle fallback ceiling.
+const WORKER_TUNING = { drainDelay: 30, stalledInterval: 120_000 } as const;
+
 // ─── Step 6: Brand Research worker ───────────────────────────────────────────
 const brandResearchWorker = new Worker<BrandResearchJobData>(
   QUEUE_NAMES.brandResearch,
@@ -156,6 +164,7 @@ const brandResearchWorker = new Worker<BrandResearchJobData>(
   },
   {
     connection: getRedis(),
+    ...WORKER_TUNING,
     concurrency: workerEnv.WORKER_CONCURRENCY,
   }
 );
@@ -236,6 +245,7 @@ const contentGenerationWorker = new Worker<ContentGenerationJobData>(
   },
   {
     connection: getRedis(),
+    ...WORKER_TUNING,
     concurrency: workerEnv.WORKER_CONCURRENCY,
   },
 );
@@ -339,6 +349,7 @@ const videoMergeWorker = new Worker<VideoMergeJobData>(
   },
   {
     connection: getRedis(),
+    ...WORKER_TUNING,
     // ffmpeg is heavy — cap merges below the general WORKER_CONCURRENCY so
     // one runaway render doesn't starve the lighter brand/content queues.
     concurrency: Math.max(1, Math.floor(workerEnv.WORKER_CONCURRENCY / 2)),
@@ -442,6 +453,7 @@ const ffmpegComposeWorker = new Worker<FfmpegComposeJobData>(
   },
   {
     connection: getRedis(),
+    ...WORKER_TUNING,
     concurrency: Math.max(1, Math.floor(workerEnv.WORKER_CONCURRENCY / 2)),
   },
 );
@@ -514,6 +526,7 @@ const creativeGenerationWorker = new Worker<CreativeGenerationJobData>(
   },
   {
     connection: getRedis(),
+    ...WORKER_TUNING,
     concurrency: Math.max(1, Math.floor(workerEnv.WORKER_CONCURRENCY / 2)),
   },
 );
@@ -580,6 +593,7 @@ const driveSyncWorker = new Worker<DriveSyncJobData>(
   },
   {
     connection: getRedis(),
+    ...WORKER_TUNING,
     concurrency: Math.max(1, Math.floor(workerEnv.WORKER_CONCURRENCY / 2)),
   },
 );
@@ -631,6 +645,7 @@ if (isPublishingEnabled()) {
     },
     {
       connection: getRedis(),
+      ...WORKER_TUNING,
       concurrency: Math.max(1, Math.floor(workerEnv.WORKER_CONCURRENCY / 2)),
     },
   );
@@ -732,6 +747,7 @@ if (isVideoRenderEnabled()) {
     },
     {
       connection: getRedis(),
+      ...WORKER_TUNING,
       concurrency: Math.max(1, Math.floor(workerEnv.WORKER_CONCURRENCY / 2)),
     },
   );
