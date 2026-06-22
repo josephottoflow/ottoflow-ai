@@ -159,6 +159,16 @@ export function Sidebar() {
               <FileText size={13} />
               Generate Post
             </Link>
+            {/* Canonical Video V1 path. Routes to the /video/start resolver →
+                latest eligible content item's Generate Video section (NOT the
+                legacy /video/generate stock-footage page). Discoverability only. */}
+            <Link
+              href="/video/start"
+              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 mt-1 bg-cyan-500/[0.08] border border-cyan-500/15 text-cyan-400"
+            >
+              <Video size={13} />
+              Generate Video
+            </Link>
           </div>
         </nav>
 
