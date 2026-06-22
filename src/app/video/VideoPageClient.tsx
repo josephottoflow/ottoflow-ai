@@ -25,19 +25,17 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
-// Mirrors the real ADR-002 FFmpeg pipeline (Gemini script → stock footage →
-// ElevenLabs voice → Jamendo music → captions → FFmpeg render → QC), NOT the
-// retired Higgsfield/Veo path.
+// Mirrors the shipped Video V1 path (Content Item → Gemini strategy → Seedance
+// scene generation → FFmpeg compose + branding → MP4), NOT the retired
+// stock-footage / Higgsfield / Veo paths.
 const videoPipelineSteps = [
-  { id: 1, label: "Strategy & Script", desc: "Gemini writes hook + body + CTA", done: true },
-  { id: 2, label: "Scene Plan", desc: "Per-scene shot list + search intent", done: true },
-  { id: 3, label: "Footage Search", desc: "Stock clips matched per scene", done: true, active: true },
-  { id: 4, label: "Voiceover", desc: "ElevenLabs narration", done: false },
-  { id: 5, label: "Music", desc: "Jamendo track by vibe", done: false },
-  { id: 6, label: "Captions", desc: "Auto subtitles, on-screen", done: false },
-  { id: 7, label: "Edit & Grade", desc: "Cuts, color, pacing", done: false },
-  { id: 8, label: "FFmpeg Render", desc: "Compose final MP4", done: false },
-  { id: 9, label: "Quality Check", desc: "Auto QC + deliver", done: false },
+  { id: 1, label: "Strategy", desc: "Gemini 4-beat: problem → tension → solution → outcome", done: true },
+  { id: 2, label: "Scene Plan", desc: "Per-scene prompt from the strategy", done: true },
+  { id: 3, label: "Scene Generation", desc: "Seedance renders each scene", done: false, active: true },
+  { id: 4, label: "Captions", desc: "Brand typography burned in", done: false },
+  { id: 5, label: "Branding", desc: "Brand grade · logo · CTA card", done: false },
+  { id: 6, label: "Compose", desc: "FFmpeg merges scenes → MP4", done: false },
+  { id: 7, label: "Deliver", desc: "MP4 to storage + preview", done: false },
 ];
 
 const outputFormats = [
@@ -48,14 +46,14 @@ const outputFormats = [
   { label: "Facebook Ads", icon: Image, count: 2, color: "#60a5fa" },
 ];
 
-// The real generation stack (replaces the retired AI-provider selector — the
-// pipeline is stock-footage + FFmpeg, not Veo/Higgsfield).
+// The shipped Video V1 stack: Gemini plans the strategy, Seedance generates the
+// scenes, FFmpeg composes + brands the final MP4. Pexels remains ONLY as the
+// scene-generation fallback. (Retired: ElevenLabs voice, Jamendo music.)
 const pipelineStack = [
-  { label: "Gemini 2.5 Flash", desc: "Script, scene plan & captions", color: "#a78bfa" },
-  { label: "Pexels", desc: "Relevance-ranked stock footage", color: "#67e8f9" },
-  { label: "ElevenLabs", desc: "Voiceover narration", color: "#34d399" },
-  { label: "Jamendo", desc: "Licensed music by vibe", color: "#fb923c" },
-  { label: "FFmpeg", desc: "Compose · caption · grade · render", color: "#60a5fa" },
+  { label: "Gemini 2.5 Flash", desc: "Video strategy (4-beat) + captions", color: "#a78bfa" },
+  { label: "Seedance 2.0", desc: "AI scene generation (AtlasCloud)", color: "#67e8f9" },
+  { label: "FFmpeg", desc: "Compose · grade · logo · CTA · captions", color: "#60a5fa" },
+  { label: "Pexels", desc: "Stock-footage fallback", color: "#fb923c" },
 ];
 
 interface Props {
@@ -82,7 +80,7 @@ export function VideoPageClient({ renderJobs, kpis }: Props) {
             <span className="text-xs font-medium text-cyan-400">Video Pipeline</span>
           </div>
           <h1 className="text-2xl font-bold text-white tracking-tight">Video Generation</h1>
-          <p className="text-white/40 text-sm mt-1">AI video factory · Gemini script · stock footage · ElevenLabs voice · FFmpeg render</p>
+          <p className="text-white/40 text-sm mt-1">Brand-aligned video · Gemini strategy · Seedance scenes · FFmpeg compose</p>
         </div>
         <div className="flex items-center gap-2">
           <Link href="/settings">
@@ -327,7 +325,7 @@ export function VideoPageClient({ renderJobs, kpis }: Props) {
                 <Badge variant="info" className="text-3xs ml-auto">New</Badge>
               </div>
               <p className="text-xs text-white/45 mb-4 leading-relaxed">
-                Generate a UGC video from a single prompt. AI handles script, storyboard, clips, voiceover, and captions automatically.
+                Generate a brand-aligned video from a content item&apos;s creative brief — Seedance scenes, composed and branded automatically.
               </p>
               <Link href="/video/generate">
                 <Button variant="gradient-cyan" className="w-full gap-2" size="sm">
