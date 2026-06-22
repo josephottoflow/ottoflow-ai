@@ -26,7 +26,42 @@ import type { TimedCaption } from "./types";
 //   - BorderStyle=1 = outline + shadow; =3 = opaque box.
 // All colours are &HAABBGGRR — alpha-first, BGR not RGB.
 
-const ASS_HEADER = `[Script Info]
+/** Visual World V1 caption typography. Omitted fields fall back to the proven
+ * defaults below, so the rendered ASS is byte-identical to the pre-V1 header. */
+export interface CaptionStyle {
+  font?: string;
+  /** Caption (Regular) height as a fraction of PlayResY (1920). Punch = 1.33×. */
+  sizePct?: number;
+  /** Hex text colour, e.g. "#FFFFFF". */
+  color?: string;
+  /** Box/shadow opacity 0..1. */
+  boxOpacity?: number;
+  case?: "sentence" | "upper" | "title";
+}
+
+const PLAY_RES_Y = 1920;
+
+/** "#RRGGBB" → ASS "&H00BBGGRR" (alpha-first, BGR). Falls back to white. */
+function assColor(hex?: string): string {
+  const m = /^#?([0-9a-fA-F]{6})$/.exec(hex ?? "");
+  if (!m) return "&H00FFFFFF";
+  const rr = m[1].slice(0, 2), gg = m[1].slice(2, 4), bb = m[1].slice(4, 6);
+  return `&H00${bb}${gg}${rr}`.toUpperCase();
+}
+
+/** Box/shadow BackColour from opacity. ASS alpha: 00 opaque … FF transparent. */
+function assBack(opacity: number): string {
+  const a = Math.max(0, Math.min(255, Math.round((1 - opacity) * 255)));
+  return `&H${a.toString(16).padStart(2, "0").toUpperCase()}000000`;
+}
+
+function buildHeader(style?: CaptionStyle): string {
+  const font = style?.font || "DejaVu Sans";
+  const regSize = Math.round((style?.sizePct ?? 72 / PLAY_RES_Y) * PLAY_RES_Y);
+  const punchSize = Math.round(regSize * 1.33);
+  const primary = assColor(style?.color);
+  const back = assBack(style?.boxOpacity ?? 0.5);
+  return `[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
 PlayResY: 1920
@@ -36,12 +71,19 @@ YCbCr Matrix: TV.709
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Punch,DejaVu Sans,96,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,6,4,5,80,80,260,1
-Style: Regular,DejaVu Sans,72,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,4,3,5,80,80,260,1
+Style: Punch,${font},${punchSize},${primary},&H000000FF,&H00000000,${back},1,0,0,0,100,100,0,0,1,6,4,5,80,80,260,1
+Style: Regular,${font},${regSize},${primary},&H000000FF,&H00000000,${back},1,0,0,0,100,100,0,0,1,4,3,5,80,80,260,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 `;
+}
+
+function applyCase(text: string, c?: CaptionStyle["case"]): string {
+  if (c === "upper") return text.toUpperCase();
+  if (c === "title") return text.replace(/\b\w/g, (ch) => ch.toUpperCase());
+  return text;
+}
 
 /**
  * Format milliseconds as ASS time: H:MM:SS.cc (centisecond precision).
@@ -69,16 +111,16 @@ function fmt(ms: number): string {
  * We split into one event per caption — keeps the parser fast and lets
  * libass cache layout state per event.
  */
-export function renderAss(captions: TimedCaption[]): string {
+export function renderAss(captions: TimedCaption[], style?: CaptionStyle): string {
   const events = captions
     .map((c) => {
       const lines = c.lineBreaks.length > 0 ? c.lineBreaks : [c.text];
-      const text = lines.map(escapeAssText).join(" \\N ");
-      const style = lines.length > 1 ? "Regular" : "Punch";
-      return `Dialogue: 0,${fmt(c.startMs)},${fmt(c.endMs)},${style},,0,0,0,,{\\fad(150,150)}${text}`;
+      const text = lines.map((l) => escapeAssText(applyCase(l, style?.case))).join(" \\N ");
+      const styleName = lines.length > 1 ? "Regular" : "Punch";
+      return `Dialogue: 0,${fmt(c.startMs)},${fmt(c.endMs)},${styleName},,0,0,0,,{\\fad(150,150)}${text}`;
     })
     .join("\n");
-  return ASS_HEADER + events + "\n";
+  return buildHeader(style) + events + "\n";
 }
 
 /**

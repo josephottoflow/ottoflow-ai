@@ -26,6 +26,7 @@ import { buildVideoStrategy } from "@/lib/ffmpeg-pipeline/video-strategy";
 import { isVideoRenderEnabled } from "@/lib/video/flags";
 import { estimateRenderCost } from "@/lib/video/cost";
 import { buildAiFirstPlan, type AiFirstClip } from "@/lib/ffmpeg-pipeline/orchestrator";
+import { resolveVisualWorld } from "@/lib/brand/visual-world";
 import type { AgentContext, SourceName, VideoStrategy } from "@/lib/ffmpeg-pipeline/types";
 
 export const runtime = "nodejs";
@@ -120,7 +121,7 @@ export async function POST(req: NextRequest) {
   // ─── Ownership: the brand must belong to the caller ──────────────────────
   const { data: brand } = await admin
     .from("brands")
-    .select("id, name, industry, user_id")
+    .select("id, name, industry, user_id, visual_world")
     .eq("id", brandId)
     .maybeSingle();
   if (!brand) return Response.json({ error: "Brand not found" }, { status: 404 });
@@ -156,6 +157,34 @@ export async function POST(req: NextRequest) {
     .eq("id", contentItemId)
     .maybeSingle();
   const topic = (item?.title as string | undefined)?.slice(0, 200) ?? "Brand video";
+
+  // ─── Visual World V1 (Brand Finish Layer) ────────────────────────────────
+  // The brand's persistent "how it looks": source of grade, logo, CTA, caption
+  // typography, seed family, style preamble + negative prompt. Falls back to a
+  // deterministic derivation from the brief's palette/logo/CTA when the brand
+  // has no stored world → behaviour identical to the pre-V1 brief-derived path.
+  const world = resolveVisualWorld((brand as { visual_world?: unknown }).visual_world, {
+    palette: brief.palette ?? null,
+    brandName: (brand.name as string | null) ?? null,
+    logoAssetId: brief.logo_usage?.use ? brief.logo_usage.asset_id ?? null : null,
+    ctaText: brief.cta ?? null,
+  });
+  const branding = {
+    brandId,
+    brandName: (brand.name as string | null) ?? null,
+    logoAssetId: world.logo.assetId,
+    ctaText: world.endcard.enabled ? world.endcard.ctaText : null,
+    palette: brief.palette ?? null,
+    grade: {
+      contrast: world.grade.contrast,
+      saturation: world.grade.saturation,
+      brightness: world.grade.brightness,
+    },
+    typography: world.typography,
+    stylePreamble: world.stylePreamble,
+    negativePrompt: world.negativePrompt,
+    seedFamily: world.seedFamily,
+  };
 
   try {
     // ─── Video Strategy (reuses tension/metaphor — no second creative engine) ─
@@ -211,13 +240,7 @@ export async function POST(req: NextRequest) {
         ctx: dryCtx,
         strategy,
         clips: dryClips,
-        branding: {
-          brandId,
-          brandName: (brand.name as string | null) ?? null,
-          logoAssetId: brief.logo_usage?.use ? brief.logo_usage.asset_id ?? null : null,
-          ctaText: brief.cta ?? null,
-          palette: brief.palette ?? null,
-        },
+        branding,
       });
       return Response.json(
         {
@@ -280,13 +303,7 @@ export async function POST(req: NextRequest) {
         brandId,
         brandIndustry: (brand.industry as string | null) ?? null,
         strategy,
-        branding: {
-          brandId,
-          brandName: (brand.name as string | null) ?? null,
-          logoAssetId: brief.logo_usage?.use ? brief.logo_usage.asset_id ?? null : null,
-          ctaText: brief.cta ?? null,
-          palette: brief.palette ?? null,
-        },
+        branding,
       },
       { attempts: 1, jobId: job.id as string },
     );

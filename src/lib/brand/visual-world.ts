@@ -69,11 +69,14 @@ export interface VisualWorldV1 {
 }
 
 const DEFAULT_GRADE: VisualWorldGrade = { lut: null, contrast: 1.06, saturation: 1.08, brightness: 0.0 };
+// Defaults reproduce the pre-V1 ASS header exactly (Regular 72px / PlayResY
+// 1920 = 0.0375; box BackColour alpha 0x80 = opacity 0.5) so a *derived* world
+// changes nothing — only an explicitly authored world restyles captions.
 const DEFAULT_TYPOGRAPHY: VisualWorldTypography = {
   captionFont: "DejaVu Sans",
-  captionSizePct: 0.06,
+  captionSizePct: 0.0375,
   color: "#FFFFFF",
-  boxOpacity: 0.35,
+  boxOpacity: 0.5,
   case: "sentence",
 };
 const DEFAULT_NEGATIVE = "no people, faces, text, letters, logos, words, brand marks";

@@ -153,9 +153,16 @@ export async function runFfmpegComposer(
     }
   }
 
-  // 4. Captions ASS
+  // 4. Captions ASS — brand typography from the Visual World (absent → proven
+  // default header, byte-identical to pre-V1).
   const assPath = path.join(workDir, "captions.ass");
-  const assContent = renderAss(plan.scenes.map((s) => s.caption));
+  const t = plan.branding?.typography;
+  const assContent = renderAss(
+    plan.scenes.map((s) => s.caption),
+    t
+      ? { font: t.captionFont, sizePct: t.captionSizePct, color: t.color, boxOpacity: t.boxOpacity, case: t.case }
+      : undefined,
+  );
   await fs.writeFile(assPath, assContent, "utf-8");
 
   // 4b. Deterministic branding (Video V1) — logo overlay + CTA end card.

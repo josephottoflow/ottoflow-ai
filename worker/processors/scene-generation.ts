@@ -112,8 +112,14 @@ export async function processSceneGeneration(
     // Cross-scene consistency (Task 3): a shared style preamble + a single shared
     // seed across all scenes so the clips share look/grade/camera and read as one
     // video. Per-scene prompts still drive the distinct beat (problem→outcome).
-    const styleBlock = buildStyleBlock(strategy, data.branding?.palette ?? null);
-    const sharedSeed = strategy.scenes[0]?.seed ?? Math.floor(Math.random() * 2 ** 31);
+    // Visual World V1: when the brand has a world, its stylePreamble + negative
+    // prompt + seedFamily drive cross-scene consistency. Absent → the prior
+    // strategy/palette-derived style block + per-strategy seed (unchanged).
+    const styleBlock = data.branding?.stylePreamble
+      ? `${data.branding.stylePreamble}${data.branding.negativePrompt ? ` Avoid: ${data.branding.negativePrompt}.` : ""}`
+      : buildStyleBlock(strategy, data.branding?.palette ?? null);
+    const sharedSeed =
+      data.branding?.seedFamily ?? strategy.scenes[0]?.seed ?? Math.floor(Math.random() * 2 ** 31);
 
     // ─── Resume support (retry-spend protection) ──────────────────────────────
     // A retry of this job MUST NOT re-charge the provider for scenes a prior

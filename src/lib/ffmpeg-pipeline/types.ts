@@ -343,6 +343,23 @@ export interface CompositionPlan {
       secondary?: string | null;
       accent?: string | null;
     } | null;
+    /**
+     * Visual World V1 finish (Brand Finish Layer). Deterministic look applied
+     * identically to every clip; absent → composer falls back to the per-scene
+     * enum grade + default caption style (unchanged behaviour).
+     */
+    grade?: {
+      contrast: number;
+      saturation: number;
+      brightness: number;
+    } | null;
+    typography?: {
+      captionFont: string;
+      captionSizePct: number;
+      color: string;
+      boxOpacity: number;
+      case: "sentence" | "upper" | "title";
+    } | null;
   };
 }
 

@@ -102,6 +102,12 @@ export interface NormalizeArgvInput {
   height: number;
   fps: number;
   outputPath: string;
+  /**
+   * Brand grade filter (Visual World V1). When set, replaces the per-scene
+   * enum grade so every clip gets the identical deterministic look. Absent →
+   * the existing `gradeFilterFor(edit.grade)` enum behaviour is unchanged.
+   */
+  gradeOverride?: string;
 }
 
 export function buildNormalizeArgv(i: NormalizeArgvInput): string[] {
@@ -110,7 +116,7 @@ export function buildNormalizeArgv(i: NormalizeArgvInput): string[] {
     `scale=${i.width}:${i.height}:force_original_aspect_ratio=increase,` +
     `crop=${i.width}:${i.height},` +
     `trim=duration=${durSec.toFixed(3)},` +
-    `${gradeFilterFor(i.edit.grade)},` +
+    `${i.gradeOverride ?? gradeFilterFor(i.edit.grade)},` +
     // fps AFTER setpts — see file header.
     `format=yuv420p,setpts=PTS-STARTPTS,fps=${i.fps}`;
   return [
@@ -352,6 +358,13 @@ export async function composeMultiPass(input: MultiPassInput): Promise<void> {
     );
   }
   const join = (name: string) => `${workDir}/${name}`;
+  // Visual World V1 brand grade: one deterministic eq applied to every clip
+  // (overrides the per-scene enum grade). Cheap single-filter — no extra decode,
+  // no memory cost vs the enum grade it replaces.
+  const bg = plan.branding?.grade;
+  const gradeOverride = bg
+    ? `eq=contrast=${bg.contrast}:saturation=${bg.saturation}:brightness=${bg.brightness}`
+    : undefined;
   const hasCta = !!input.ctaCard;
   const totalSteps = n /* normalize */ + (hasCta ? 1 : 0) /* cta clip */ + 1 /* finalize */;
   let step = 0;
@@ -368,6 +381,7 @@ export async function composeMultiPass(input: MultiPassInput): Promise<void> {
         edit: plan.scenes[k].edit,
         width: W, height: H, fps,
         outputPath: out,
+        gradeOverride,
       }),
       `normalize-${k}`,
     );

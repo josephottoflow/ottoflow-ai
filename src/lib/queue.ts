@@ -317,7 +317,10 @@ export interface SceneGenerationJobData {
   narrationUrl?: string | null;
   /** Resolved background music URL (optional). */
   musicUrl?: string | null;
-  /** Deterministic branding for the CompositionPlan (logo overlay + CTA card). */
+  /** Deterministic branding for the CompositionPlan (logo overlay + CTA card).
+   * Superset of CompositionPlan.branding: also carries the scene-generation
+   * finish fields (stylePreamble/negativePrompt/seedFamily) sourced from the
+   * brand's Visual World V1. All optional → absent = unchanged behaviour. */
   branding?: {
     brandId: string;
     brandName?: string | null;
@@ -328,6 +331,20 @@ export interface SceneGenerationJobData {
       secondary?: string | null;
       accent?: string | null;
     } | null;
+    grade?: { contrast: number; saturation: number; brightness: number } | null;
+    typography?: {
+      captionFont: string;
+      captionSizePct: number;
+      color: string;
+      boxOpacity: number;
+      case: "sentence" | "upper" | "title";
+    } | null;
+    /** Prepended to every scene prompt (cross-scene consistency). */
+    stylePreamble?: string | null;
+    /** Folded into the scene prompt as "Avoid: …". */
+    negativePrompt?: string | null;
+    /** Shared base seed for all scenes. */
+    seedFamily?: number | null;
   };
   /** Forwarded to ffmpeg-compose as the storage fallback when R2 is unset.
    * Carries the connected-account id ONLY; the worker fetches + decrypts the
