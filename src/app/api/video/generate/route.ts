@@ -25,6 +25,7 @@ import { sceneGenerationQueue } from "@/lib/queue";
 import { buildVideoStrategy } from "@/lib/ffmpeg-pipeline/video-strategy";
 import { isVideoRenderEnabled } from "@/lib/video/flags";
 import { estimateRenderCost } from "@/lib/video/cost";
+import { getSeedanceBalanceUsd } from "@/lib/video-providers/seedance";
 import { buildAiFirstPlan, type AiFirstClip } from "@/lib/ffmpeg-pipeline/orchestrator";
 import { resolveVisualWorld } from "@/lib/brand/visual-world";
 import type { AgentContext, SourceName, VideoStrategy } from "@/lib/ffmpeg-pipeline/types";
@@ -265,6 +266,31 @@ export async function POST(req: NextRequest) {
           note: "Re-POST with { approve: true } to authorize this spend and enqueue the render.",
         },
         { status: 200 },
+      );
+    }
+
+    // ─── Atlas balance preflight (Sprint 1A) ─────────────────────────────────
+    // Block a render the funded account can't cover, instead of starting it and
+    // having scenes fall through to Pexels on a 402 mid-run. FAIL-OPEN: a null
+    // balance (key not present on this surface, or AtlasCloud unreachable) means
+    // we proceed exactly as before — this only ADDS a guard, never breaks a
+    // valid render. No schema/queue/workflow change; one pre-enqueue read.
+    const balanceUsd = await getSeedanceBalanceUsd();
+    if (balanceUsd !== null && balanceUsd < estimate.estimatedCostUsd) {
+      captureFallback(
+        "video.generate.insufficient_balance",
+        new Error(`balance ${balanceUsd} < estimate ${estimate.estimatedCostUsd}`),
+        { brandId, contentItemId, userId, balanceUsd, estimate: estimate.estimatedCostUsd },
+      );
+      return Response.json(
+        {
+          error:
+            `Insufficient AtlasCloud balance: $${balanceUsd.toFixed(2)} available, ` +
+            `~$${estimate.estimatedCostUsd.toFixed(2)} needed for this render. Top up before generating.`,
+          balanceUsd,
+          estimate,
+        },
+        { status: 402 },
       );
     }
 

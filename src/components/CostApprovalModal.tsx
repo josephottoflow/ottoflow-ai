@@ -13,14 +13,26 @@
  */
 import { Loader2, Clapperboard, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import type { RenderCostEstimate } from "@/lib/video/cost";
 
 export interface StrategySummary {
   video_concept?: string;
   visual_tension?: string;
   visual_metaphor?: string;
-  scenes?: { sceneId: number; role?: string; durationSec?: number }[];
+  scenes?: {
+    sceneId: number;
+    role?: string;
+    durationSec?: number;
+    /** Present in the V1 dryRun today (scene description / goal). */
+    prompt?: string;
+    caption?: string;
+    // ── Sprint 2 (Story Agent) — optional now; the storyboard renders them
+    //    automatically once the Story Agent populates these fields. ──
+    goal?: string;
+    subject?: string;
+    environment?: string;
+    camera?: string;
+  }[];
 }
 
 interface CostApprovalModalProps {
@@ -94,20 +106,52 @@ export function CostApprovalModal({
         </div>
 
         {/* Strategy summary */}
-        {strategy && (
-          <div className="mb-4 space-y-2">
-            {strategy.video_concept && (
-              <p className="text-xs text-white/75 leading-relaxed">{strategy.video_concept}</p>
-            )}
-            {strategy.scenes && strategy.scenes.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {strategy.scenes.map((s) => (
-                  <Badge key={s.sceneId} variant="purple" className="text-3xs">
-                    {(s.role ?? `Scene ${s.sceneId}`)}{s.durationSec ? ` · ${s.durationSec}s` : ""}
-                  </Badge>
-                ))}
-              </div>
-            )}
+        {strategy?.video_concept && (
+          <p className="text-xs text-white/75 leading-relaxed mb-3">{strategy.video_concept}</p>
+        )}
+
+        {/* Storyboard — per-scene review before any spend (Sprint 1A). Goal,
+            description, caption, duration + per-scene cost (matched by sceneId).
+            Subject/Environment/Camera render automatically once the Story Agent
+            (Sprint 2) populates them. */}
+        {strategy?.scenes && strategy.scenes.length > 0 && (
+          <div className="mb-4 space-y-2 max-h-72 overflow-y-auto pr-1">
+            <p className="text-3xs uppercase tracking-wider text-white/40 font-semibold">
+              Storyboard · {strategy.scenes.length} scenes
+            </p>
+            {strategy.scenes.map((s, i) => {
+              const line = estimate?.perScene.find((p) => p.sceneId === s.sceneId);
+              const sceneCost = line ? `$${line.estimatedCostUsd.toFixed(2)}` : null;
+              const goal = s.goal ?? s.role ?? `Scene ${s.sceneId}`;
+              const desc = s.subject || s.environment
+                ? [s.subject, s.environment].filter(Boolean).join(" · ")
+                : s.prompt;
+              return (
+                <div
+                  key={s.sceneId}
+                  className="rounded-lg p-2.5"
+                  style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
+                >
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="text-2xs font-semibold text-white/80">
+                      {i + 1}. {goal}
+                    </span>
+                    <span className="text-3xs text-white/45 whitespace-nowrap">
+                      {s.durationSec ? `${s.durationSec}s` : ""}{sceneCost ? ` · ${sceneCost}` : ""}
+                    </span>
+                  </div>
+                  {desc && (
+                    <p className="text-3xs text-white/55 leading-snug line-clamp-2">{desc}</p>
+                  )}
+                  {s.camera && (
+                    <p className="text-3xs text-white/40 mt-0.5">Camera: {s.camera}</p>
+                  )}
+                  {s.caption && (
+                    <p className="text-3xs text-cyan-300/80 italic mt-1">&ldquo;{s.caption}&rdquo;</p>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
 

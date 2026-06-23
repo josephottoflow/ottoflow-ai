@@ -82,7 +82,41 @@ const TERMINAL_FAILURE: readonly AtlasStatus[] = ["failed", "canceled", "cancell
  * estimator (src/lib/video/cost.ts) and the post-gen ledger. Conservative
  * (standard-tier) upper bound for the approval gate. */
 export function seedancePerSecondUsd(): number {
-  return 0.1; // ~$0.10/s standard; Fast tier ~$0.081/s.
+  // CALIBRATED from production render b1807d29 (Sprint 1A): balance moved
+  // $26.82608 → $21.94736 = $4.879 for 4×5s billable = $0.244/s effective —
+  // 2.4× the prior $0.10 guess. Rounded up to $0.25/s as a conservative figure
+  // for the cost-approval gate + balance preflight (estimates should err high,
+  // never low). Recalibrate if AtlasCloud Seedance pricing changes or for 1080p.
+  return 0.25;
+}
+
+/**
+ * Read the AtlasCloud account's available USD balance for the balance preflight
+ * (Sprint 1A). Reuses the same base + auth + browser UA as the generation calls.
+ *
+ * FAIL-OPEN by contract: returns `null` on ANY problem (no key on this surface,
+ * Cloudflare block, network error, unparseable body) so callers proceed exactly
+ * as before — this can only ADD a guard, never break an otherwise-valid render.
+ * Returns the numeric balance only on a confirmed successful read.
+ */
+export async function getSeedanceBalanceUsd(): Promise<number | null> {
+  const key = apiKey();
+  if (!key) return null;
+  try {
+    const res = await fetch(`${ATLAS_BASE}/api/v1/credit/balance`, {
+      method: "GET",
+      headers: authHeaders(key),
+    });
+    if (!res.ok) return null;
+    const body = (await res.json().catch(() => null)) as
+      | { data?: { balance?: string | number; amount?: string | number } }
+      | null;
+    const raw = body?.data?.balance ?? body?.data?.amount;
+    const n = typeof raw === "string" ? Number(raw) : raw;
+    return typeof n === "number" && Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
 }
 
 interface AtlasCreateResp {
