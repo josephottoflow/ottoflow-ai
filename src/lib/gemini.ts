@@ -398,6 +398,68 @@ async function generateStructured<T>(opts: StructuredOpts): Promise<T> {
   return data;
 }
 
+/**
+ * Extract the outermost balanced JSON object from a string, ignoring any prose
+ * or code fences around it. Respects string literals + escapes so braces inside
+ * strings are not counted. Returns null if no balanced object exists (e.g. the
+ * output was truncated mid-stream — unrecoverable here).
+ */
+function extractBalancedJsonObject(s: string): string | null {
+  const start = s.indexOf("{");
+  if (start === -1) return null;
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = start; i < s.length; i++) {
+    const c = s[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === "\\") esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') inStr = true;
+    else if (c === "{") depth++;
+    else if (c === "}") {
+      depth--;
+      if (depth === 0) return s.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
+/**
+ * Tolerant JSON parse for Gemini structured output (Sprint 1B reliability).
+ * Gemini's JSON mode occasionally emits invalid JSON on large objects (observed
+ * in brand-profile extraction: malformed arrays mid-stream). This tries the raw
+ * string first (happy path — zero behaviour change for valid JSON), then a small
+ * sequence of SAFE repairs: drop trailing commas before `}`/`]`, and/or extract
+ * the outermost balanced object to discard stray prose/fences. Throws the
+ * ORIGINAL SyntaxError if every attempt fails, so the caller's existing error
+ * message and behaviour are preserved as the last resort. The schema and output
+ * format are unchanged — this only recovers otherwise-fatal malformed responses.
+ */
+function parseLenientJson<T>(raw: string): T {
+  try {
+    return JSON.parse(raw) as T;
+  } catch (firstErr) {
+    const stripTrailingCommas = (x: string) => x.replace(/,(\s*[}\]])/g, "$1");
+    const balanced = extractBalancedJsonObject(raw);
+    const candidates = [
+      stripTrailingCommas(raw),
+      ...(balanced ? [balanced, stripTrailingCommas(balanced)] : []),
+    ];
+    for (const c of candidates) {
+      try {
+        return JSON.parse(c) as T;
+      } catch {
+        /* try the next repair candidate */
+      }
+    }
+    throw firstErr;
+  }
+}
+
 async function generateStructuredFull<T>(
   opts: StructuredOpts
 ): Promise<{ data: T; meta: GenerationMeta }> {
@@ -449,7 +511,7 @@ ${schemaToHint(opts.schema)}`
   const cleaned = usingTools ? unfence(text) : text;
 
   try {
-    return { data: JSON.parse(cleaned) as T, meta: extractMeta(resp) };
+    return { data: parseLenientJson<T>(cleaned), meta: extractMeta(resp) };
   } catch (err) {
     throw new Error(
       `Failed to parse Gemini JSON output: ${(err as Error).message}\n\nRaw: ${cleaned.slice(0, 500)}`

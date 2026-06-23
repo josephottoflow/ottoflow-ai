@@ -102,10 +102,16 @@ export function seedancePerSecondUsd(): number {
 export async function getSeedanceBalanceUsd(): Promise<number | null> {
   const key = apiKey();
   if (!key) return null;
+  // Sprint 1B: bound the preflight so a slow/hanging AtlasCloud can't stall the
+  // approve request (up to the route's maxDuration). On abort the fetch throws →
+  // caught below → null → FAIL-OPEN (render proceeds), behaviour unchanged.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8_000);
   try {
     const res = await fetch(`${ATLAS_BASE}/api/v1/credit/balance`, {
       method: "GET",
       headers: authHeaders(key),
+      signal: controller.signal,
     });
     if (!res.ok) return null;
     const body = (await res.json().catch(() => null)) as
@@ -116,6 +122,8 @@ export async function getSeedanceBalanceUsd(): Promise<number | null> {
     return typeof n === "number" && Number.isFinite(n) ? n : null;
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
