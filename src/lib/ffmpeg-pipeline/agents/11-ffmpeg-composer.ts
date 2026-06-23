@@ -22,7 +22,6 @@ import { promises as fs, createWriteStream } from "node:fs";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { renderAss } from "../ass-captions";
 import { composeMultiPass } from "../ffmpeg";
 import { renderCtaCard, fetchLogoBytes } from "../branding";
 import { createAdminClient } from "@/lib/supabase";
@@ -153,17 +152,16 @@ export async function runFfmpegComposer(
     }
   }
 
-  // 4. Captions ASS — brand typography from the Visual World (absent → proven
-  // default header, byte-identical to pre-V1).
+  // 4. Captions — brand typography from the Visual World (absent → proven
+  // default header). The ASS file is rendered INSIDE composeMultiPass after the
+  // actual scene durations are measured, so the caption track clamps to the real
+  // scenes-end and never bleeds onto the CTA end card. Here we only prepare the
+  // output path + style.
   const assPath = path.join(workDir, "captions.ass");
   const t = plan.branding?.typography;
-  const assContent = renderAss(
-    plan.scenes.map((s) => s.caption),
-    t
-      ? { font: t.captionFont, sizePct: t.captionSizePct, color: t.color, boxOpacity: t.boxOpacity, case: t.case }
-      : undefined,
-  );
-  await fs.writeFile(assPath, assContent, "utf-8");
+  const captionStyle = t
+    ? { font: t.captionFont, sizePct: t.captionSizePct, color: t.color, boxOpacity: t.boxOpacity, case: t.case }
+    : undefined;
 
   // 4b. Deterministic branding (Video V1) — logo overlay + CTA end card.
   // Brand asset bytes are written to disk and composited by FFmpeg; they are
@@ -222,6 +220,8 @@ export async function runFfmpegComposer(
     narrationInputPath: narrationPath,
     musicInputPath: musicPath,
     assPath,
+    captions: plan.scenes.map((s) => s.caption),
+    captionStyle,
     logoPath,
     ctaCard,
     workDir,

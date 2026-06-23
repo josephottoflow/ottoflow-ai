@@ -26,9 +26,12 @@
  *     blow the RAM cap.
  */
 import { promises as fs } from "node:fs";
+import { spawn } from "node:child_process";
+import { renderAss, type CaptionStyle } from "./ass-captions";
 import type {
   CompositionPlan,
   EditDecision,
+  TimedCaption,
   TimingPlan,
   TransitionKind,
 } from "./types";
@@ -333,7 +336,15 @@ export interface MultiPassInput {
   /** Optional: AI-first scenes-only videos may be silent / music-only. */
   narrationInputPath: string | null;
   musicInputPath: string | null;
+  /** Where to WRITE the rendered ASS captions file. */
   assPath: string;
+  /** Scene captions — rendered to ASS INSIDE composeMultiPass AFTER the actual
+   *  normalized scene durations are measured, so the track is clamped to the real
+   *  scenes-end and can't bleed onto the appended CTA card (the per-scene `-r`
+   *  input speeds 24fps clips to 30fps → scenes play shorter than their planned,
+   *  caption-timed durations). Optional — defaults to `plan.scenes[].caption`. */
+  captions?: TimedCaption[];
+  captionStyle?: CaptionStyle;
   /** Optional brand logo PNG overlaid bottom-right (Video V1 branding). */
   logoPath?: string | null;
   /** Optional CTA end card (already rendered PNG) appended as the last clip. */
@@ -344,6 +355,25 @@ export interface MultiPassInput {
   runFfmpeg: (argv: string[], label: string) => Promise<void>;
   /** Optional progress callback 0..1 across the passes. */
   onProgress?: (fraction: number) => void;
+}
+
+/** ffprobe a clip's container duration in seconds; resolves 0 on any failure. */
+function probeDurationSec(filePath: string): Promise<number> {
+  return new Promise((resolve) => {
+    const p = spawn("ffprobe", [
+      "-v", "error",
+      "-show_entries", "format=duration",
+      "-of", "default=noprint_wrappers=1:nokey=1",
+      filePath,
+    ]);
+    let out = "";
+    p.stdout.on("data", (c) => (out += c.toString()));
+    p.on("close", () => {
+      const n = Number(out.trim());
+      resolve(Number.isFinite(n) && n > 0 ? n : 0);
+    });
+    p.on("error", () => resolve(0));
+  });
 }
 
 export async function composeMultiPass(input: MultiPassInput): Promise<void> {
@@ -388,6 +418,24 @@ export async function composeMultiPass(input: MultiPassInput): Promise<void> {
     normPaths.push(out);
     tick();
   }
+
+  // ── Caption clamp (endcard overlap fix) ───────────────────────────────────
+  // normPaths currently holds the SCENE clips only (CTA card appended below).
+  // Measure their ACTUAL durations — each plays back shorter than its planned,
+  // caption-timed duration because the per-scene `-r <fps>` input re-times a
+  // 24fps Seedance clip as 30fps. Clamp every caption to end at the real
+  // scenes-end and drop any caption starting past it, so no caption can render
+  // over the CTA end card. Scene/total/CTA timing are unchanged. Fail-safe: if
+  // a probe returns 0, fall back to the planned total (original behaviour).
+  const measured = await Promise.all(normPaths.map(probeDurationSec));
+  const measuredScenesSec = measured.reduce((a, d) => a + d, 0);
+  const scenesEndMs =
+    measuredScenesSec > 0 ? Math.round(measuredScenesSec * 1000) : plan.output.durationMs;
+  const captions = input.captions ?? plan.scenes.map((s) => s.caption);
+  const clampedCaptions = captions
+    .filter((c) => c.startMs < scenesEndMs)
+    .map((c) => ({ ...c, endMs: Math.min(c.endMs, scenesEndMs) }));
+  await fs.writeFile(input.assPath, renderAss(clampedCaptions, input.captionStyle), "utf-8");
 
   // ── Optional: render the CTA end card into a clip appended last. ──────────
   let extraDurationSec = 0;
