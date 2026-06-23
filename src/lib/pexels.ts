@@ -55,6 +55,7 @@ interface PexelsSearchResponse {
 }
 
 export interface StockClip {
+  id: number;             // Pexels video id — used for cross-scene de-duplication
   url: string;            // direct MP4 link
   durationSec: number;
   width: number;
@@ -481,6 +482,13 @@ interface FindOpts {
   brandIndustry?: string | null;
   topicTitle?: string | null;
   shotType?: string | null;
+  /**
+   * Pexels video ids used by earlier scenes in this render. Excluded from
+   * selection so two scenes never get the identical clip. If exclusion would
+   * empty a query's candidate pool, the unfiltered pool is used as a last
+   * resort — a relevant (even if repeated) clip beats failing the scene.
+   */
+  excludeIds?: number[];
 }
 
 /**
@@ -500,6 +508,8 @@ export async function findStockVideoByPrompt(
   });
   if (queries.length === 0) return null;
 
+  const exclude = new Set(opts.excludeIds ?? []);
+
   // Try portrait first (9:16 TikTok), then landscape for each query.
   for (const query of queries) {
     for (const orientation of ["portrait", "landscape"] as const) {
@@ -508,15 +518,22 @@ export async function findStockVideoByPrompt(
         const usable = filterUsable(videos);
         if (usable.length === 0) continue;
 
+        // De-dup: prefer clips not already used in this render. If every hit
+        // for this query was used, fall back to the full pool (a repeated but
+        // relevant clip beats failing the scene — Pexels is the hard fallback).
+        const fresh = usable.filter((v) => !exclude.has(v.id));
+        const pool = fresh.length > 0 ? fresh : usable;
+
         // Phase 1B (P1.3) — Pexels orders by relevance, but always taking
         // the first hit meant identical topic → identical clip. Random
         // among the top 3 keeps relevance while breaking determinism.
-        const video = pickTop(usable);
+        const video = pickTop(pool);
         if (!video) continue;
         const file = pickBestFile(video, orientation === "portrait");
         if (!file) continue;
 
         return {
+          id: video.id,
           url: file.link,
           durationSec: video.duration,
           width: file.width,

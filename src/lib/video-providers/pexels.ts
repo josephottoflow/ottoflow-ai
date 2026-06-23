@@ -30,6 +30,11 @@ export class PexelsFallbackProvider implements VideoProvider {
         brandIndustry: request.brandIndustry ?? null,
         topicTitle: request.topicTitle ?? null,
         shotType: request.shotType ?? null,
+        // Cross-scene de-dup: exclude clips earlier scenes already used.
+        // Numeric Pexels ids; non-numeric entries are ignored.
+        excludeIds: (request.excludeSourceIds ?? [])
+          .map((s) => Number(s))
+          .filter((n) => Number.isFinite(n)),
       });
       if (!clip) {
         throw new Error(
@@ -45,6 +50,8 @@ export class PexelsFallbackProvider implements VideoProvider {
         costUsd: 0,
         attribution: `${clip.photographer} via Pexels`,
         metadata: {
+          // Surfaced so the caller can record + exclude this asset on later scenes.
+          pexelsId: clip.id,
           query: clip.query,
           orientation: clip.orientation,
           pexelsPageUrl: clip.pexelsPageUrl,

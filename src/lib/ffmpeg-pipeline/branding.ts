@@ -45,9 +45,42 @@ function esc(s: string): string {
 }
 
 /**
- * Render a 9:16 CTA end card as a PNG. Palette-driven gradient + centered CTA
- * line + accent underline + optional brand name. The logo (if any) is
- * composited on top, never drawn by a model.
+ * Greedy word-wrap to fit a pixel width at a given font size (Arial bold).
+ * Char advance ≈ 0.56em for Arial bold — deliberately conservative so a line
+ * never exceeds the safe width and clips off-canvas (cert 2594ea2e defect). A
+ * single word longer than the line is hard-broken so it can't overflow either.
+ */
+function wrapText(text: string, maxWidthPx: number, fontPx: number): string[] {
+  const AVG_ADVANCE = 0.56;
+  const maxChars = Math.max(6, Math.floor(maxWidthPx / (fontPx * AVG_ADVANCE)));
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let cur = "";
+  for (const w of words) {
+    const candidate = cur ? `${cur} ${w}` : w;
+    if (candidate.length > maxChars && cur) {
+      lines.push(cur);
+      cur = w;
+    } else {
+      cur = candidate;
+    }
+    while (cur.length > maxChars) {
+      lines.push(cur.slice(0, maxChars));
+      cur = cur.slice(maxChars);
+    }
+  }
+  if (cur) lines.push(cur);
+  return lines.length ? lines : [text];
+}
+
+/**
+ * Render a 9:16 CTA end card as a PNG. Palette-driven gradient + a CTA block
+ * that AUTO-WRAPS and AUTO-SCALES to fit any length within the safe area, an
+ * accent underline placed beneath the (variable-height) block, then the brand
+ * name — each element stacked with margins so they never overlap (cert 2594ea2e
+ * showed clipped + overlapping CTA text). The logo (if any) is composited on
+ * top, never drawn by a model; the V1 composer omits it so the global
+ * bottom-right overlay is the single brand mark (no duplicate logo).
  */
 export async function renderCtaCard(input: CtaCardInput): Promise<Buffer> {
   const { default: sharp } = await import("sharp");
@@ -55,13 +88,45 @@ export async function renderCtaCard(input: CtaCardInput): Promise<Buffer> {
   const top = input.palette?.primary || NEUTRAL_TOP;
   const bottom = input.palette?.secondary || NEUTRAL_BOTTOM;
   const accent = input.palette?.accent || NEUTRAL_ACCENT;
-  const cta = esc(input.ctaText.slice(0, 60));
+  const ctaRaw = input.ctaText.trim().slice(0, 120); // wrap handles length now
   const brand = input.brandName ? esc(input.brandName.slice(0, 40)) : "";
 
   const cx = width / 2;
-  const cyText = height * 0.55;
-  const ctaFont = Math.round(width * 0.072);
+  const safeWidth = width * 0.86; // 7% horizontal safe margin each side
+  const maxLines = 3;
+  const minFont = Math.round(width * 0.045);
+  const maxFont = Math.round(width * 0.072);
+
+  // Auto-scale: shrink the font until the wrapped CTA fits within maxLines.
+  let ctaFont = maxFont;
+  let lines = wrapText(ctaRaw, safeWidth, ctaFont);
+  while (lines.length > maxLines && ctaFont > minFont) {
+    ctaFont = Math.max(minFont, ctaFont - Math.round(width * 0.006));
+    lines = wrapText(ctaRaw, safeWidth, ctaFont);
+  }
+  // Pathological CTA still longer than maxLines at the floor → ellipsize.
+  if (lines.length > maxLines) {
+    lines = lines.slice(0, maxLines);
+    lines[maxLines - 1] = `${lines[maxLines - 1].replace(/[.\s]+$/, "")}…`;
+  }
+
+  const lineHeight = Math.round(ctaFont * 1.18);
+  const blockHeight = lines.length * lineHeight;
   const brandFont = Math.round(width * 0.04);
+
+  // Vertically center the CTA block; stack underline + brand strictly beneath it.
+  const blockTop = Math.round(height * 0.5 - blockHeight / 2);
+  const firstBaseline = blockTop + Math.round(ctaFont * 0.82);
+  const underlineY = blockTop + blockHeight + Math.round(ctaFont * 0.5);
+  const underlineH = Math.max(4, Math.round(width * 0.012));
+  const brandBaseline = underlineY + underlineH + brandFont + Math.round(height * 0.012);
+
+  const ctaLines = lines
+    .map(
+      (ln, i) =>
+        `<text x="${cx}" y="${firstBaseline + i * lineHeight}" font-family="Arial, Helvetica, sans-serif" font-size="${ctaFont}" font-weight="700" fill="#ffffff" text-anchor="middle">${esc(ln)}</text>`,
+    )
+    .join("\n  ");
 
   const svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
   <defs>
@@ -71,9 +136,9 @@ export async function renderCtaCard(input: CtaCardInput): Promise<Buffer> {
     </linearGradient>
   </defs>
   <rect width="${width}" height="${height}" fill="url(#bg)"/>
-  <rect x="${cx - width * 0.12}" y="${cyText + ctaFont * 0.55}" width="${width * 0.24}" height="${Math.max(4, width * 0.012)}" rx="3" fill="${accent}"/>
-  <text x="${cx}" y="${cyText}" font-family="Arial, Helvetica, sans-serif" font-size="${ctaFont}" font-weight="700" fill="#ffffff" text-anchor="middle">${cta}</text>
-  ${brand ? `<text x="${cx}" y="${height * 0.72}" font-family="Arial, Helvetica, sans-serif" font-size="${brandFont}" font-weight="500" fill="#e2e8f0" text-anchor="middle" opacity="0.85">${brand}</text>` : ""}
+  ${ctaLines}
+  <rect x="${cx - width * 0.12}" y="${underlineY}" width="${width * 0.24}" height="${underlineH}" rx="3" fill="${accent}"/>
+  ${brand ? `<text x="${cx}" y="${brandBaseline}" font-family="Arial, Helvetica, sans-serif" font-size="${brandFont}" font-weight="500" fill="#e2e8f0" text-anchor="middle" opacity="0.85">${brand}</text>` : ""}
 </svg>`;
 
   let img = sharp(Buffer.from(svg)).png();

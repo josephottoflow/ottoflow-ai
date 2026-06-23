@@ -317,7 +317,14 @@ export function buildAiFirstPlan(input: AiFirstPlanInput): CompositionPlan {
     if (!clip) {
       throw new Error(`buildAiFirstPlan: no generated clip for scene ${s.sceneId}`);
     }
-    const durMs = Math.round((clip.durationSec || s.durationSec) * 1000);
+    // Clamp to the PLANNED per-scene duration. Seedance returns exactly the
+    // requested length (≤ plan), so it is unaffected. Pexels fallback clips keep
+    // their NATIVE length (11s–36s); without this clamp a single stock clip
+    // dominated the timeline (cert 2594ea2e: scene-3 = 35.5s, total 58.6s vs a
+    // 20s plan). Min() trims fallbacks back to the scene's intended duration.
+    const durMs = Math.round(
+      Math.min(clip.durationSec || s.durationSec, s.durationSec) * 1000,
+    );
     const startMs = cursorMs;
     const endMs = cursorMs + durMs;
     cursorMs = endMs;

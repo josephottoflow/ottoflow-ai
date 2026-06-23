@@ -129,11 +129,23 @@ export async function processSceneGeneration(
     // a manual re-enqueue safe and idempotent.
     const { data: existingRows } = await admin
       .from("scene_generations")
-      .select("scene_number, provider, storage_url, storage_key, duration_sec, width, height, attribution")
+      .select("scene_number, provider, storage_url, storage_key, duration_sec, width, height, attribution, metadata")
       .eq("render_job_id", data.renderJobId);
     const resumable = new Map<number, NonNullable<typeof existingRows>[number]>();
     for (const r of existingRows ?? []) {
       if (r.storage_url) resumable.set(r.scene_number as number, r);
+    }
+
+    // Cross-scene de-dup (P1): Pexels asset ids already used in this render.
+    // Seeded from resumed rows so a retry doesn't reintroduce a duplicate.
+    const usedPexelsIds: string[] = [];
+    const recordPexelsId = (provider: string, meta: unknown) => {
+      if (provider !== "pexels") return;
+      const id = (meta as { pexelsId?: unknown } | null)?.pexelsId;
+      if (id != null) usedPexelsIds.push(String(id));
+    };
+    for (const r of resumable.values()) {
+      recordPexelsId((r.provider as string) ?? "", r.metadata);
     }
 
     for (let i = 0; i < total; i++) {
@@ -168,12 +180,16 @@ export async function processSceneGeneration(
           seed: sharedSeed,
           brandIndustry: data.brandIndustry ?? null,
           topicTitle: data.topic,
+          // Exclude stock clips already used by earlier scenes (P1 de-dup).
+          excludeSourceIds: usedPexelsIds,
         },
         { preferProvider: "seedance" },
       );
       if (result.provider !== "seedance") {
         fallbackReason = `seedance unavailable → fell through to ${result.provider}`;
       }
+      // Track the chosen stock asset so later scenes can't reuse it.
+      recordPexelsId(result.provider, result.metadata);
 
       // Copy to durable storage (provider URLs — esp. Seedance — expire ~1h,
       // and ffmpeg-compose runs LATER). The compose step must read a durable

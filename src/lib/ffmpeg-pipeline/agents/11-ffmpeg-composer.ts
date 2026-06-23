@@ -188,7 +188,11 @@ export async function runFfmpegComposer(
         ctaText: plan.branding.ctaText,
         brandName: plan.branding.brandName ?? null,
         palette: plan.branding.palette ?? null,
-        logo: logoBytes,
+        // Logo intentionally OMITTED. buildFinalizeArgv overlays the logo
+        // bottom-right across the ENTIRE timeline (incl. this end card), so
+        // compositing it into the card too produced the duplicate-logo defect
+        // on cert 2594ea2e (top-center card logo + bottom-right overlay).
+        logo: null,
       });
       const cardPath = path.join(workDir, "cta-card.png");
       await fs.writeFile(cardPath, cardPng);

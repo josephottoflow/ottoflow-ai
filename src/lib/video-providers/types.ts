@@ -43,6 +43,15 @@ export interface SceneRequest {
   topicTitle?: string | null;
   /** Shot type from storyboard (e.g. "close-up", "wide"). Influences Pexels query construction. */
   shotType?: string | null;
+  /**
+   * Asset IDs already used by EARLIER scenes in this same render. The Pexels
+   * fallback excludes these so two scenes never reuse the identical stock clip
+   * (cert 2594ea2e: scene-2 ≡ scene-4, byte-identical). Stringified provider
+   * asset ids (e.g. Pexels video id). Optional/back-compat: omitted → no
+   * exclusion. AI providers (Seedance/Runway/Luma) ignore it — they generate
+   * unique clips per call.
+   */
+  excludeSourceIds?: string[];
 }
 
 export interface SceneResult {
