@@ -229,7 +229,12 @@ export function buildFinalizeArgv(i: FinalizeArgvInput): string[] {
   // ─── Video: burn captions, then (optional) overlay the logo bottom-right ──
   let videoFilter: string;
   if (logoIdx >= 0) {
-    const logoW = Math.round(i.width * 0.22);
+    // Size the logo to the SHORT edge so it occupies a consistent fraction of
+    // the frame on EVERY aspect. min(W,H) keeps the certified 9:16 byte-identical
+    // (min(1080,1920)=1080 → 238px, exactly the old width*0.22) while preventing
+    // the bug from ballooning to 22% of the 1920px LONG edge on 16:9 (FMEA #1,
+    // RPN 126 — oversized corner logo on landscape).
+    const logoW = Math.round(Math.min(i.width, i.height) * 0.22);
     const marginX = Math.round(i.width * 0.05);
     const marginY = Math.round(i.height * 0.04);
     videoFilter =
