@@ -315,8 +315,10 @@ export interface CompositionPlan {
     musicDuckingDb: number;        // legacy static fallback if sidechain unavailable
   };
   output: {
-    width: 1080;
-    height: 1920;
+    // Video V1.1: widened from literal 1080×1920 to support 16:9 (1920×1080)
+    // and 1:1 (1080×1080). 9:16 remains 1080×1920 (certified default).
+    width: number;
+    height: number;
     fps: 30;
     durationMs: number;
   };

@@ -58,6 +58,11 @@ const Schema = z.object({
   brandId: z.string().uuid(),
   contentItemId: z.string().uuid(),
   platform: z.enum(["linkedin"]).default("linkedin"),
+  /** Output aspect (Video V1.1 — Platform Agent). Optional; absent → "9:16" =
+   * the certified 1080×1920 path. The platform-first UI sets this from the
+   * selected platform's Platform Agent profile; the legacy button omits it so
+   * existing renders stay 9:16 (no cert regression). */
+  aspect: z.enum(["9:16", "16:9", "1:1"]).optional(),
   /** Dry run: build strategy + plan + cost estimate, make NO provider calls and
    * enqueue NOTHING. For wiring validation without spend. */
   dryRun: z.boolean().optional().default(false),
@@ -116,6 +121,7 @@ export async function POST(req: NextRequest) {
     );
   }
   const { brandId, contentItemId, dryRun, approve, strategy: passedStrategy } = parsed.data;
+  const aspect = parsed.data.aspect ?? "9:16";
 
   const admin = createAdminClient();
 
@@ -242,6 +248,7 @@ export async function POST(req: NextRequest) {
         strategy,
         clips: dryClips,
         branding,
+        aspect,
       });
       return Response.json(
         {
@@ -328,6 +335,7 @@ export async function POST(req: NextRequest) {
         topic,
         brandId,
         brandIndustry: (brand.industry as string | null) ?? null,
+        aspectRatio: aspect,
         strategy,
         branding,
       },

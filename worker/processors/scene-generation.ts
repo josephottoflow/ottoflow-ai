@@ -176,7 +176,7 @@ export async function processSceneGeneration(
           // Shared style preamble + beat-specific prompt (Task 3).
           prompt: `${styleBlock} ${scene.prompt}`,
           durationSec: scene.durationSec,
-          aspectRatio: "9:16",
+          aspectRatio: data.aspectRatio ?? "9:16",
           seed: sharedSeed,
           brandIndustry: data.brandIndustry ?? null,
           topicTitle: data.topic,
@@ -277,6 +277,7 @@ export async function processSceneGeneration(
       narrationUrl: data.narrationUrl ?? null,
       musicUrl: data.musicUrl ?? null,
       branding: data.branding,
+      aspect: data.aspectRatio ?? "9:16",
     });
     report("plan", 75);
 

@@ -283,6 +283,15 @@ export interface AiFirstPlanInput {
   musicUrl?: string | null;
   /** Optional deterministic branding (logo overlay + CTA end card). */
   branding?: CompositionPlan["branding"];
+  /** Output aspect (Video V1.1). Absent → "9:16" = the certified 1080×1920. */
+  aspect?: "9:16" | "16:9" | "1:1";
+}
+
+/** Output canvas dims per aspect, preserving the certified 9:16 = 1080×1920. */
+function outputDimsForAspect(aspect: "9:16" | "16:9" | "1:1"): { width: number; height: number } {
+  if (aspect === "16:9") return { width: 1920, height: 1080 };
+  if (aspect === "1:1") return { width: 1080, height: 1080 };
+  return { width: 1080, height: 1920 }; // 9:16 (default, certified)
 }
 
 /** Word-wrap a caption to ≤2 lines of ≤22 chars (matches Agent 8 limits). */
@@ -443,7 +452,7 @@ export function buildAiFirstPlan(input: AiFirstPlanInput): CompositionPlan {
       musicUrl: input.musicUrl ?? "",
       musicDuckingDb: -12,
     },
-    output: { width: 1080, height: 1920, fps: 30, durationMs: totalDurationMs },
+    output: { ...outputDimsForAspect(input.aspect ?? "9:16"), fps: 30, durationMs: totalDurationMs },
     globalGrade: "natural",
     artifacts: { strategy: artifactsStrategy, script: artifactsScript },
     ...(input.branding ? { branding: input.branding } : {}),

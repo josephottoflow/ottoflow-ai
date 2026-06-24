@@ -435,7 +435,7 @@ export async function composeMultiPass(input: MultiPassInput): Promise<void> {
   const clampedCaptions = captions
     .filter((c) => c.startMs < scenesEndMs)
     .map((c) => ({ ...c, endMs: Math.min(c.endMs, scenesEndMs) }));
-  await fs.writeFile(input.assPath, renderAss(clampedCaptions, input.captionStyle), "utf-8");
+  await fs.writeFile(input.assPath, renderAss(clampedCaptions, input.captionStyle, { width: W, height: H }), "utf-8");
 
   // ── Optional: render the CTA end card into a clip appended last. ──────────
   let extraDurationSec = 0;

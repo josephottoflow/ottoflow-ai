@@ -55,24 +55,28 @@ function assBack(opacity: number): string {
   return `&H${a.toString(16).padStart(2, "0").toUpperCase()}000000`;
 }
 
-function buildHeader(style?: CaptionStyle): string {
+function buildHeader(style: CaptionStyle | undefined, width: number, height: number): string {
   const font = style?.font || "DejaVu Sans";
-  const regSize = Math.round((style?.sizePct ?? 72 / PLAY_RES_Y) * PLAY_RES_Y);
+  // Font size + vertical margin scale with the ACTUAL frame height so captions
+  // are proportionally sized/placed on any aspect (Video V1.1). The certified
+  // 9:16 (height 1920) is byte-identical: 72/1920×1920=72, 260×1920/1920=260.
+  const regSize = Math.round((style?.sizePct ?? 72 / PLAY_RES_Y) * height);
   const punchSize = Math.round(regSize * 1.33);
   const primary = assColor(style?.color);
   const back = assBack(style?.boxOpacity ?? 0.5);
+  const marginV = Math.round((260 / PLAY_RES_Y) * height);
   return `[Script Info]
 ScriptType: v4.00+
-PlayResX: 1080
-PlayResY: 1920
+PlayResX: ${width}
+PlayResY: ${height}
 WrapStyle: 2
 ScaledBorderAndShadow: yes
 YCbCr Matrix: TV.709
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Punch,${font},${punchSize},${primary},&H000000FF,&H00000000,${back},1,0,0,0,100,100,0,0,1,6,4,5,80,80,260,1
-Style: Regular,${font},${regSize},${primary},&H000000FF,&H00000000,${back},1,0,0,0,100,100,0,0,1,4,3,5,80,80,260,1
+Style: Punch,${font},${punchSize},${primary},&H000000FF,&H00000000,${back},1,0,0,0,100,100,0,0,1,6,4,5,80,80,${marginV},1
+Style: Regular,${font},${regSize},${primary},&H000000FF,&H00000000,${back},1,0,0,0,100,100,0,0,1,4,3,5,80,80,${marginV},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -111,7 +115,13 @@ function fmt(ms: number): string {
  * We split into one event per caption — keeps the parser fast and lets
  * libass cache layout state per event.
  */
-export function renderAss(captions: TimedCaption[], style?: CaptionStyle): string {
+export function renderAss(
+  captions: TimedCaption[],
+  style?: CaptionStyle,
+  dims?: { width: number; height: number },
+): string {
+  const width = dims?.width ?? 1080;
+  const height = dims?.height ?? 1920;
   const events = captions
     .map((c) => {
       const lines = c.lineBreaks.length > 0 ? c.lineBreaks : [c.text];
@@ -120,7 +130,7 @@ export function renderAss(captions: TimedCaption[], style?: CaptionStyle): strin
       return `Dialogue: 0,${fmt(c.startMs)},${fmt(c.endMs)},${styleName},,0,0,0,,{\\fad(150,150)}${text}`;
     })
     .join("\n");
-  return buildHeader(style) + events + "\n";
+  return buildHeader(style, width, height) + events + "\n";
 }
 
 /**

@@ -312,6 +312,8 @@ export interface SceneGenerationJobData {
   topic: string;
   brandId?: string | null;
   brandIndustry?: string | null;
+  /** Output aspect (Video V1.1). Absent → "9:16" = the certified 1080×1920 path. */
+  aspectRatio?: "9:16" | "16:9" | "1:1";
   strategy: VideoStrategy;
   /** Resolved narration (data: or https URL). Forwarded into the CompositionPlan. */
   narrationUrl?: string | null;
