@@ -133,7 +133,11 @@ export async function buildVideoStrategy(
   input: VideoStrategyInput,
 ): Promise<VideoStrategy> {
   const totalSec = input.totalDurationSec ?? 20;
-  const perScene = Math.max(4, Math.round(totalSec / 4));
+  // Video V1.1 hard rule (Sprint 2, layer 2): no scene may exceed 8s. The lower
+  // bound (4s) matches AtlasCloud's minimum; the 8s ceiling is enforced again at
+  // the provider backstop (seedanceDuration) so it can't be bypassed. Default
+  // 20s/4 = 5s — unchanged from the certified render.
+  const perScene = Math.min(8, Math.max(4, Math.round(totalSec / 4)));
 
   const resp = await withTimeout(
     client().models.generateContent({

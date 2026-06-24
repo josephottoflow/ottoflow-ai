@@ -163,7 +163,10 @@ function seedanceRatio(aspect: "9:16" | "16:9" | "1:1" | undefined): string {
  * Exported so the cost estimator bills the SAME seconds the provider charges. */
 export function seedanceDuration(target: number): number {
   if (!Number.isFinite(target)) return 5;
-  return Math.min(15, Math.max(4, Math.round(target)));
+  // Video V1.1 hard rule (Sprint 2): no scene may exceed 8s — this is the
+  // provider-level BACKSTOP (layer 3) so the ceiling holds even if an upstream
+  // layer is bypassed. Lower bound stays at AtlasCloud's 4s minimum.
+  return Math.min(8, Math.max(4, Math.round(target)));
 }
 
 /** Pixel dims for the returned ratio at the configured resolution tier. */
