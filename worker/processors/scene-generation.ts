@@ -28,6 +28,7 @@ import { ffmpegComposeQueue, type SceneGenerationJobData } from "@/lib/queue";
 import { generateScene } from "@/lib/video-providers/registry";
 import { uploadToR2, isR2Configured } from "@/lib/ffmpeg-pipeline/r2";
 import { buildAiFirstPlan, type AiFirstClip } from "@/lib/ffmpeg-pipeline/orchestrator";
+import { buildCommercialStyleBlock } from "@/lib/ffmpeg-pipeline/prompt-builder";
 import type { AgentContext, SourceName, VideoStrategy } from "@/lib/ffmpeg-pipeline/types";
 
 type Reporter = (step: string, progress: number) => void;
@@ -115,9 +116,17 @@ export async function processSceneGeneration(
     // Visual World V1: when the brand has a world, its stylePreamble + negative
     // prompt + seedFamily drive cross-scene consistency. Absent → the prior
     // strategy/palette-derived style block + per-strategy seed (unchanged).
-    const styleBlock = data.branding?.stylePreamble
-      ? `${data.branding.stylePreamble}${data.branding.negativePrompt ? ` Avoid: ${data.branding.negativePrompt}.` : ""}`
-      : buildStyleBlock(strategy, data.branding?.palette ?? null);
+    // Mode-gate (Video V1.1): commercial_story uses the human-first preamble +
+    // universal negative (no people-ban). The certified path is UNCHANGED — same
+    // Visual-World / palette-derived block as before → render 46bd40cd reproducible.
+    const styleBlock =
+      data.mode === "commercial_story"
+        ? buildCommercialStyleBlock(
+            (strategy.brand_worldview || strategy.scenes[0]?.prompt || "the recurring protagonist").slice(0, 160),
+          )
+        : data.branding?.stylePreamble
+          ? `${data.branding.stylePreamble}${data.branding.negativePrompt ? ` Avoid: ${data.branding.negativePrompt}.` : ""}`
+          : buildStyleBlock(strategy, data.branding?.palette ?? null);
     const sharedSeed =
       data.branding?.seedFamily ?? strategy.scenes[0]?.seed ?? Math.floor(Math.random() * 2 ** 31);
 

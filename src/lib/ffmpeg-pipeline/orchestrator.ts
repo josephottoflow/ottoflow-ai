@@ -257,10 +257,16 @@ export async function runOrchestrator(
 // from the strategy — no narration-driven agents, no second creative engine.
 
 const ROLE_EMOTION: Record<SceneRole, Emotion> = {
+  // Certified 4-beat (unchanged).
   problem: "anxious",
   tension: "urgent",
   solution: "hopeful",
   outcome: "confident",
+  // Commercial_story 6-beat (additive).
+  hook: "curious",
+  visualized_pain: "anxious",
+  reveal: "hopeful",
+  proof: "confident",
 };
 
 /** A generated scene clip (already copied to durable storage by the worker). */

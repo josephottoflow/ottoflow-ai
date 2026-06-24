@@ -314,6 +314,9 @@ export interface SceneGenerationJobData {
   brandIndustry?: string | null;
   /** Output aspect (Video V1.1). Absent → "9:16" = the certified 1080×1920 path. */
   aspectRatio?: "9:16" | "16:9" | "1:1";
+  /** Generation mode (Video V1.1). Absent/"certified" → unchanged 4-beat path
+   *  (keeps render 46bd40cd reproducible); "commercial_story" → human-first 6-beat. */
+  mode?: "certified" | "commercial_story";
   strategy: VideoStrategy;
   /** Resolved narration (data: or https URL). Forwarded into the CompositionPlan. */
   narrationUrl?: string | null;

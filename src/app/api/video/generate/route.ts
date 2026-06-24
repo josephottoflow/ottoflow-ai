@@ -23,6 +23,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { captureFallback } from "@/lib/observability";
 import { sceneGenerationQueue } from "@/lib/queue";
 import { buildVideoStrategy } from "@/lib/ffmpeg-pipeline/video-strategy";
+import { buildCommercialStory } from "@/lib/ffmpeg-pipeline/story-agent";
 import { isVideoRenderEnabled } from "@/lib/video/flags";
 import { estimateRenderCost } from "@/lib/video/cost";
 import { getSeedanceBalanceUsd } from "@/lib/video-providers/seedance";
@@ -63,6 +64,10 @@ const Schema = z.object({
    * selected platform's Platform Agent profile; the legacy button omits it so
    * existing renders stay 9:16 (no cert regression). */
   aspect: z.enum(["9:16", "16:9", "1:1"]).optional(),
+  /** Generation mode (Video V1.1). Absent → "certified" = the unchanged 4-beat
+   * path that keeps render 46bd40cd reproducible. "commercial_story" = human-first
+   * 6-beat Story Agent (opt-in, mode-gated). */
+  mode: z.enum(["certified", "commercial_story"]).optional().default("certified"),
   /** Dry run: build strategy + plan + cost estimate, make NO provider calls and
    * enqueue NOTHING. For wiring validation without spend. */
   dryRun: z.boolean().optional().default(false),
@@ -122,6 +127,7 @@ export async function POST(req: NextRequest) {
   }
   const { brandId, contentItemId, dryRun, approve, strategy: passedStrategy } = parsed.data;
   const aspect = parsed.data.aspect ?? "9:16";
+  const mode = parsed.data.mode ?? "certified";
 
   const admin = createAdminClient();
 
@@ -207,14 +213,23 @@ export async function POST(req: NextRequest) {
             visual_tension: brief.visual_tension,
             visual_metaphor: brief.visual_metaphor,
           }
-        : await buildVideoStrategy({
-            topic,
-            visualTension: brief.visual_tension,
-            visualMetaphor: brief.visual_metaphor,
-            brandIndustry: (brand.industry as string | null) ?? null,
-            palette: brief.palette ?? null,
-            totalDurationSec: 20,
-          });
+        : mode === "commercial_story"
+          ? await buildCommercialStory({
+              topic,
+              visualTension: brief.visual_tension,
+              brandIndustry: (brand.industry as string | null) ?? null,
+              brandName: (brand.name as string | null) ?? null,
+              palette: brief.palette ?? null,
+              targetDurationSec: [30, 48],
+            })
+          : await buildVideoStrategy({
+              topic,
+              visualTension: brief.visual_tension,
+              visualMetaphor: brief.visual_metaphor,
+              brandIndustry: (brand.industry as string | null) ?? null,
+              palette: brief.palette ?? null,
+              totalDurationSec: 20,
+            });
 
     // ─── Cost estimate (computed BEFORE any spend) ────────────────────────────
     const estimate = estimateRenderCost(strategy);
@@ -336,6 +351,7 @@ export async function POST(req: NextRequest) {
         brandId,
         brandIndustry: (brand.industry as string | null) ?? null,
         aspectRatio: aspect,
+        mode,
         strategy,
         branding,
       },

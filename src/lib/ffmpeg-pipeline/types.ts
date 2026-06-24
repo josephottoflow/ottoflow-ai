@@ -371,7 +371,17 @@ export interface CompositionPlan {
 // frozen on render_jobs.video_strategy. Seedance generates scenes ONLY; FFmpeg
 // (Agents 11/12) remains the composition + branding engine.
 
-export type SceneRole = "problem" | "tension" | "solution" | "outcome";
+export type SceneRole =
+  // Certified 4-beat (Video V1, UNCHANGED — keeps render 46bd40cd reproducible).
+  | "problem"
+  | "tension"
+  | "solution"
+  | "outcome"
+  // Commercial_story 6-beat (Video V1.1, additive — used only in commercial_story mode).
+  | "hook"
+  | "visualized_pain"
+  | "reveal"
+  | "proof";
 
 export interface VideoStrategyScene {
   role: SceneRole;
