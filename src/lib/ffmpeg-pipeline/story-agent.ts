@@ -24,6 +24,7 @@ import type { BrandPalette } from "./video-strategy";
 import {
   assembleScenePrompt,
   validateScenePrompt,
+  validateProtagonist,
   type PromptViolation,
 } from "./prompt-builder";
 
@@ -197,6 +198,17 @@ export async function buildCommercialStory(input: CommercialStoryInput): Promise
     const raw = await generate(input, fixes);
     const byRole = new Map(raw.scenes.map((s) => [s.role, s]));
 
+    // Deterministic validation gate (§E) — before any spend.
+    // HumanPresence is validated ONCE on the protagonist (FM-A/FM-B): it is
+    // injected verbatim as slot 3 of every scene, so a human-valid protagonist
+    // guarantees a human in every scene. Per-scene checks cover scene-specific
+    // content only (abstraction / synthetic-text / void-env / screen guard).
+    const failures: string[] = [];
+    const protoV: PromptViolation[] = validateProtagonist(raw.protagonist);
+    if (protoV.length) {
+      failures.push(`protagonist: ${protoV.map((x) => `${x.rule}:${x.detail}`).join("; ")}`);
+    }
+
     const assembled = BEATS.map((role, i) => {
       const s = byRole.get(role);
       const slots = {
@@ -211,6 +223,10 @@ export async function buildCommercialStory(input: CommercialStoryInput): Promise
         hasScreen: !!s?.hasScreen,
       };
       const prompt = assembleScenePrompt(slots);
+      const v: PromptViolation[] = validateScenePrompt(prompt, slots.hasScreen);
+      if (v.length) {
+        failures.push(`scene ${i + 1} (${role}): ${v.map((x) => `${x.rule}:${x.detail}`).join("; ")}`);
+      }
       return {
         role,
         sceneId: i + 1,
@@ -219,15 +235,6 @@ export async function buildCommercialStory(input: CommercialStoryInput): Promise
         seed: sharedSeed,
         durationSec: clampDuration(s?.durationSec ?? 5),
       } satisfies VideoStrategyScene;
-    });
-
-    // Deterministic validation gate (§E) — before any spend.
-    const failures: string[] = [];
-    assembled.forEach((sc) => {
-      const v: PromptViolation[] = validateScenePrompt(sc.prompt);
-      if (v.length) {
-        failures.push(`scene ${sc.sceneId} (${sc.role}): ${v.map((x) => `${x.rule}:${x.detail}`).join("; ")}`);
-      }
     });
 
     if (failures.length === 0) {

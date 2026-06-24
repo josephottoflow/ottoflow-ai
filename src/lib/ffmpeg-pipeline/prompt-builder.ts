@@ -70,45 +70,74 @@ export function buildCommercialStyleBlock(protagonist: string): string {
 // Runs BEFORE enqueue / spend / Seedance, on each assembled scene prompt. The
 // assembled prompt does NOT contain the negative clause, so text/logo tokens
 // here are genuine violations, not the guard list.
-const HUMAN =
-  /\b(person|people|operator|manager|director|owner|professional|woman|man|men|women|team|colleague|colleagues|founder|lead|executive|worker|specialist|agent|hands|she|he|they)\b/i;
-const ENV =
-  /\b(office|desk|room|workplace|jobsite|job site|home|house|store|storefront|studio|warehouse|clinic|neighborhood|city|building|van|floor|lounge|bullpen|window|meeting room|deal room|driveway|dispatch)\b/i;
+// HumanPresence is validated ONCE on the protagonist (FM-A/FM-B fix), NOT per
+// scene — the protagonist is injected verbatim into slot 3 of every scene, so a
+// human-valid protagonist guarantees a human in every scene. Broad role lexicon +
+// age cue avoids false-rejecting common roles (CEO/engineer/developer/analyst…).
+const HUMAN_PROTAGONIST =
+  /\b(person|people|professional|individual|woman|man|men|women|guy|lady|she|he|they|his|her|their|manager|director|owner|founder|cofounder|executive|ceo|cto|cfo|coo|chief|president|vp|lead|leader|head|boss|engineer|developer|programmer|coder|designer|analyst|scientist|architect|consultant|specialist|technician|entrepreneur|operator|agent|broker|realtor|nurse|doctor|physician|practitioner|therapist|teacher|professor|marketer|strategist|writer|editor|accountant|advisor|adviser|coach|recruiter|seller|salesperson|rep|worker|employee|staff|teammate|colleague|coworker|client|customer|user|superintendent|foreman|contractor|dispatcher|clerk|associate|partner|freelancer|creator)\b/i;
+// Age/identity cue strongly implies a real person ("late 30s", "40s", "year-old").
+const AGE_CUE = /\b(\d{2}s|late \d{2}s|early \d{2}s|mid-?\d{2}s|\d{2}-year-old|aged? \d{2}|in (?:his|her|their) \d{2}s)\b/i;
+// Abstract subjects that must NEVER be the scene — the anti-abstraction gate (UNCHANGED, per-scene).
 const ABSTRACT =
   /\b(tunnel|corridor|labyrinth|maze|geometric|floating structure|particle void|abstract space|digital realm|black void|kaleidoscope|data sphere|wireframe void)\b/i;
+// Affirmative requests for synthetic on-screen text/logos (UNCHANGED, per-scene).
 const AFFIRMATIVE_TEXT =
   /\b(text reading|logo|brand name|watermark|label saying|caption reading|ui text|words on screen)\b/i;
-const SCREEN = /\b(dashboard|screen|monitor|display|map|tablet|graphic|interface|board)\b/i;
-// Physical reactions only — NOT emotional states. ("focused" is an emotion in
-// slot 5 and must not satisfy the product-demo human-reaction check.)
-const REACTION =
-  /\b(leans|leaning|reviews|reviewing|watches|watching|nods|nodding|points|gestures|smiles|smiling|reacts|reacting|studies|studying)\b/i;
+// Explicitly NON-real environments. Void-blocklist replaces the brittle env allowlist
+// (FM-D): pass any real place, reject only an explicitly abstract void.
+const VOID_ENV =
+  /\b(void|abstract space|digital realm|nowhere|empty white space|black void|featureless backdrop|limbo|cyberspace|the void)\b/i;
 
 export interface PromptViolation {
   rule: "HumanPresence" | "RealEnvironment" | "NoAbstractSubject" | "NoSyntheticText" | "ProductDemonstration";
   detail: string;
 }
 
-/** Validate ONE assembled scene prompt. Returns [] when clean. */
-export function validateScenePrompt(prompt: string): PromptViolation[] {
+/**
+ * Validate the protagonist ONCE (FM-A/FM-B fix). The Story Agent injects this
+ * string verbatim as slot 3 of every scene, so a human-valid protagonist
+ * guarantees a human subject in every scene — HumanPresence is therefore NOT
+ * re-checked per scene (that per-scene regex was the false-reject source). A
+ * broad role lexicon + age cue lets common roles (CEO/engineer/developer/analyst)
+ * pass while still rejecting a non-human "subject".
+ */
+export function validateProtagonist(protagonist: string): PromptViolation[] {
+  const p = (protagonist ?? "").trim();
+  const human = p.length > 0 && (HUMAN_PROTAGONIST.test(p) || AGE_CUE.test(p));
+  return human
+    ? []
+    : [{ rule: "HumanPresence", detail: `protagonist "${p.slice(0, 60)}" names no recognizable human` }];
+}
+
+/**
+ * Validate ONE assembled scene prompt — scene-specific content only (the human is
+ * covered by validateProtagonist). `hasScreen` is the Story Agent's flag, so the
+ * ProductDemonstration check no longer false-triggers on incidental "screen/board"
+ * words (FM-C). RealEnvironment is a void-blocklist (FM-D). NoAbstractSubject is
+ * the unchanged anti-abstraction gate.
+ */
+export function validateScenePrompt(prompt: string, hasScreen = false): PromptViolation[] {
   const v: PromptViolation[] = [];
-  if (!HUMAN.test(prompt)) v.push({ rule: "HumanPresence", detail: "no human subject token" });
-  if (!ENV.test(prompt)) v.push({ rule: "RealEnvironment", detail: "no real-environment token" });
   const abs = ABSTRACT.exec(prompt);
   if (abs) v.push({ rule: "NoAbstractSubject", detail: `banned subject "${abs[0]}"` });
   const txt = AFFIRMATIVE_TEXT.exec(prompt);
   if (txt) v.push({ rule: "NoSyntheticText", detail: `affirmative text/logo request "${txt[0]}"` });
-  if (SCREEN.test(prompt) && !REACTION.test(prompt) && !/no legible text/i.test(prompt)) {
-    v.push({ rule: "ProductDemonstration", detail: "screen without human reaction or no-text guard" });
+  const vd = VOID_ENV.exec(prompt);
+  if (vd) v.push({ rule: "RealEnvironment", detail: `non-real environment "${vd[0]}"` });
+  if (hasScreen && !/no legible text/i.test(prompt)) {
+    v.push({ rule: "ProductDemonstration", detail: "screen scene missing no-legible-text guard" });
   }
   return v;
 }
 
 /** Validate every scene of a strategy; returns a per-scene violation map. */
-export function validateScenes(prompts: string[]): Map<number, PromptViolation[]> {
+export function validateScenes(
+  scenes: { prompt: string; hasScreen?: boolean }[],
+): Map<number, PromptViolation[]> {
   const out = new Map<number, PromptViolation[]>();
-  prompts.forEach((p, i) => {
-    const v = validateScenePrompt(p);
+  scenes.forEach((s, i) => {
+    const v = validateScenePrompt(s.prompt, s.hasScreen);
     if (v.length) out.set(i, v);
   });
   return out;
