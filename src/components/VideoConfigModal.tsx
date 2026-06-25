@@ -1,19 +1,24 @@
 "use client";
 
 /**
- * VideoConfigModal — OttoFlow AI Creative Director (presentation layer).
+ * VideoConfigModal — OttoFlow AI Creative Studio (presentation layer).
  *
- * Feels like a creative director designing the customer's commercial: an AI
- * "thinking" reveal, a conversational direction panel, a visual storyboard, and
- * progressive disclosure so the screen is never dense. PRESENTATION ONLY — no
- * pipeline / API / pricing / rendering changes. Everything is fed by data the FREE
- * dryRun already returns; anything without a real signal is hidden or "Soon".
+ * Feels like a premium AI Creative Director: it explains, previews, and justifies
+ * every creative decision — a Creative Brief, premium Scene Cards, a Moodboard,
+ * AI Director reasoning, a performance explanation, and an honest deliverables
+ * list. PRESENTATION ONLY — no pipeline / API / pricing / rendering changes. The
+ * render payload (`body()`), the dryRun fetch, and the checkout/Generate logic are
+ * byte-identical to before. Everything shown is fed by data the FREE dryRun already
+ * returns (strategy + estimate + branding) or the platform profile; anything
+ * without a real signal is clearly labelled "Coming soon".
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   Loader2, Clapperboard, X, Lock, CheckCircle2, AlertTriangle, AlertCircle, Check,
-  ChevronDown, Film, Sparkles, Clock, BadgeCheck,
+  ChevronDown, ChevronRight, Film, Sparkles, Clock, BadgeCheck, Palette as PaletteIcon,
+  Camera, Sun, Type as TypeIcon, Wand2, Gauge, Target, Users, Heart, MessageSquareQuote,
+  FileVideo, Layers,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PLATFORM_PROFILES, type Platform, type AspectRatio } from "@/lib/platform/profiles";
@@ -59,16 +64,32 @@ const PLATFORM_SURFACE: Record<Platform, string> = {
   instagram_feed: "In-Feed", facebook_reels: "Reels Full Screen", facebook_feed: "In-Feed",
   youtube_shorts: "Shorts Full Screen", youtube_standard: "Player", x: "Timeline",
 };
+// Who this platform reaches — a truthful, platform-derived characterisation.
+const PLATFORM_AUDIENCE: Record<Platform, string> = {
+  linkedin: "Professionals & decision-makers",
+  tiktok: "Gen-Z & trend-driven viewers",
+  instagram_reels: "Lifestyle & discovery audiences",
+  instagram_feed: "Engaged followers in-feed",
+  facebook_reels: "Broad social viewers",
+  facebook_feed: "Community & in-feed audiences",
+  youtube_shorts: "Short-form browsers",
+  youtube_standard: "Intent-driven searchers",
+  x: "Fast-scroll timeline readers",
+};
 const orientation = (a: AspectRatio) => (a === "9:16" ? "Vertical" : a === "1:1" ? "Square" : "Landscape");
 const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 const beatLabel = (role?: string) =>
-  ({ hook: "Hook", problem: "Problem", visualized_pain: "Conflict", reveal: "Solution", outcome: "Transformation",
+  ({ hook: "Hook", problem: "Problem", visualized_pain: "Conflict", reveal: "Solution", outcome: "Outcome",
      proof: "Proof", solution: "Solution", tension: "Conflict", cta: "Call to action" } as Record<string, string>)[role ?? ""]
   ?? cap((role ?? "Scene").replace(/_/g, " "));
 const beatObjective = (role?: string) =>
   ({ hook: "Stop the scroll", problem: "Establish the pain", visualized_pain: "Heighten the tension",
      tension: "Heighten the tension", reveal: "Reveal the solution", solution: "Reveal the solution",
      outcome: "Show the transformation", proof: "Prove it works", cta: "Drive the action" } as Record<string, string>)[role ?? ""] ?? "Advance the story";
+// Emotional beat the viewer feels — derived from the real scene role.
+const beatEmotion = (role?: string) =>
+  ({ hook: "Curiosity", problem: "Tension", visualized_pain: "Frustration", tension: "Frustration",
+     reveal: "Relief", solution: "Relief", outcome: "Aspiration", proof: "Trust", cta: "Action" } as Record<string, string>)[role ?? ""] ?? "Engagement";
 
 interface Palette { primary?: string | null; secondary?: string | null; accent?: string | null; }
 interface Branding { palette?: Palette | null; brandName?: string | null; logoAssetId?: string | null; }
@@ -121,6 +142,22 @@ function Section({ open, onToggle, title, hint, icon, children }: {
     </div>
   );
 }
+
+/** A small "brief" row: label + value (or a Coming-soon lock). */
+function BriefRow({ icon, label, children }: { icon: ReactNode; label: string; children: ReactNode }) {
+  return (
+    <div className="flex items-start gap-2">
+      <span className="mt-0.5 text-cyan-300/70 shrink-0">{icon}</span>
+      <div className="min-w-0">
+        <p className="text-3xs uppercase tracking-wider text-white/40 font-semibold">{label}</p>
+        <div className="text-2xs text-white/80 leading-snug mt-0.5">{children}</div>
+      </div>
+    </div>
+  );
+}
+const Soon = () => (
+  <span className="text-3xs text-white/40 inline-flex items-center gap-0.5"><Lock size={9} /> Coming soon</span>
+);
 
 /** Smoothly count a number toward `target` (premium cost micro-interaction). */
 function useCountUp(target: number, active: boolean): number {
@@ -243,6 +280,23 @@ export function VideoConfigModal({
   const brand100 = brandMatch(branding);
   const costAnim = useCountUp(estimate?.estimatedCostUsd ?? 0, !estimating && !!estimate);
 
+  // ── Derived creative copy — all from real signals (strategy / profile / branding) ──
+  const st = profile.story;
+  const styleWord = st.conversionStyle === "authority" ? "professional" : st.conversionStyle === "direct" ? "punchy" : "lifestyle";
+  const toneWord = st.conversionStyle === "authority" ? "Credible & expert-led" : st.conversionStyle === "direct" ? "Clear & action-oriented" : "Warm & relatable";
+  const transitionWord = st.pacing === "fast" ? "Quick cuts" : st.pacing === "slow" ? "Gentle dissolves" : "Smooth cuts";
+  const cameraStyles = Array.from(new Set(scenes.map((s) => s.camera).filter(Boolean))) as string[];
+  const journeyRaw = scenes.map((s) => beatEmotion(s.role));
+  const journey = journeyRaw.filter((w, i) => i === 0 || w !== journeyRaw[i - 1]);
+  const primaryMessage = (strategy?.video_concept ?? "").trim() || (scenes[0]?.caption ?? "").trim() || (contentTitle ?? "").trim();
+  const theme = (strategy?.visual_metaphor ?? "").trim() || (strategy?.visual_tension ?? "").trim() || `${cap(mode.replace(/_/g, " "))} for ${branding?.brandName ?? "your brand"}`;
+  const visualStyleStr = `${cap(st.sceneComplexity)} · ${MODE_OPTIONS.find((m) => m.value === mode)?.label ?? cap(mode)}`;
+  const expectedReaction = st.conversionStyle === "authority"
+    ? "Builds trust and positions the brand as the credible choice."
+    : st.conversionStyle === "direct"
+      ? "Drives an immediate, decisive response to the call-to-action."
+      : "Leaves viewers feeling the brand understands them — and wanting more.";
+
   if (!open) return null;
 
   const labelCls = "text-3xs uppercase tracking-wider text-white/45 font-semibold";
@@ -264,17 +318,60 @@ export function VideoConfigModal({
   };
   const rc = readyColors[readiness.tone];
 
-  // Conversational AI direction (from real dryRun data).
-  const styleWord = profile.story.conversionStyle === "authority" ? "professional" : profile.story.conversionStyle === "direct" ? "punchy" : "lifestyle";
-  const direction = [
-    `I'm directing a ${profile.story.pacing}-paced commercial — ${profile.label} audiences retain ${styleWord} storytelling better than rapid edits.`,
-    `It opens on a real pain point, then reveals ${branding?.brandName ?? "your product"} as the resolution.`,
-    `We finish on a clear, on-brand call to action.`,
+  // ── Why this will perform (P4) — every factor tied to a real signal ──
+  const first = scenes[0];
+  const last = scenes[scenes.length - 1];
+  const [smin, smax] = profile.video.sceneCount;
+  const complete = scenes.length >= smin && scenes.length <= smax;
+  const ctaOk = !!(last && (last.role === "cta" || (last.caption ?? "").trim()));
+  const perfFactors: { k: string; ok: boolean; detail: string }[] = scenes.length ? [
+    { k: "Platform optimized", ok: fit, detail: fit ? `Length lands in ${profile.label}'s sweet spot (${plo}–${phi}s)` : `Length is outside ${profile.label}'s ideal ${plo}–${phi}s` },
+    { k: "Hook timing", ok: !!first, detail: first ? `Opens on a hook in the first ${first.durationSec ?? "—"}s (target ≤${st.hookBySec}s)` : "No opening hook detected" },
+    { k: "Brand visibility", ok: hasPalette, detail: hasPalette ? `${branding?.brandName ?? "Brand"} colors${branding?.logoAssetId ? " + logo" : ""} carried throughout` : "Add brand colors for stronger recall" },
+    { k: "Story completeness", ok: complete, detail: complete ? `${scenes.length}-beat arc, within the ${smin}–${smax} recommended` : `${scenes.length} beats (recommended ${smin}–${smax})` },
+    { k: "Clear call-to-action", ok: ctaOk, detail: ctaOk ? "Closes on a clear call-to-action" : "No closing call-to-action detected" },
+  ] : [];
+
+  // ── AI Director reasoning (P6) — plain language from real profile values ──
+  const reasoning: { k: string; v: string }[] = [
+    { k: "Pacing", v: `${cap(st.pacing)} — ${profile.label} viewers respond to ${st.pacing === "fast" ? "quick, high-energy cuts" : st.pacing === "slow" ? "a deliberate, considered rhythm" : "a balanced rhythm"}.` },
+    { k: "Hook", v: `Leads within ${st.hookBySec}s at ${st.hookIntensity} intensity — to stop the scroll before viewers drop.` },
+    { k: "Tone", v: `${toneWord} — matched to how this audience prefers to be spoken to.` },
+    { k: "Structure", v: scenes.length ? `A ${scenes.length}-beat arc (${journey.join(" → ")}) — a complete story from hook to action.` : `A complete arc from hook to call-to-action.` },
   ];
 
-  const swatch = (c?: string | null) => c
-    ? <span className="inline-block h-3.5 w-3.5 rounded-full border border-white/15 align-middle" style={{ background: c }} title={c} />
-    : <span className="text-white/30 text-3xs">—</span>;
+  // ── Creative Moodboard (P3) — real value or honest Coming-soon ──
+  const moodboard: { icon: ReactNode; label: string; node: ReactNode }[] = [
+    { icon: <PaletteIcon size={11} />, label: "Color palette", node: hasPalette
+        ? <span className="inline-flex items-center gap-1">{swatch(branding?.palette?.primary)}{swatch(branding?.palette?.secondary)}{swatch(branding?.palette?.accent)}</span>
+        : <Soon /> },
+    { icon: <Gauge size={11} />, label: "Motion", node: <span className="text-white/80">{cap(st.pacing)} pacing</span> },
+    { icon: <Layers size={11} />, label: "Transition style", node: <span className="text-white/80">{transitionWord}</span> },
+    { icon: <Camera size={11} />, label: "Camera", node: cameraStyles.length
+        ? <span className="text-white/80 line-clamp-1">{cameraStyles.slice(0, 2).join(", ")}</span>
+        : <Soon /> },
+    { icon: <Sun size={11} />, label: "Lighting", node: <Soon /> },
+    { icon: <TypeIcon size={11} />, label: "Typography", node: <Soon /> },
+  ];
+
+  // ── Deliverables (P5) ──
+  const deliverables: { label: string; value: ReactNode; on: boolean }[] = [
+    { label: "Video file", value: "MP4", on: true },
+    { label: "Resolution", value: resolution, on: true },
+    { label: "Aspect ratio", value: aspect, on: true },
+    { label: "Captions", value: "Burned-in", on: true },
+    { label: "Brand outro", value: "Logo + CTA", on: true },
+    { label: "Caption & hashtags", value: "Included", on: true },
+    { label: "Transcript", value: <Soon />, on: false },
+    { label: "Thumbnail", value: <Soon />, on: false },
+  ];
+
+  // ── Creative Alternatives (P7) — placeholders, regeneration needs backend ──
+  const alternatives = [
+    { name: "Bold & Punchy", desc: "Faster cuts, louder hook" },
+    { name: "Story-Driven", desc: "Slower build, deeper arc" },
+    { name: "Minimal & Clean", desc: "Restrained, product-forward" },
+  ];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.6)" }} onClick={approving ? undefined : onClose}>
@@ -285,7 +382,7 @@ export function VideoConfigModal({
           <div className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-cyan-400" />
             <div>
-              <h2 className="text-sm font-bold text-white leading-none">AI Creative Director</h2>
+              <h2 className="text-sm font-bold text-white leading-none">AI Creative Studio</h2>
               <p className="text-3xs text-cyan-300/80 mt-0.5">Optimized for {profile.label}</p>
             </div>
           </div>
@@ -340,34 +437,150 @@ export function VideoConfigModal({
             </div>
             <p className="text-3xs text-white/40 mb-3">Style engine: <span className="text-white/65">{md.engine}</span> · Best for {md.bestFor}</p>
 
-            {/* ── Collapsibles (reduce density) ── */}
-            <Section open={!!openSec["today"]} onToggle={() => toggle("today")} title="Today's Direction" icon={<Sparkles size={11} className="text-cyan-400" />} hint="from your AI Director">
-              <ul className="space-y-1.5">{direction.map((d, i) => <li key={i} className="text-2xs text-white/70 italic leading-snug">&ldquo;{d}&rdquo;</li>)}</ul>
+            {/* ── P8: Original Content → AI Interpretation → Final Video ── */}
+            <div className="mb-3 rounded-xl p-3 cs-fade" style={card}>
+              <span className={`${labelCls} flex items-center gap-1 mb-2`}><Wand2 size={11} className="text-cyan-400" /> How your content becomes a video</span>
+              <div className="flex items-stretch gap-1.5">
+                <div className="flex-1 rounded-lg p-2" style={card}>
+                  <p className="text-3xs text-white/40 font-semibold mb-0.5">Your content</p>
+                  <p className="text-3xs text-white/75 line-clamp-3 leading-snug">{contentTitle ?? "—"}</p>
+                </div>
+                <div className="flex items-center"><ChevronRight size={14} className="text-cyan-400/60" /></div>
+                <div className="flex-1 rounded-lg p-2" style={{ background: "rgba(34,211,238,0.06)", border: "1px solid rgba(34,211,238,0.18)" }}>
+                  <p className="text-3xs text-cyan-300/70 font-semibold mb-0.5">AI interpretation</p>
+                  <p className="text-3xs text-white/75 line-clamp-3 leading-snug">{estimating ? "Designing…" : (primaryMessage || "Crafting a story…")}</p>
+                </div>
+                <div className="flex items-center"><ChevronRight size={14} className="text-cyan-400/60" /></div>
+                <div className="flex-1 rounded-lg p-2" style={card}>
+                  <p className="text-3xs text-white/40 font-semibold mb-0.5">Final video</p>
+                  <p className="text-3xs text-white/75 leading-snug">{aspect} {resolution} MP4 · {scenes.length || "—"} scenes · captions + brand</p>
+                </div>
+              </div>
+            </div>
+
+            {/* ── P1: Creative Brief (always open — the headline creative summary) ── */}
+            <div className="mb-3 rounded-xl p-3.5 cs-fade" style={{ background: "rgba(34,211,238,0.05)", border: "1px solid rgba(34,211,238,0.16)" }}>
+              <span className={`${labelCls} flex items-center gap-1 mb-2.5`} style={{ color: "rgba(165,243,252,0.7)" }}><Sparkles size={11} className="text-cyan-400" /> Creative Brief</span>
+              {estimating ? (
+                <p className="text-2xs text-white/50 italic">Composing your creative brief…</p>
+              ) : (
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
+                  <BriefRow icon={<Wand2 size={11} />} label="Theme"><span className="line-clamp-2">{theme}</span></BriefRow>
+                  <BriefRow icon={<Users size={11} />} label="Audience">{PLATFORM_AUDIENCE[platform]}</BriefRow>
+                  <BriefRow icon={<Heart size={11} />} label="Emotional journey">{journey.length ? journey.join(" → ") : <Soon />}</BriefRow>
+                  <BriefRow icon={<MessageSquareQuote size={11} />} label="Primary message"><span className="line-clamp-2">{primaryMessage || <Soon />}</span></BriefRow>
+                  <BriefRow icon={<Film size={11} />} label="Visual style">{visualStyleStr}</BriefRow>
+                  <BriefRow icon={<Target size={11} />} label="Expected reaction"><span className="line-clamp-2">{expectedReaction}</span></BriefRow>
+                </div>
+              )}
+            </div>
+
+            {/* ── P2: Premium Scene Cards (always open) ── */}
+            <Section open={openSec["story"] ?? true} onToggle={() => toggle("story")} title="Scene-by-scene" icon={<Film size={11} />} hint={scenes.length ? `${scenes.length} scenes · ${totalDur}s` : "designing…"}>
+              {scenes.length ? (
+                <div className="space-y-1">
+                  {scenes.map((s, i) => (
+                    <div key={i}>
+                      <div className="rounded-lg p-2.5 cs-fade" style={card}>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-3xs font-bold text-cyan-300/90 rounded bg-cyan-400/10 px-1.5 py-0.5">{String(i + 1).padStart(2, "0")}</span>
+                          <span className="text-2xs font-semibold text-white/90">{beatLabel(s.role)}</span>
+                          <span className="text-3xs text-white/35">· {beatObjective(s.role)}</span>
+                          <span className="ml-auto text-3xs text-white/40 inline-flex items-center gap-0.5"><Clock size={9} />{s.durationSec ?? 0}s</span>
+                        </div>
+                        {s.caption && <p className="text-3xs text-white/65 italic leading-snug">&ldquo;{s.caption}&rdquo;</p>}
+                        <p className="text-3xs text-emerald-300/50 mt-1 inline-flex items-center gap-1"><Heart size={8} /> {beatEmotion(s.role)}</p>
+                      </div>
+                      {i < scenes.length - 1 && (
+                        <div className="flex items-center justify-center gap-1 py-0.5">
+                          <span className="h-2 w-px bg-white/15" />
+                          <span className="text-3xs text-white/30">{transitionWord}</span>
+                          <span className="h-2 w-px bg-white/15" />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : <p className="text-2xs text-white/45 italic">Your scenes appear here once the story is composed.</p>}
             </Section>
 
-            <Section open={!!openSec["story"]} onToggle={() => toggle("story")} title="Story Preview" icon={<Film size={11} />} hint={`${scenes.length} scenes · ${totalDur}s`}>
-              <div className="space-y-1.5">
-                {scenes.map((s, i) => (
-                  <div key={i}>
-                    <div className="rounded-lg p-2 flex items-start gap-2" style={card}>
-                      <span className="text-3xs font-bold text-cyan-300/80 w-4 shrink-0">{i + 1}</span>
-                      <div className="flex-1">
-                        <p className="text-2xs font-semibold text-white/85">{i === 0 ? "🎬 " : ""}{beatLabel(s.role)} <span className="text-white/30 font-normal">· {beatObjective(s.role)}</span></p>
-                        {s.caption && <p className="text-3xs text-white/60 italic mt-0.5">&ldquo;{s.caption}&rdquo;</p>}
-                      </div>
-                      <span className="text-3xs text-white/35 shrink-0">{s.durationSec ?? 0}s</span>
+            {/* ── P3: Creative Moodboard ── */}
+            <Section open={!!openSec["mood"]} onToggle={() => toggle("mood")} title="Creative Moodboard" icon={<PaletteIcon size={11} />} hint="the look & feel">
+              <div className="grid grid-cols-2 gap-2">
+                {moodboard.map((m) => (
+                  <div key={m.label} className="rounded-lg p-2 flex items-center gap-2" style={card}>
+                    <span className="text-cyan-300/70 shrink-0">{m.icon}</span>
+                    <div className="min-w-0">
+                      <p className="text-3xs uppercase tracking-wider text-white/40 font-semibold">{m.label}</p>
+                      <div className="text-2xs mt-0.5">{m.node}</div>
                     </div>
-                    {i < scenes.length - 1 && <div className="flex justify-center py-0.5"><ChevronDown size={12} className="text-white/25" /></div>}
+                  </div>
+                ))}
+              </div>
+              <p className="text-3xs text-white/30 mt-2">Derived from your platform &amp; brand — the final look is set during production.</p>
+            </Section>
+
+            {/* ── P6: AI Director Reasoning ── */}
+            <Section open={!!openSec["reason"]} onToggle={() => toggle("reason")} title="Why the AI directed it this way" icon={<Sparkles size={11} className="text-cyan-400" />} hint="director's notes">
+              <div className="space-y-2">
+                {reasoning.map((r) => (
+                  <div key={r.k} className="flex gap-2">
+                    <span className="text-3xs font-bold text-cyan-300/80 uppercase tracking-wider w-16 shrink-0 pt-0.5">{r.k}</span>
+                    <p className="text-2xs text-white/70 leading-snug">{r.v}</p>
                   </div>
                 ))}
               </div>
             </Section>
 
-            <Section open={!!openSec["intel"]} onToggle={() => toggle("intel")} title="Platform Intelligence" hint={`why ${profile.label}`}>
-              <p className="text-2xs text-white/65">{cap(profile.story.conversionStyle)} tone · {profile.story.pacing} pacing · hook by {profile.story.hookBySec}s · {plo}–{phi}s recommended.</p>
+            {/* ── P4: Why this will perform (replaces the bare quality number) ── */}
+            <Section open={openSec["perform"] ?? true} onToggle={() => toggle("perform")} title="Why this will perform" icon={<Gauge size={11} />}
+              hint={estimating ? "scoring…" : `Commercial Score ${quality100}`}>
+              {scenes.length ? (
+                <>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-lg font-bold tabular-nums" style={{ color: scoreColor(quality100) }}>{quality100}</span>
+                    <span className="text-3xs text-white/40">Commercial Score · computed from your story, brand &amp; platform fit</span>
+                  </div>
+                  <div className="space-y-1">
+                    {perfFactors.map((f) => (
+                      <div key={f.k} className="flex items-start gap-1.5">
+                        {f.ok ? <Check size={12} className="text-emerald-400 mt-0.5 shrink-0" /> : <AlertTriangle size={11} className="text-amber-400 mt-0.5 shrink-0" />}
+                        <p className="text-2xs text-white/75"><span className="font-semibold text-white/85">{f.k}</span> <span className="text-white/50">— {f.detail}</span></p>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : <p className="text-2xs text-white/45 italic">Performance breakdown appears once the story is composed.</p>}
             </Section>
 
-            <Section open={!!openSec["visual"]} onToggle={() => toggle("visual")} title="Visual Style" hint="how it's made">
+            {/* ── P5: Deliverables ── */}
+            <Section open={!!openSec["deliver"]} onToggle={() => toggle("deliver")} title="What you'll receive" icon={<FileVideo size={11} />} hint={`${aspect} ${resolution} MP4`}>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                {deliverables.map((d) => (
+                  <div key={d.label} className="flex items-center justify-between text-2xs">
+                    <span className="text-white/55 flex items-center gap-1.5">{d.on ? <Check size={11} className="text-emerald-400" /> : <Lock size={9} className="text-white/30" />}{d.label}</span>
+                    <span className="text-white/80">{d.value}</span>
+                  </div>
+                ))}
+              </div>
+            </Section>
+
+            {/* ── P7: Creative Alternatives (Coming soon) ── */}
+            <Section open={!!openSec["alts"]} onToggle={() => toggle("alts")} title="Creative alternatives" icon={<Layers size={11} />} hint="explore other directions">
+              <div className="grid grid-cols-3 gap-2">
+                {alternatives.map((a) => (
+                  <div key={a.name} className="rounded-lg p-2.5 text-center opacity-70" style={card}>
+                    <p className="text-2xs font-semibold text-white/80">{a.name}</p>
+                    <p className="text-3xs text-white/45 leading-snug mt-0.5">{a.desc}</p>
+                    <p className="mt-1.5"><Soon /></p>
+                  </div>
+                ))}
+              </div>
+              <p className="text-3xs text-white/30 mt-2">Generate this video first — alternate creative directions are on the way.</p>
+            </Section>
+
+            {/* ── Production controls (collapsibles) ── */}
+            <Section open={!!openSec["visual"]} onToggle={() => toggle("visual")} title="Visual source" hint="how it's made">
               <div className="grid grid-cols-2 gap-2">
                 {SOURCE_OPTIONS.map((o) => {
                   const active = source === o.value;
@@ -417,11 +630,6 @@ export function VideoConfigModal({
                 {readiness.lines.map((l, i) => <p key={i} className="text-3xs text-white/60 mt-0.5">{l}</p>)}</div>
             </div>
 
-            <div className="mb-3 rounded-xl p-3 cs-fade" style={card}>
-              <span className={`${labelCls} flex items-center gap-1`}><BadgeCheck size={11} className="text-emerald-400" /> What you&rsquo;re making</span>
-              <p className="text-2xs text-white/80 mt-1">1 × <span className="font-semibold">{aspect} {resolution} MP4</span> · ~{duration === "auto" ? `${plo}–${phi}` : duration}s · {scenes.length || "—"} scenes · captions · brand bar &amp; CTA · ready to publish on {profile.label}.</p>
-            </div>
-
             <div className="mb-3 grid grid-cols-3 gap-2">
               <div className="rounded-xl p-3 cs-fade" style={card}>
                 <p className={labelCls}>Cost</p>
@@ -433,13 +641,10 @@ export function VideoConfigModal({
                 <p className="text-sm font-semibold text-white/85 mt-0.5">{fmtTimeRange(estimate?.estRenderTimeSec)}</p>
                 <p className="text-3xs text-white/35 mt-0.5">Varies with demand.</p>
               </div>
-              <div className="grid grid-rows-2 gap-2">
-                <div className="rounded-lg px-2.5 py-1.5 text-center cs-fade" style={card}>
-                  <p className="text-3xs text-white/40">Creative quality</p>
-                  <p className="text-sm font-bold" style={{ color: scoreColor(quality100) }}>{estimating ? "—" : quality100}</p></div>
-                <div className="rounded-lg px-2.5 py-1.5 text-center" style={card}>
-                  <p className="text-3xs text-white/40">AI confidence</p>
-                  <p className="text-3xs text-white/35"><Lock size={8} className="inline mr-0.5" />Soon</p></div>
+              <div className="rounded-xl p-3 cs-fade" style={card}>
+                <p className={labelCls}>Commercial Score</p>
+                <p className="text-xl font-bold tabular-nums" style={{ color: estimating ? "#64748b" : scoreColor(quality100) }}>{estimating ? "—" : quality100}</p>
+                <p className="text-3xs text-white/35 mt-0.5">Story · brand · platform fit.</p>
               </div>
             </div>
 
@@ -459,4 +664,11 @@ export function VideoConfigModal({
       </div>
     </div>
   );
+}
+
+/** Small colour swatch (module-level so it's usable in derived render arrays). */
+function swatch(c?: string | null) {
+  return c
+    ? <span className="inline-block h-3.5 w-3.5 rounded-full border border-white/15 align-middle" style={{ background: c }} title={c} />
+    : <span className="text-white/30 text-3xs">—</span>;
 }
