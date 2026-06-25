@@ -187,7 +187,7 @@ export function ContentItemDetailClient({ item, brandName, videoDisabledReason }
               </p>
               <p className="text-2xs text-white/50">
                 {videoDisabledReason ??
-                  "This creative has everything needed — turn it into a branded video (Seedance → FFmpeg)."}
+                  "This creative has everything needed — turn it into a polished, brand-aligned video."}
               </p>
             </div>
           </div>
@@ -331,7 +331,7 @@ export function ContentItemDetailClient({ item, brandName, videoDisabledReason }
       {item.brand_id && (
         <div id="generate-video" className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.02] px-4 py-3 scroll-mt-24">
           <div className="text-2xs text-white/40">
-            Generate a brand-aligned video from this creative (Seedance → FFmpeg).
+            Turn this creative into a polished, brand-aligned video.
           </div>
           <AiFirstVideoButton
             brandId={item.brand_id}
@@ -345,8 +345,7 @@ export function ContentItemDetailClient({ item, brandName, videoDisabledReason }
       )}
 
       {/* Footer actions */}
-      <div className="flex items-center justify-between text-2xs text-white/30">
-        <span>Content ID: {item.id}</span>
+      <div className="flex items-center justify-end text-2xs text-white/30">
         <Link href="/content/generate">
           <Button variant="outline" size="sm" className="gap-1.5">
             Generate another →

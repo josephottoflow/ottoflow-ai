@@ -54,7 +54,31 @@ const STAGE_BADGE: Record<VideoJobStage, "secondary" | "info" | "warning" | "suc
   failed: "destructive",
 };
 
-const STEPS = ["Strategy", "Scenes", "Compose", "Ready"] as const;
+/** Customer-facing stages, mapped 1:1 to the real backend stages (no invented
+ * progress). "Creating your video" is the compose stage — captions, brand bar
+ * and final assembly all happen inside it; they are not separate backend events. */
+const STEPS = [
+  { label: "Preparing your story", sub: "Designing your commercial" },
+  { label: "Generating scenes", sub: "Filming each scene with AI" },
+  { label: "Creating your video", sub: "Editing, captions & branding" },
+  { label: "Ready", sub: "Preview & download" },
+] as const;
+
+/** Customer-facing badge label for a stage (no developer terms). */
+function friendlyLabel(stage: VideoJobStage): string {
+  return { queued: "Preparing", generating: "Generating", composing: "Creating video", ready: "Ready", failed: "Needs attention" }[stage];
+}
+/** Customer-facing one-line detail (softens internal/worker language). */
+function friendlyDetail(status: { stage: VideoJobStage; detail: string; isStuck: boolean; scenesDone: number; scenesTotal: number }): string {
+  if (status.isStuck) return "This is taking longer than usual to start. Try refreshing in a moment.";
+  switch (status.stage) {
+    case "queued": return "Getting your story ready…";
+    case "generating": return `Filming scene ${Math.min(status.scenesDone + 1, status.scenesTotal)} of ${status.scenesTotal}…`;
+    case "composing": return "Editing your video — adding captions & brand…";
+    case "ready": return "Your video is ready to preview and download.";
+    case "failed": return status.detail;
+  }
+}
 
 function activeStep(stage: VideoJobStage, scenesDone: number, scenesTotal: number): number {
   switch (stage) {
@@ -157,8 +181,8 @@ export function VideoJobClient({ job: initialJob, brand, scenes: initialScenes }
         {/* Header */}
         <header className="space-y-2">
           <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-xl font-bold">{job.name || "Video"}</h1>
-            <Badge variant={STAGE_BADGE[status.stage]} className="text-3xs">{status.label}</Badge>
+            <h1 className="text-xl font-bold">{job.name || "Your video"}</h1>
+            <Badge variant={STAGE_BADGE[status.stage]} className="text-3xs">{friendlyLabel(status.stage)}</Badge>
             {showRefresh && (
               <Button variant="outline" size="sm" className="gap-1.5 ml-auto" onClick={onManualRefresh} disabled={refreshing}>
                 {refreshing ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
@@ -168,7 +192,6 @@ export function VideoJobClient({ job: initialJob, brand, scenes: initialScenes }
           </div>
           <div className="flex items-center gap-2 text-2xs text-white/55 flex-wrap">
             {brand && <Link href={`/brands/${brand.id}`} className="hover:text-cyan-400">{brand.name}</Link>}
-            <span>·</span><span>seedance</span>
             <span>·</span><span className="flex items-center gap-1"><Clock size={10} />{elapsed(job)}</span>
             {showRefresh && <><span>·</span><span className="text-amber-300/80">live updates paused</span></>}
           </div>
@@ -182,14 +205,14 @@ export function VideoJobClient({ job: initialJob, brand, scenes: initialScenes }
           <div className="rounded-xl px-4 py-3 text-2xs flex items-start gap-2"
             style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.25)" }}>
             <AlertCircle size={14} className="text-amber-400 shrink-0 mt-0.5" />
-            <span className="text-amber-200/90">{status.detail}</span>
+            <span className="text-amber-200/90">{friendlyDetail(status)}</span>
           </div>
         )}
 
         {/* Progress */}
         <section className="space-y-2">
           <div className="flex items-center justify-between text-2xs text-white/60">
-            <span>{status.detail}</span>
+            <span>{friendlyDetail(status)}</span>
             <span>{status.progressPct}%</span>
           </div>
           <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
@@ -198,12 +221,12 @@ export function VideoJobClient({ job: initialJob, brand, scenes: initialScenes }
           </div>
         </section>
 
-        {/* Stage stepper */}
-        <section className="flex items-center gap-2">
-          {STEPS.map((label, i) => {
+        {/* Stage stepper — customer-facing stages mapped to real backend stages */}
+        <section className="flex items-start gap-2">
+          {STEPS.map((s, i) => {
             const state = status.isFailed && i === step ? "error" : i < step ? "done" : i === step ? "active" : "pending";
             return (
-              <div key={label} className="flex-1 flex flex-col items-center gap-1">
+              <div key={s.label} className="flex-1 flex flex-col items-center gap-1 text-center">
                 <div className="w-7 h-7 rounded-full flex items-center justify-center"
                   style={{
                     background:
@@ -217,7 +240,8 @@ export function VideoJobClient({ job: initialJob, brand, scenes: initialScenes }
                    state === "active" ? <Loader2 size={14} className="text-cyan-400 animate-spin" /> :
                    <span className="text-3xs text-white/30">{i + 1}</span>}
                 </div>
-                <span className={`text-3xs ${i <= step ? "text-white/70" : "text-white/30"}`}>{label}</span>
+                <span className={`text-3xs ${i <= step ? "text-white/70" : "text-white/30"}`}>{s.label}</span>
+                {i === step && !status.isFailed && <span className="text-3xs text-white/35 leading-tight">{s.sub}</span>}
               </div>
             );
           })}
@@ -240,19 +264,29 @@ export function VideoJobClient({ job: initialJob, brand, scenes: initialScenes }
           </div>
         </section>
 
-        {/* Preview + download (ready) */}
+        {/* Success + preview + download (ready) */}
         {status.isReady && playUrl && (
-          <section className="rounded-2xl overflow-hidden"
-            style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}>
-            <PreviewPlayer url={playUrl} />
-            <div className="px-4 py-3 border-t border-white/5">
-              <a href={playUrl} download>
-                <Button variant="gradient-cyan" size="sm" className="gap-1.5">
-                  <Download size={13} /> Download MP4
-                </Button>
-              </a>
+          <>
+            <div className="rounded-xl px-4 py-3 flex items-center gap-2.5"
+              style={{ background: "rgba(16,185,129,0.10)", border: "1px solid rgba(52,211,153,0.25)" }}>
+              <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold" style={{ color: "#34d399" }}>✨ Your video is ready</p>
+                <p className="text-3xs text-white/55 mt-0.5">Produced in {elapsed(job)} · ready to publish</p>
+              </div>
             </div>
-          </section>
+            <section className="rounded-2xl overflow-hidden"
+              style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}>
+              <PreviewPlayer url={playUrl} />
+              <div className="px-4 py-3 border-t border-white/5">
+                <a href={playUrl} download>
+                  <Button variant="gradient-cyan" size="sm" className="gap-1.5">
+                    <Download size={13} /> Download video
+                  </Button>
+                </a>
+              </div>
+            </section>
+          </>
         )}
 
         {/* Failure state + retry (navigation only — no in-place re-enqueue) */}
@@ -287,7 +321,7 @@ export function VideoJobClient({ job: initialJob, brand, scenes: initialScenes }
           <section className="rounded-2xl px-6 py-8 text-center"
             style={{ background: "rgba(255,255,255,0.02)", border: "1px dashed rgba(255,255,255,0.08)" }}>
             <Film size={26} className="text-white/30 mx-auto mb-3" />
-            <p className="text-sm text-white/60">Queued — waiting for a worker to start your render.</p>
+            <p className="text-sm text-white/60">Getting your story ready — your video will begin shortly.</p>
           </section>
         )}
       </div>
@@ -311,9 +345,9 @@ function StrategyCostSummary({ job, scenesTotal }: { job: DbRenderJob; scenesTot
     <section className="rounded-2xl p-4 space-y-3"
       style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}>
       <div className="flex items-center justify-between gap-2">
-        <p className="text-3xs uppercase tracking-wider text-white/40 font-semibold">Strategy</p>
+        <p className="text-3xs uppercase tracking-wider text-white/40 font-semibold">Your story</p>
         <span className="text-2xs text-white/55">
-          seedance · {scenes.length || scenesTotal} scenes · {totalSec}s · ~${estUsd.toFixed(2)}
+          {scenes.length || scenesTotal} scenes · {totalSec}s · ~${estUsd.toFixed(2)}
         </span>
       </div>
       {vs.video_concept && <p className="text-xs text-white/75 leading-relaxed">{vs.video_concept}</p>}
