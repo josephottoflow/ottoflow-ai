@@ -798,7 +798,7 @@ function TopicsSection({
                       brand-voiced social post, both pre-aligned to this idea. */}
                   <div className="flex items-center gap-3 mt-2 pt-2 border-t border-white/[0.04]">
                     <Link
-                      href={`/video/generate?brandId=${brandId}&topicId=${t.id}`}
+                      href="/video/start"
                       className="text-3xs font-semibold text-fuchsia-300 hover:underline"
                     >
                       Generate video →

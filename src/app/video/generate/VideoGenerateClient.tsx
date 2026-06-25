@@ -525,17 +525,30 @@ export function VideoGenerateClient({
       {/* Legacy notice — this is the older stock-footage (script→voice→footage)
           generator. The canonical Video V1 path is strategy-driven from a
           content item's approved creative brief. */}
+      {/* RC2 — superseded banner. This legacy page is preserved for backward
+          compatibility; all in-app Generate Video entries now route to the
+          canonical content-item experience (/video/start → VideoConfigModal). */}
       <div
-        className="mb-5 rounded-xl px-4 py-3 flex items-start gap-2 text-2xs"
+        className="mb-5 rounded-xl px-4 py-3 flex items-start gap-3 text-2xs"
         style={{ background: "rgba(245,158,11,0.07)", border: "1px solid rgba(245,158,11,0.22)" }}
       >
         <AlertCircle size={14} className="text-amber-400 shrink-0 mt-0.5" />
-        <span className="text-amber-100/85">
-          <span className="font-semibold">Legacy Video Generator</span> (stock footage).
-          The new strategy-driven video is created from a content item — open{" "}
-          <Link href="/content" className="underline hover:text-amber-200">Content Pipeline</Link>,
-          approve a creative, then click <span className="font-medium">Generate Video</span>.
-        </span>
+        <div className="flex-1">
+          <p className="text-amber-100/90 font-semibold">
+            This workflow has been superseded by the Content → Generate Video experience.
+          </p>
+          <p className="text-amber-100/70 mt-0.5">
+            The new strategy-driven configurator (platform, branding, validation, cost &amp; render)
+            lives on each content item. This stock-footage generator is kept only for backward compatibility.
+          </p>
+        </div>
+        <Link
+          href="/video/start"
+          className="shrink-0 self-center rounded-lg px-3 py-1.5 text-2xs font-semibold text-amber-100"
+          style={{ background: "rgba(245,158,11,0.18)", border: "1px solid rgba(245,158,11,0.4)" }}
+        >
+          Go to Generate Video →
+        </Link>
       </div>
 
       {/* Header */}

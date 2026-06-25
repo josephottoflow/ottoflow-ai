@@ -89,7 +89,7 @@ export function VideoPageClient({ renderJobs, kpis }: Props) {
               Configure
             </Button>
           </Link>
-          <Link href="/video/generate">
+          <Link href="/video/start">
             <Button variant="gradient-cyan" size="sm" className="gap-1.5">
               <Sparkles size={14} />
               Generate Video
@@ -327,7 +327,7 @@ export function VideoPageClient({ renderJobs, kpis }: Props) {
               <p className="text-xs text-white/45 mb-4 leading-relaxed">
                 Generate a brand-aligned video from a content item&apos;s creative brief — Seedance scenes, composed and branded automatically.
               </p>
-              <Link href="/video/generate">
+              <Link href="/video/start">
                 <Button variant="gradient-cyan" className="w-full gap-2" size="sm">
                   <Sparkles size={13} />
                   Open Video Studio

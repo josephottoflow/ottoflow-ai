@@ -159,7 +159,7 @@ function OpportunityCard({ brandId, idea }: { brandId: string; idea: DbBrandTopi
               Post
             </Button>
           </Link>
-          <Link href={`/video/generate?brandId=${brandId}&topicId=${idea.id}`}>
+          <Link href="/video/start">
             <Button variant="outline" size="sm" className="h-7 gap-1 text-2xs">
               <Video size={11} />
               Video

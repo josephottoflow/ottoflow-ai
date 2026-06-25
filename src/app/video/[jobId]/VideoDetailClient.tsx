@@ -166,7 +166,7 @@ export function VideoDetailClient({ job, brand, scenes }: Props) {
                   </Button>
                 </a>
               )}
-              <Link href="/video/generate">
+              <Link href="/video/start">
                 <Button variant="outline" size="sm" className="gap-1.5">
                   <Sparkles size={13} />
                   New video

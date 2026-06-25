@@ -293,7 +293,7 @@ export function ProjectDetailClient({ project, content, renderJobs, activity }: 
           <div className="glass rounded-2xl p-5">
             <div className="flex items-center justify-between mb-5">
               <h3 className="text-sm font-semibold text-white">Generated Videos</h3>
-              <Link href="/video/generate">
+              <Link href="/video/start">
                 <Button variant="gradient-cyan" size="sm" className="gap-1.5">
                   <Plus size={13} /> Generate Video
                 </Button>

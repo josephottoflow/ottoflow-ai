@@ -85,14 +85,14 @@ export function VideoHistoryClient({ jobs, brandLookup }: Props) {
       <div className="max-w-6xl mx-auto px-6 py-8 space-y-6">
         <div className="flex items-center gap-3">
           <Link
-            href="/video/generate"
+            href="/video/start"
             className="text-white/50 hover:text-white transition-colors flex items-center gap-1.5"
           >
             <ArrowLeft size={14} />
             <span className="text-xs">Generate</span>
           </Link>
           <div className="ml-auto flex items-center gap-2">
-            <Link href="/video/generate">
+            <Link href="/video/start">
               <Button variant="gradient-cyan" size="sm" className="gap-1.5">
                 <Sparkles size={13} />
                 New video
@@ -152,7 +152,7 @@ export function VideoHistoryClient({ jobs, brandLookup }: Props) {
             <p className="text-xs text-white/40 mb-5">
               Generate your first video from a brand topic.
             </p>
-            <Link href="/video/generate">
+            <Link href="/video/start">
               <Button variant="gradient-cyan" size="sm" className="gap-1.5">
                 <Sparkles size={13} />
                 Generate video
@@ -235,7 +235,7 @@ function HistoryRow({
       }
       // The response is SSE — we don't need to consume it here. Redirect
       // to /video/generate so the user sees the live pipeline.
-      window.location.href = "/video/generate";
+      window.location.href = "/video/start";
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setRegenError(msg);

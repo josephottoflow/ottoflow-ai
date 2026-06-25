@@ -102,7 +102,7 @@ export default async function DashboardPage() {
             {[
               { done: hasBrand, title: "Research a brand", desc: "AI learns its voice, audience & positioning.", href: "/brands/new", cta: "Research a brand", icon: Briefcase, beta: false, needsBrand: false },
               { done: hasPost, title: "Generate a post", desc: "Turn a brand idea into an on-brand social post.", href: "/content/generate", cta: "Generate a post", icon: FileText, beta: false, needsBrand: true },
-              { done: hasVideo, title: "Generate a video", desc: "Script → footage → captions → MP4.", href: "/video/generate", cta: "Try video", icon: Video, beta: true, needsBrand: true },
+              { done: hasVideo, title: "Generate a video", desc: "Script → footage → captions → MP4.", href: "/video/start", cta: "Try video", icon: Video, beta: true, needsBrand: true },
             ].map((step, i) => {
               const StepIcon = step.icon;
               const locked = step.needsBrand && !hasBrand;
