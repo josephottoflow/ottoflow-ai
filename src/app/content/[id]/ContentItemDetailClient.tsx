@@ -337,6 +337,8 @@ export function ContentItemDetailClient({ item, brandName, videoDisabledReason }
             brandId={item.brand_id}
             contentItemId={item.id}
             contentTitle={item.title}
+            contentBody={item.body}
+            contentHashtags={hashtags}
             disabledReason={videoDisabledReason}
           />
         </div>

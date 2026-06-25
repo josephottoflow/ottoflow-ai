@@ -27,6 +27,9 @@ interface AiFirstVideoButtonProps {
   contentItemId: string;
   /** Shown in the configurator's "Content" row. */
   contentTitle?: string;
+  /** Post body + hashtags — used for pre-render platform content validation. */
+  contentBody?: string | null;
+  contentHashtags?: string[] | null;
   /**
    * When set, the button is disabled and this exact reason is shown beneath it.
    * e.g. "Creative brief not approved" /
@@ -39,6 +42,8 @@ export function AiFirstVideoButton({
   brandId,
   contentItemId,
   contentTitle,
+  contentBody,
+  contentHashtags,
   disabledReason,
 }: AiFirstVideoButtonProps) {
   const [open, setOpen] = useState(false);
@@ -65,6 +70,8 @@ export function AiFirstVideoButton({
         brandId={brandId}
         contentItemId={contentItemId}
         contentTitle={contentTitle}
+        contentBody={contentBody}
+        contentHashtags={contentHashtags}
         onClose={() => setOpen(false)}
       />
     </div>
