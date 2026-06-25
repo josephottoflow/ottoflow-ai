@@ -30,6 +30,7 @@ import { getSeedanceBalanceUsd } from "@/lib/video-providers/seedance";
 import { buildAiFirstPlan, type AiFirstClip } from "@/lib/ffmpeg-pipeline/orchestrator";
 import { resolveVisualWorld } from "@/lib/brand/visual-world";
 import { getPlatformProfile } from "@/lib/platform/profiles";
+import { pickCta } from "@/lib/platform/platform-cta";
 import type { AgentContext, SourceName, VideoStrategy } from "@/lib/ffmpeg-pipeline/types";
 
 export const runtime = "nodejs";
@@ -249,11 +250,15 @@ export async function POST(req: NextRequest) {
     logoAssetId: brief.logo_usage?.use ? brief.logo_usage.asset_id ?? null : null,
     ctaText: brief.cta ?? null,
   });
+  // Sprint 6 — platform-aware CTA for the commercial_story end card (mode-gated;
+  // certified keeps the brief/world CTA verbatim → byte-identical).
+  const platformCta = mode === "commercial_story" ? pickCta(parsed.data.platform, contentItemId) : null;
+  const endcardCta = world.endcard.enabled ? platformCta ?? world.endcard.ctaText : null;
   const branding = {
     brandId,
     brandName: (brand.name as string | null) ?? null,
     logoAssetId: world.logo.assetId,
-    ctaText: world.endcard.enabled ? world.endcard.ctaText : null,
+    ctaText: endcardCta,
     palette: brief.palette ?? null,
     grade: {
       contrast: world.grade.contrast,
@@ -288,6 +293,7 @@ export async function POST(req: NextRequest) {
               brandName: (brand.name as string | null) ?? null,
               palette: brief.palette ?? null,
               targetDurationSec: [Math.max(profLo, Math.round(totalDurationSec * 0.7)), totalDurationSec],
+              platform: parsed.data.platform,
             })
           : await buildVideoStrategy({
               topic,

@@ -11,8 +11,9 @@
  */
 import type { BrandPalette } from "./video-strategy";
 
-/** Slot 7 — fidelity constant. */
-export const RENDER_QUALITY = "photorealistic, 4K, cinematic color grade";
+/** Slot 7 — fidelity constant (Sprint 6: premium commercial look). */
+export const RENDER_QUALITY =
+  "photorealistic, 4K, cinematic color grade, premium commercial cinematography, natural skin tones, subtle film grain";
 /** Slot 8 — default lens character. */
 export const DEFAULT_DEPTH = "shallow depth of field";
 
