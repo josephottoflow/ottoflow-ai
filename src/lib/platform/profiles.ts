@@ -26,6 +26,7 @@ export type Platform =
   | "instagram_feed"
   | "youtube_shorts"
   | "youtube_standard"
+  | "facebook_reels"
   | "facebook_feed"
   | "linkedin"
   | "x";
@@ -122,6 +123,13 @@ export const PLATFORM_PROFILES: Record<Platform, PlatformProfile> = {
     video: { aspect: "16:9", safeZones: FLAT_SAFE, targetDurationSec: [30, 90], sceneCount: [5, 8], maxSceneDurationSec: 8, captionDensity: "medium", ctaLengthChars: 40 },
     content: { postLengthChars: 5000, headlineLengthChars: 100, ctaLengthChars: 40, hashtagCount: [3, 5], readingTimeSec: 30, captionMaxCharsPerLine: 28 },
     story: { hookIntensity: "medium", pacing: "moderate", sceneComplexity: "rich", conversionStyle: "authority", hookBySec: 5 },
+  },
+  facebook_reels: {
+    id: "facebook_reels",
+    label: "Facebook Reels",
+    video: { aspect: "9:16", safeZones: VERTICAL_SAFE, targetDurationSec: [15, 45], sceneCount: [4, 6], maxSceneDurationSec: 7, captionDensity: "high", ctaLengthChars: 30 },
+    content: { postLengthChars: 400, headlineLengthChars: 80, ctaLengthChars: 30, hashtagCount: [3, 5], readingTimeSec: 10, captionMaxCharsPerLine: 24 },
+    story: { hookIntensity: "high", pacing: "fast", sceneComplexity: "moderate", conversionStyle: "direct", hookBySec: 3 },
   },
   facebook_feed: {
     id: "facebook_feed",

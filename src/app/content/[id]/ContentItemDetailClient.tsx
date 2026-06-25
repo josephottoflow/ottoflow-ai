@@ -336,6 +336,7 @@ export function ContentItemDetailClient({ item, brandName, videoDisabledReason }
           <AiFirstVideoButton
             brandId={item.brand_id}
             contentItemId={item.id}
+            contentTitle={item.title}
             disabledReason={videoDisabledReason}
           />
         </div>

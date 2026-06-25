@@ -317,6 +317,15 @@ export interface SceneGenerationJobData {
   /** Generation mode (Video V1.1). Absent/"certified" → unchanged 4-beat path
    *  (keeps render 46bd40cd reproducible); "commercial_story" → human-first 6-beat. */
   mode?: "certified" | "commercial_story";
+  /** Sprint 4 — destination platform (Platform Agent id) the render targets.
+   *  Carried for downstream platform-aware finishing; absent = unchanged. */
+  platform?: string;
+  /** Sprint 4 — scene-generation resolution tier. Absent → provider default
+   *  (720p). The compose canvas is already 1080p-class per aspect. */
+  resolution?: "720p" | "1080p";
+  /** Sprint 4 — quality preset hint (fast|balanced|best). Informational/forward-
+   *  compat; absent = unchanged behaviour. */
+  quality?: "fast" | "balanced" | "best";
   strategy: VideoStrategy;
   /** Resolved narration (data: or https URL). Forwarded into the CompositionPlan. */
   narrationUrl?: string | null;

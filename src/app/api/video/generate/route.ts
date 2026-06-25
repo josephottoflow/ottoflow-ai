@@ -29,10 +29,25 @@ import { estimateRenderCost } from "@/lib/video/cost";
 import { getSeedanceBalanceUsd } from "@/lib/video-providers/seedance";
 import { buildAiFirstPlan, type AiFirstClip } from "@/lib/ffmpeg-pipeline/orchestrator";
 import { resolveVisualWorld } from "@/lib/brand/visual-world";
+import { getPlatformProfile } from "@/lib/platform/profiles";
 import type { AgentContext, SourceName, VideoStrategy } from "@/lib/ffmpeg-pipeline/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 120; // buildVideoStrategy is one Gemini call.
+
+/** Sprint 4 — the customer-facing "Rendering Mode" presets map onto the TWO real
+ * engines (no architecture fork): the certified abstract 4-beat path and the
+ * human-first commercial_story 6-beat path. Default → certified (keeps render
+ * 46bd40cd / b1807d29 reproducible when nothing is selected). */
+const UI_MODE_TO_ENGINE: Record<string, "certified" | "commercial_story"> = {
+  certified: "certified",
+  ai_storytelling: "certified",
+  commercial_story: "commercial_story",
+  product_demo: "commercial_story",
+  explainer: "commercial_story",
+  founder_video: "commercial_story",
+  social_ad: "commercial_story",
+};
 
 /** The strategy a prior dryRun returned, re-submitted on approve so the render
  * matches the previewed cost/strategy exactly (no second generation = no drift). */
@@ -58,16 +73,51 @@ const StrategySchema = z.object({
 const Schema = z.object({
   brandId: z.string().uuid(),
   contentItemId: z.string().uuid(),
-  platform: z.enum(["linkedin"]).default("linkedin"),
-  /** Output aspect (Video V1.1 — Platform Agent). Optional; absent → "9:16" =
-   * the certified 1080×1920 path. The platform-first UI sets this from the
-   * selected platform's Platform Agent profile; the legacy button omits it so
-   * existing renders stay 9:16 (no cert regression). */
+  /** Sprint 4 — destination platform (source of truth for aspect/duration
+   * defaults). All 9 Platform Agent platforms. Default "linkedin" preserves the
+   * legacy caller. */
+  platform: z
+    .enum([
+      "tiktok",
+      "instagram_reels",
+      "instagram_feed",
+      "youtube_shorts",
+      "youtube_standard",
+      "facebook_reels",
+      "facebook_feed",
+      "linkedin",
+      "x",
+    ])
+    .default("linkedin"),
+  /** Output aspect (Video V1.1 — Platform Agent). Optional; absent → derived from
+   * the platform profile. The certified 1080×1920 path is platform=linkedin +
+   * aspect="9:16". */
   aspect: z.enum(["9:16", "16:9", "1:1"]).optional(),
-  /** Generation mode (Video V1.1). Absent → "certified" = the unchanged 4-beat
-   * path that keeps render 46bd40cd reproducible. "commercial_story" = human-first
-   * 6-beat Story Agent (opt-in, mode-gated). */
-  mode: z.enum(["certified", "commercial_story"]).optional().default("certified"),
+  /** Sprint 4 — scene-generation resolution. Cost-bearing (1080p ≈ 1.5×). The
+   * compose canvas is already 1080p-class per aspect; this governs source-clip
+   * fidelity + the estimate. Default "720p" = the certified tier. */
+  resolution: z.enum(["720p", "1080p"]).optional().default("720p"),
+  /** Sprint 4 — quality preset (maps internally). "best" implies 1080p when no
+   * explicit resolution is given. */
+  quality: z.enum(["fast", "balanced", "best"]).optional().default("balanced"),
+  /** Sprint 4 — total target video length (s). Absent ("Auto") → certified keeps
+   * its proven 20s; other engines use the platform profile target. */
+  durationSec: z.number().int().min(8).max(90).optional(),
+  /** Generation mode (Video V1.1 + Sprint 4 presets). Absent → "certified" = the
+   * unchanged 4-beat path that keeps render 46bd40cd reproducible. The 6 UI
+   * presets map to the 2 real engines via UI_MODE_TO_ENGINE. */
+  mode: z
+    .enum([
+      "certified",
+      "commercial_story",
+      "ai_storytelling",
+      "product_demo",
+      "explainer",
+      "founder_video",
+      "social_ad",
+    ])
+    .optional()
+    .default("certified"),
   /** Dry run: build strategy + plan + cost estimate, make NO provider calls and
    * enqueue NOTHING. For wiring validation without spend. */
   dryRun: z.boolean().optional().default(false),
@@ -126,8 +176,22 @@ export async function POST(req: NextRequest) {
     );
   }
   const { brandId, contentItemId, dryRun, approve, strategy: passedStrategy } = parsed.data;
-  const aspect = parsed.data.aspect ?? "9:16";
-  const mode = parsed.data.mode ?? "certified";
+
+  // ─── Platform Agent is the source of truth (Sprint 4) ────────────────────
+  const profile = getPlatformProfile(parsed.data.platform);
+  // Aspect: explicit override wins, else the platform's profile default.
+  const aspect = parsed.data.aspect ?? profile.video.aspect;
+  // Rendering mode preset → one of the 2 real engines (no fork).
+  const mode = UI_MODE_TO_ENGINE[parsed.data.mode] ?? "certified";
+  // Resolution: explicit 1080p OR quality=best → 1080p; otherwise 720p.
+  const resolution: "720p" | "1080p" =
+    parsed.data.resolution === "1080p" || parsed.data.quality === "best" ? "1080p" : "720p";
+  const quality = parsed.data.quality;
+  // Duration ("Auto" = omitted): certified keeps its proven 20s; other engines
+  // use the platform profile's target window (upper bound, clamped to ≤90s).
+  const [profLo, profHi] = profile.video.targetDurationSec;
+  const totalDurationSec =
+    parsed.data.durationSec ?? (mode === "certified" ? 20 : Math.min(profHi, 60));
 
   const admin = createAdminClient();
 
@@ -220,7 +284,7 @@ export async function POST(req: NextRequest) {
               brandIndustry: (brand.industry as string | null) ?? null,
               brandName: (brand.name as string | null) ?? null,
               palette: brief.palette ?? null,
-              targetDurationSec: [30, 48],
+              targetDurationSec: [Math.max(profLo, Math.round(totalDurationSec * 0.7)), totalDurationSec],
             })
           : await buildVideoStrategy({
               topic,
@@ -228,11 +292,11 @@ export async function POST(req: NextRequest) {
               visualMetaphor: brief.visual_metaphor,
               brandIndustry: (brand.industry as string | null) ?? null,
               palette: brief.palette ?? null,
-              totalDurationSec: 20,
+              totalDurationSec,
             });
 
     // ─── Cost estimate (computed BEFORE any spend) ────────────────────────────
-    const estimate = estimateRenderCost(strategy);
+    const estimate = estimateRenderCost(strategy, { resolution });
 
     // ─── Dry run: build strategy + scene plan + composition plan, NO spend ────
     // Synthesizes placeholder clips so buildAiFirstPlan produces an inspectable
@@ -352,6 +416,9 @@ export async function POST(req: NextRequest) {
         brandIndustry: (brand.industry as string | null) ?? null,
         aspectRatio: aspect,
         mode,
+        platform: parsed.data.platform,
+        resolution,
+        quality,
         strategy,
         branding,
       },
