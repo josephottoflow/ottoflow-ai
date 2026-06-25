@@ -224,7 +224,7 @@ export function VideoJobClient({ job: initialJob, brand, scenes: initialScenes }
         {/* Stage stepper — customer-facing stages mapped to real backend stages */}
         <section className="flex items-start gap-2">
           {STEPS.map((s, i) => {
-            const state = status.isFailed && i === step ? "error" : i < step ? "done" : i === step ? "active" : "pending";
+            const state = status.isFailed && i === step ? "error" : (i < step || (status.isReady && i === step)) ? "done" : i === step ? "active" : "pending";
             return (
               <div key={s.label} className="flex-1 flex flex-col items-center gap-1 text-center">
                 <div className="w-7 h-7 rounded-full flex items-center justify-center"
