@@ -1,18 +1,31 @@
 "use client";
 
+/**
+ * VideoHistoryClient — "Video Library" gallery (Sprint 9, presentation only).
+ *
+ * A premium gallery of the user's past generations from render_jobs: poster
+ * thumbnail (real first frame of the finished MP4), status badge, version badge
+ * (derived from grouping renders by brand + topic — no schema change), timestamp,
+ * and quick actions (Preview / Download / Regenerate). Read-only against the
+ * existing data; no API / payload / worker / queue / pricing changes.
+ *
+ * Honest gaps surfaced as "Coming soon": per-video platform badge (platform is
+ * not persisted on the render-job row today) and cover selection (no cover field).
+ */
 import Link from "next/link";
 import { useState } from "react";
 import {
   Video,
   Download,
   RefreshCw,
-  ChevronRight,
   Sparkles,
   AlertCircle,
-  CheckCircle2,
   Loader2,
   Film,
   ArrowLeft,
+  Play,
+  Image as ImageIcon,
+  Lock,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,58 +49,51 @@ function timeAgo(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
+type Phase = "ready" | "working" | "failed" | "queued";
+function phaseOf(job: DbRenderJob): Phase {
+  if (job.merge_status === "done" && job.merged_video_url) return "ready";
+  if (job.status === "failed" || job.merge_status === "failed") return "failed";
+  if (job.merge_status === "merging" || job.merge_status === "pending" || job.status === "rendering") return "working";
+  return "queued";
+}
 function statusBadge(job: DbRenderJob) {
-  if (job.merge_status === "done" && job.merged_video_url) {
-    return (
-      <Badge variant="success" className="text-3xs">
-        Ready
-      </Badge>
+  const p = phaseOf(job);
+  if (p === "ready") return <Badge variant="success" className="text-3xs">Ready</Badge>;
+  if (p === "working") return <Badge variant="info" className="text-3xs">Creating…</Badge>;
+  if (p === "failed") return <Badge variant="destructive" className="text-3xs">Failed</Badge>;
+  return <Badge variant="warning" className="text-3xs">Preparing</Badge>;
+}
+
+/** Group renders that share a brand + topic, ordered oldest→newest, so the Nth
+ * render of the same idea is "v{N}". Derived only from existing data (no schema
+ * change). Returns a map of jobId → { version, total }. */
+function computeVersions(jobs: DbRenderJob[]): Record<string, { version: number; total: number }> {
+  const norm = (j: DbRenderJob) => `${j.brand_id ?? "_"}::${(j.prompt ?? j.name ?? "").trim().toLowerCase().replace(/\s+/g, " ").slice(0, 80)}`;
+  const groups: Record<string, DbRenderJob[]> = {};
+  for (const j of jobs) (groups[norm(j)] ??= []).push(j);
+  const out: Record<string, { version: number; total: number }> = {};
+  for (const list of Object.values(groups)) {
+    const ordered = [...list].sort(
+      (a, b) => new Date(a.created_at ?? a.started_at).getTime() - new Date(b.created_at ?? b.started_at).getTime(),
     );
+    ordered.forEach((j, i) => { out[j.id] = { version: i + 1, total: ordered.length }; });
   }
-  if (job.merge_status === "merging" || job.merge_status === "pending") {
-    return (
-      <Badge variant="info" className="text-3xs">
-        Merging…
-      </Badge>
-    );
-  }
-  if (job.status === "rendering") {
-    return (
-      <Badge variant="info" className="text-3xs">
-        Rendering
-      </Badge>
-    );
-  }
-  if (job.status === "failed" || job.merge_status === "failed") {
-    return (
-      <Badge variant="destructive" className="text-3xs">
-        Failed
-      </Badge>
-    );
-  }
-  return (
-    <Badge variant="warning" className="text-3xs">
-      Queued
-    </Badge>
-  );
+  return out;
 }
 
 export function VideoHistoryClient({ jobs, brandLookup }: Props) {
   const [filterBrandId, setFilterBrandId] = useState<string | null>(null);
   const allBrands = Object.values(brandLookup);
+  const versions = computeVersions(jobs);
 
-  const filtered = filterBrandId
-    ? jobs.filter((j) => j.brand_id === filterBrandId)
-    : jobs;
+  const filtered = filterBrandId ? jobs.filter((j) => j.brand_id === filterBrandId) : jobs;
+  const readyCount = filtered.filter((j) => phaseOf(j) === "ready").length;
 
   return (
     <div className="min-h-screen text-white">
       <div className="max-w-6xl mx-auto px-6 py-8 space-y-6">
         <div className="flex items-center gap-3">
-          <Link
-            href="/video/start"
-            className="text-white/50 hover:text-white transition-colors flex items-center gap-1.5"
-          >
+          <Link href="/video/start" className="text-white/50 hover:text-white transition-colors flex items-center gap-1.5">
             <ArrowLeft size={14} />
             <span className="text-xs">Generate</span>
           </Link>
@@ -103,10 +109,13 @@ export function VideoHistoryClient({ jobs, brandLookup }: Props) {
 
         <div className="flex items-center gap-3">
           <Film size={16} className="text-cyan-400" />
-          <h1 className="text-xl font-bold">Video History</h1>
-          <span className="text-2xs text-white/40">
-            {filtered.length} generation{filtered.length === 1 ? "" : "s"}
-          </span>
+          <h1 className="text-xl font-bold">Video Library</h1>
+          {filtered.length > 0 && (
+            <span className="text-2xs text-white/40">
+              {filtered.length} video{filtered.length === 1 ? "" : "s"}
+              {readyCount > 0 && <span className="text-emerald-300/70"> · {readyCount} ready</span>}
+            </span>
+          )}
         </div>
 
         {allBrands.length > 0 && (
@@ -140,34 +149,15 @@ export function VideoHistoryClient({ jobs, brandLookup }: Props) {
         )}
 
         {filtered.length === 0 ? (
-          <div
-            className="rounded-2xl p-10 text-center"
-            style={{
-              background: "rgba(255,255,255,0.02)",
-              border: "1px dashed rgba(255,255,255,0.08)",
-            }}
-          >
-            <Video size={28} className="text-white/30 mx-auto mb-3" />
-            <p className="text-sm text-white/60 mb-1">No videos yet</p>
-            <p className="text-xs text-white/40 mb-5">
-              Generate your first video from a brand topic.
-            </p>
-            <Link href="/video/start">
-              <Button variant="gradient-cyan" size="sm" className="gap-1.5">
-                <Sparkles size={13} />
-                Generate video
-              </Button>
-            </Link>
-          </div>
+          <EmptyLibrary />
         ) : (
-          <div className="space-y-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {filtered.map((job) => (
-              <HistoryRow
+              <VideoCard
                 key={job.id}
                 job={job}
-                brandName={
-                  job.brand_id ? brandLookup[job.brand_id]?.name ?? null : null
-                }
+                brandName={job.brand_id ? brandLookup[job.brand_id]?.name ?? null : null}
+                ver={versions[job.id]}
               />
             ))}
           </div>
@@ -177,53 +167,63 @@ export function VideoHistoryClient({ jobs, brandLookup }: Props) {
   );
 }
 
-function HistoryRow({
+/** Premium empty state (P3). */
+function EmptyLibrary() {
+  return (
+    <div
+      className="rounded-2xl px-6 py-16 text-center"
+      style={{ background: "rgba(255,255,255,0.02)", border: "1px dashed rgba(255,255,255,0.10)" }}
+    >
+      <div
+        className="w-16 h-16 rounded-2xl mx-auto mb-5 flex items-center justify-center"
+        style={{ background: "linear-gradient(135deg, rgba(34,211,238,0.15), rgba(129,140,248,0.15))", border: "1px solid rgba(34,211,238,0.25)" }}
+      >
+        <Film size={26} className="text-cyan-300" />
+      </div>
+      <p className="text-base font-semibold text-white mb-1.5">Your video library starts here</p>
+      <p className="text-xs text-white/50 mb-6 max-w-sm mx-auto leading-relaxed">
+        Turn any brand topic into a polished, platform-ready commercial. Every video you create lands here — preview, download, and refine.
+      </p>
+      <Link href="/video/start">
+        <Button variant="gradient-cyan" size="sm" className="gap-1.5">
+          <Sparkles size={13} />
+          Create your first video
+        </Button>
+      </Link>
+    </div>
+  );
+}
+
+function VideoCard({
   job,
   brandName,
+  ver,
 }: {
   job: DbRenderJob;
   brandName: string | null;
+  ver?: { version: number; total: number };
 }) {
   const [regenerating, setRegenerating] = useState(false);
   const [regenError, setRegenError] = useState<string | null>(null);
 
   const script = job.script_json as { hook?: string } | null;
   const seo = job.seo_json as { title?: string } | null;
-  const overlayCount =
-    (job.overlay_json as { keywords?: unknown[] } | null)?.keywords?.length ??
-    0;
   const downloadUrl = job.merged_video_url ?? job.output_url ?? null;
-  const ready = !!job.merged_video_url;
-
-  const headline =
-    seo?.title?.trim() ||
-    script?.hook?.trim() ||
-    job.name?.trim() ||
-    "Untitled video";
+  const phase = phaseOf(job);
+  const ready = phase === "ready";
+  const headline = seo?.title?.trim() || script?.hook?.trim() || job.name?.trim() || "Untitled video";
 
   const handleRegenerate = async () => {
     setRegenerating(true);
     setRegenError(null);
     try {
-      // Phase 7 regenerate path: kick a new generation reusing the brand
-      // + topic + style. If no topic was attached, fall back to prompt.
       const body =
         job.brand_id && job.topic_id
-          ? {
-              brandId: job.brand_id,
-              topicId: job.topic_id,
-              style: job.style ?? "educational",
-            }
+          ? { brandId: job.brand_id, topicId: job.topic_id, style: job.style ?? "educational" }
           : job.prompt
             ? { prompt: job.prompt, style: job.style ?? "cinematic" }
             : null;
-
-      if (!body) {
-        throw new Error(
-          "This generation has no brand+topic or prompt to regenerate from.",
-        );
-      }
-
+      if (!body) throw new Error("This generation has no brand+topic or prompt to regenerate from.");
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -233,133 +233,106 @@ function HistoryRow({
         const errBody = await res.json().catch(() => ({}));
         throw new Error(errBody.error ?? `Server returned ${res.status}`);
       }
-      // The response is SSE — we don't need to consume it here. Redirect
-      // to /video/generate so the user sees the live pipeline.
       window.location.href = "/video/start";
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setRegenError(msg);
-      captureFallback("video.history.regenerate_failed", err, {
-        jobId: job.id,
-      });
+      captureFallback("video.history.regenerate_failed", err, { jobId: job.id });
       setRegenerating(false);
     }
   };
 
   return (
     <div
-      className="rounded-xl p-4 transition-colors hover:bg-white/[0.025]"
-      style={{
-        background: "rgba(255,255,255,0.02)",
-        border: "1px solid rgba(255,255,255,0.06)",
-      }}
+      className="group rounded-2xl overflow-hidden transition-colors hover:border-white/15 flex flex-col"
+      style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}
     >
-      <div className="flex items-start gap-4">
-        {/* Thumbnail (placeholder when no merged URL — Phase 7+ ffmpeg
-            thumbnail extraction would replace this) */}
-        <div
-          className="w-24 h-24 sm:w-32 sm:h-32 rounded-lg shrink-0 flex items-center justify-center overflow-hidden"
-          style={{
-            background: "rgba(255,255,255,0.02)",
-            border: "1px solid rgba(255,255,255,0.05)",
-          }}
-        >
-          {ready ? (
-            // Use poster-style first-frame display via <video> with preload="metadata"
-            <video
-              src={downloadUrl ?? undefined}
-              className="w-full h-full object-cover"
-              preload="metadata"
-              muted
-              playsInline
-            />
-          ) : (
-            <Film size={20} className="text-white/30" />
+      {/* Cover / thumbnail (P7) */}
+      <Link href={`/video/${job.id}`} className="relative block aspect-video overflow-hidden"
+        style={{ background: "linear-gradient(135deg, rgba(34,211,238,0.06), rgba(129,140,248,0.06))" }}>
+        {ready && downloadUrl ? (
+          <video src={downloadUrl} className="w-full h-full object-cover" preload="metadata" muted playsInline />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center">
+            {phase === "failed" ? <AlertCircle size={22} className="text-rose-300/60" /> : <Film size={22} className="text-white/25" />}
+          </div>
+        )}
+        {/* hover play affordance for ready videos */}
+        {ready && (
+          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+            style={{ background: "rgba(0,0,0,0.25)" }}>
+            <span className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: "rgba(0,0,0,0.55)" }}>
+              <Play size={16} className="text-white ml-0.5" />
+            </span>
+          </div>
+        )}
+        {/* status (top-left) + version (top-right) */}
+        <div className="absolute top-2 left-2">{statusBadge(job)}</div>
+        {ver && ver.total > 1 && (
+          <div className="absolute top-2 right-2">
+            <span className="text-3xs px-1.5 py-0.5 rounded-md bg-black/55 text-white/85 border border-white/10" title={`Version ${ver.version} of ${ver.total} for this topic`}>
+              v{ver.version}
+            </span>
+          </div>
+        )}
+        {/* cover selection — honest Coming soon (P7) */}
+        {ready && (
+          <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+            <span className="text-3xs px-1.5 py-0.5 rounded-md bg-black/55 text-white/55 border border-white/10 flex items-center gap-1" title="Choose a cover frame — coming soon">
+              <ImageIcon size={9} /> Cover <Lock size={8} />
+            </span>
+          </div>
+        )}
+      </Link>
+
+      {/* Body */}
+      <div className="p-3.5 flex flex-col flex-1">
+        <Link href={`/video/${job.id}`} className="block">
+          <p className="text-sm font-semibold text-white line-clamp-2 leading-snug hover:text-cyan-200 transition-colors">{headline}</p>
+        </Link>
+        <div className="flex items-center gap-1.5 text-2xs text-white/45 mt-1.5 flex-wrap">
+          {brandName && (
+            <Link href={`/brands/${job.brand_id}`} className="hover:text-cyan-400 transition-colors">{brandName}</Link>
           )}
+          {job.style && (<><span>·</span><span className="capitalize">{job.style}</span></>)}
+          <span>·</span>
+          <span>{timeAgo(job.created_at ?? job.started_at)}</span>
         </div>
 
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <p className="text-sm font-semibold text-white truncate">
-              {headline}
-            </p>
-            {statusBadge(job)}
-          </div>
-          <div className="flex items-center gap-2 text-2xs text-white/50 mb-2 flex-wrap">
-            {brandName && (
-              <Link
-                href={`/brands/${job.brand_id}`}
-                className="hover:text-cyan-400 transition-colors"
-              >
-                {brandName}
-              </Link>
-            )}
-            {job.style && (
-              <>
-                <span>·</span>
-                <span>{job.style}</span>
-              </>
-            )}
-            {job.template && job.template !== job.style && (
-              <>
-                <span>·</span>
-                <span>{job.template}</span>
-              </>
-            )}
-            {overlayCount > 0 && (
-              <>
-                <span>·</span>
-                <span>{overlayCount} overlays</span>
-              </>
-            )}
-            <span>·</span>
-            <span>{timeAgo(job.created_at ?? job.started_at)}</span>
-          </div>
-          {script?.hook && (
-            <p className="text-xs text-white/55 line-clamp-2 italic mb-2">
-              &ldquo;{script.hook}&rdquo;
-            </p>
-          )}
-          <Link
-            href={`/video/${job.id}`}
-            className="text-3xs text-cyan-400 hover:underline mb-2 inline-block"
-          >
-            View generation details →
-          </Link>
-          {job.merge_error && (
-            <p className="text-2xs text-rose-300/80 flex items-center gap-1.5 mb-2">
-              <AlertCircle size={11} />
-              {job.merge_error}
-            </p>
-          )}
-          {regenError && (
-            <p className="text-2xs text-rose-300/80 mb-2">{regenError}</p>
-          )}
+        {job.merge_error && phase === "failed" && (
+          <p className="text-2xs text-rose-300/80 flex items-center gap-1.5 mt-2">
+            <AlertCircle size={11} /> {job.merge_error}
+          </p>
+        )}
+        {regenError && <p className="text-2xs text-rose-300/80 mt-2">{regenError}</p>}
 
-          <div className="flex items-center gap-2 flex-wrap">
-            {downloadUrl && ready && (
-              <a href={downloadUrl} download>
-                <Button variant="gradient-cyan" size="sm" className="gap-1.5 h-7 text-2xs">
-                  <Download size={11} />
-                  Download
-                </Button>
-              </a>
-            )}
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1.5 h-7 text-2xs"
-              onClick={handleRegenerate}
-              disabled={regenerating}
-            >
-              {regenerating ? (
-                <Loader2 size={11} className="animate-spin" />
-              ) : (
-                <RefreshCw size={11} />
-              )}
-              Regenerate
-            </Button>
-          </div>
+        {/* Quick actions (P2) */}
+        <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-white/5">
+          {ready && downloadUrl ? (
+            <a href={downloadUrl} download className="flex-1">
+              <Button variant="gradient-cyan" size="sm" className="gap-1.5 h-7 text-2xs w-full">
+                <Download size={11} /> Download
+              </Button>
+            </a>
+          ) : (
+            <Link href={`/video/${job.id}`} className="flex-1">
+              <Button variant="secondary" size="sm" className="gap-1.5 h-7 text-2xs w-full">
+                {phase === "working" ? <Loader2 size={11} className="animate-spin" /> : <Play size={11} />}
+                {phase === "failed" ? "View" : phase === "working" ? "Watch progress" : "Open"}
+              </Button>
+            </Link>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5 h-7 text-2xs shrink-0"
+            onClick={handleRegenerate}
+            disabled={regenerating}
+            title="Generate a fresh version from the same brand & topic"
+          >
+            {regenerating ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
+            New version
+          </Button>
         </div>
       </div>
     </div>

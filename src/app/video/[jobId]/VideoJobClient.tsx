@@ -30,6 +30,12 @@ import {
   Loader2,
   Clock,
   RefreshCw,
+  Share2,
+  Copy,
+  Plus,
+  Lock,
+  Sparkles,
+  Wand2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -264,29 +270,9 @@ export function VideoJobClient({ job: initialJob, brand, scenes: initialScenes }
           </div>
         </section>
 
-        {/* Success + preview + download (ready) */}
+        {/* Success experience (ready) — celebration + preview + actions + suggestions */}
         {status.isReady && playUrl && (
-          <>
-            <div className="rounded-xl px-4 py-3 flex items-center gap-2.5"
-              style={{ background: "rgba(16,185,129,0.10)", border: "1px solid rgba(52,211,153,0.25)" }}>
-              <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
-              <div>
-                <p className="text-sm font-semibold" style={{ color: "#34d399" }}>✨ Your video is ready</p>
-                <p className="text-3xs text-white/55 mt-0.5">Produced in {elapsed(job)} · ready to publish</p>
-              </div>
-            </div>
-            <section className="rounded-2xl overflow-hidden"
-              style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}>
-              <PreviewPlayer url={playUrl} />
-              <div className="px-4 py-3 border-t border-white/5">
-                <a href={playUrl} download>
-                  <Button variant="gradient-cyan" size="sm" className="gap-1.5">
-                    <Download size={13} /> Download video
-                  </Button>
-                </a>
-              </div>
-            </section>
-          </>
+          <SuccessExperience job={job} brand={brand} playUrl={playUrl} elapsedStr={elapsed(job)} />
         )}
 
         {/* Failure state + retry (navigation only — no in-place re-enqueue) */}
@@ -326,6 +312,107 @@ export function VideoJobClient({ job: initialJob, brand, scenes: initialScenes }
         )}
       </div>
     </div>
+  );
+}
+
+/** Success experience (Sprint 9 — P4/P5/P8). Celebration + preview + real actions
+ * (download, create another version) and honest "Coming soon" affordances for
+ * publishing destinations and AI re-direction. Presentation only — no new API. */
+function SuccessExperience({
+  job, brand, playUrl, elapsedStr,
+}: { job: DbRenderJob; brand: { id: string; name: string } | null; playUrl: string; elapsedStr: string }) {
+  const [showPublish, setShowPublish] = useState(false);
+
+  // "Create another version" → the canonical generate entry (real navigation, no
+  // backend). Prefer the brand so the user lands ready to make the next one.
+  const againHref = brand ? `/brands/${brand.id}` : "/video/start";
+
+  // Publishing destinations are presented but not yet wired for video (content-only
+  // pipeline today) — shown as the upcoming experience, clearly "Coming soon".
+  const destinations = ["LinkedIn", "Instagram", "TikTok", "YouTube", "Facebook", "X"];
+
+  // AI re-direction suggestions (P5) — no backend support yet → "Coming soon".
+  const suggestions = [
+    { label: "More emotional", hint: "Lean into story & feeling" },
+    { label: "Faster pacing", hint: "Tighter cuts, higher energy" },
+    { label: "Executive version", hint: "Polished, authority tone" },
+    { label: "Product-first", hint: "Lead with the product" },
+  ];
+
+  return (
+    <>
+      {/* Celebration banner */}
+      <div className="rounded-xl px-4 py-3 flex items-center gap-2.5"
+        style={{ background: "rgba(16,185,129,0.10)", border: "1px solid rgba(52,211,153,0.25)" }}>
+        <span className="text-lg" aria-hidden>🎉</span>
+        <div>
+          <p className="text-sm font-semibold" style={{ color: "#34d399" }}>Your video is ready</p>
+          <p className="text-3xs text-white/55 mt-0.5">Produced in {elapsedStr} · ready to preview, download &amp; share</p>
+        </div>
+      </div>
+
+      {/* Preview + action bar */}
+      <section className="rounded-2xl overflow-hidden"
+        style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}>
+        <PreviewPlayer url={playUrl} />
+        <div className="px-4 py-3 border-t border-white/5 flex items-center gap-2 flex-wrap">
+          <a href={playUrl} download>
+            <Button variant="gradient-cyan" size="sm" className="gap-1.5">
+              <Download size={13} /> Download
+            </Button>
+          </a>
+          <Button variant="secondary" size="sm" className="gap-1.5" onClick={() => setShowPublish((v) => !v)}>
+            <Share2 size={13} /> Publish
+          </Button>
+          <Link href={againHref}>
+            <Button variant="outline" size="sm" className="gap-1.5">
+              <Plus size={13} /> Create another version
+            </Button>
+          </Link>
+          <Button variant="outline" size="sm" className="gap-1.5 opacity-60" disabled title="Duplicate this video — coming soon">
+            <Copy size={13} /> Duplicate <Lock size={10} />
+          </Button>
+        </div>
+
+        {/* Publish destinations (P8) — premium preview, honestly Coming soon for video */}
+        {showPublish && (
+          <div className="px-4 py-3 border-t border-white/5">
+            <p className="text-3xs uppercase tracking-wider text-white/40 font-semibold mb-2">Publish to</p>
+            <div className="flex flex-wrap gap-1.5">
+              {destinations.map((d) => (
+                <span key={d} className="text-2xs px-2.5 py-1 rounded-lg flex items-center gap-1.5"
+                  style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
+                  {d} <Lock size={9} className="text-white/35" />
+                </span>
+              ))}
+            </div>
+            <p className="text-3xs text-white/40 mt-2">One-click publishing to your connected accounts is coming soon. For now, download and post natively.</p>
+          </div>
+        )}
+      </section>
+
+      {/* AI re-direction suggestions (P5) — Coming soon (no backend support yet) */}
+      <section className="rounded-2xl p-4 space-y-3"
+        style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}>
+        <div className="flex items-center gap-1.5">
+          <Sparkles size={12} className="text-cyan-400" />
+          <p className="text-3xs uppercase tracking-wider text-white/40 font-semibold">Make a variation</p>
+          <span className="text-3xs text-white/30 flex items-center gap-0.5 ml-1"><Lock size={9} /> Coming soon</span>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {suggestions.map((s) => (
+            <div key={s.label} className="rounded-lg p-2.5 opacity-70"
+              style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}>
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <Wand2 size={11} className="text-cyan-300/70" />
+                <p className="text-2xs font-semibold text-white/80">{s.label}</p>
+              </div>
+              <p className="text-3xs text-white/45 leading-snug">{s.hint}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+    </>
   );
 }
 

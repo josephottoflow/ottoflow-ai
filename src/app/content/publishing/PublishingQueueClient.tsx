@@ -582,13 +582,31 @@ export function PublishingQueueClient({ initialItems }: { initialItems: PublishI
       </div>
 
       {visible.length === 0 ? (
-        <p className="text-sm text-white/40">
-          {tab === "approved"
-            ? "Nothing approved and unpublished — approve posts in the Review Queue and they appear here."
-            : tab === "scheduled"
-              ? "Nothing scheduled. Schedule an approved post to plan it."
-              : "Nothing published yet."}
-        </p>
+        <div
+          className="rounded-2xl px-6 py-14 text-center"
+          style={{ background: "rgba(255,255,255,0.02)", border: "1px dashed rgba(255,255,255,0.10)" }}
+        >
+          <div
+            className="w-14 h-14 rounded-2xl mx-auto mb-4 flex items-center justify-center"
+            style={{ background: "linear-gradient(135deg, rgba(34,211,238,0.15), rgba(129,140,248,0.15))", border: "1px solid rgba(34,211,238,0.22)" }}
+          >
+            {tab === "approved" ? <Send size={22} className="text-cyan-300" />
+              : tab === "scheduled" ? <CalendarClock size={22} className="text-cyan-300" />
+                : <CheckCheck size={22} className="text-cyan-300" />}
+          </div>
+          <p className="text-sm font-semibold text-white mb-1">
+            {tab === "approved" ? "Nothing ready to publish"
+              : tab === "scheduled" ? "Nothing scheduled yet"
+                : "Nothing published yet"}
+          </p>
+          <p className="text-xs text-white/45 max-w-sm mx-auto leading-relaxed">
+            {tab === "approved"
+              ? "Approve posts in the Review Queue and they'll line up here, ready to ship."
+              : tab === "scheduled"
+                ? "Schedule an approved post to plan exactly when it goes out."
+                : "Once you publish a post, it'll appear here with its performance."}
+          </p>
+        </div>
       ) : (
         <div className="space-y-2.5">
           {visible.map((item) => (

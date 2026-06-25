@@ -275,7 +275,16 @@ export function VideoPageClient({ renderJobs, kpis }: Props) {
             </div>
 
             {completedJobs.length === 0 ? (
-              <p className="text-xs text-white/30 text-center py-8">No completed videos yet.</p>
+              <div className="text-center py-10">
+                <div
+                  className="w-12 h-12 rounded-2xl mx-auto mb-3 flex items-center justify-center"
+                  style={{ background: "linear-gradient(135deg, rgba(124,58,237,0.15), rgba(6,182,212,0.12))", border: "1px solid rgba(34,211,238,0.18)" }}
+                >
+                  <Film size={20} className="text-cyan-300/80" />
+                </div>
+                <p className="text-sm text-white/60 mb-0.5">No finished videos yet</p>
+                <p className="text-xs text-white/35">Your completed videos will appear here, ready to download.</p>
+              </div>
             ) : (
               <div className="space-y-2">
                 {completedJobs.map((v) => (
