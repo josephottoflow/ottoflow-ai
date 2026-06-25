@@ -105,13 +105,27 @@ function sceneUrl(s: DbSceneGeneration): string | null {
   return (s as { storage_url?: string | null }).storage_url ?? s.clip_url ?? null;
 }
 
-function elapsed(job: DbRenderJob): string {
+function elapsedSeconds(job: DbRenderJob): number {
   const start = Date.parse(job.started_at ?? job.created_at ?? "");
-  if (!start) return "";
+  if (!start) return 0;
   const end = job.completed_at ? Date.parse(job.completed_at) : Date.now();
-  const sec = Math.max(0, Math.round((end - start) / 1000));
+  return Math.max(0, Math.round((end - start) / 1000));
+}
+function fmtDuration(sec: number): string {
   if (sec < 60) return `${sec}s`;
   return `${Math.floor(sec / 60)}m ${sec % 60}s`;
+}
+function elapsed(job: DbRenderJob): string {
+  return fmtDuration(elapsedSeconds(job));
+}
+/** "Produced in X" is only honest when the wall-clock reflects production, not
+ * long queue waits. Beyond a plausible ceiling the span is dominated by idle
+ * queue time (worker downtime), so we omit the claim rather than show a
+ * misleading multi-hour "production" time. */
+const MAX_PLAUSIBLE_PRODUCTION_SEC = 30 * 60;
+function plausibleProductionTime(job: DbRenderJob): string | null {
+  const sec = elapsedSeconds(job);
+  return sec > 0 && sec <= MAX_PLAUSIBLE_PRODUCTION_SEC ? fmtDuration(sec) : null;
 }
 
 export function VideoJobClient({ job: initialJob, brand, scenes: initialScenes }: Props) {
@@ -198,7 +212,12 @@ export function VideoJobClient({ job: initialJob, brand, scenes: initialScenes }
           </div>
           <div className="flex items-center gap-2 text-2xs text-white/55 flex-wrap">
             {brand && <Link href={`/brands/${brand.id}`} className="hover:text-cyan-400">{brand.name}</Link>}
-            <span>·</span><span className="flex items-center gap-1"><Clock size={10} />{elapsed(job)}</span>
+            {(() => {
+              // While rendering, the live elapsed is meaningful. Once terminal, only
+              // show it when plausible (else it's dominated by queue-wait time).
+              const t = terminal ? plausibleProductionTime(job) : elapsed(job);
+              return t ? <><span>·</span><span className="flex items-center gap-1"><Clock size={10} />{t}</span></> : null;
+            })()}
             {showRefresh && <><span>·</span><span className="text-amber-300/80">live updates paused</span></>}
           </div>
         </header>
@@ -272,7 +291,7 @@ export function VideoJobClient({ job: initialJob, brand, scenes: initialScenes }
 
         {/* Success experience (ready) — celebration + preview + actions + suggestions */}
         {status.isReady && playUrl && (
-          <SuccessExperience job={job} brand={brand} playUrl={playUrl} elapsedStr={elapsed(job)} />
+          <SuccessExperience job={job} brand={brand} playUrl={playUrl} producedIn={plausibleProductionTime(job)} />
         )}
 
         {/* Failure state + retry (navigation only — no in-place re-enqueue) */}
@@ -319,8 +338,8 @@ export function VideoJobClient({ job: initialJob, brand, scenes: initialScenes }
  * (download, create another version) and honest "Coming soon" affordances for
  * publishing destinations and AI re-direction. Presentation only — no new API. */
 function SuccessExperience({
-  job, brand, playUrl, elapsedStr,
-}: { job: DbRenderJob; brand: { id: string; name: string } | null; playUrl: string; elapsedStr: string }) {
+  job, brand, playUrl, producedIn,
+}: { job: DbRenderJob; brand: { id: string; name: string } | null; playUrl: string; producedIn: string | null }) {
   const [showPublish, setShowPublish] = useState(false);
 
   // "Create another version" → the canonical generate entry (real navigation, no
@@ -347,7 +366,7 @@ function SuccessExperience({
         <span className="text-lg" aria-hidden>🎉</span>
         <div>
           <p className="text-sm font-semibold" style={{ color: "#34d399" }}>Your video is ready</p>
-          <p className="text-3xs text-white/55 mt-0.5">Produced in {elapsedStr} · ready to preview, download &amp; share</p>
+          <p className="text-3xs text-white/55 mt-0.5">{producedIn ? `Produced in ${producedIn} · ` : ""}Ready to preview, download &amp; share</p>
         </div>
       </div>
 
