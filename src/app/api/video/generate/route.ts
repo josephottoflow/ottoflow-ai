@@ -183,9 +183,12 @@ export async function POST(req: NextRequest) {
   const aspect = parsed.data.aspect ?? profile.video.aspect;
   // Rendering mode preset → one of the 2 real engines (no fork).
   const mode = UI_MODE_TO_ENGINE[parsed.data.mode] ?? "certified";
-  // Resolution: explicit 1080p OR quality=best → 1080p; otherwise 720p.
-  const resolution: "720p" | "1080p" =
-    parsed.data.resolution === "1080p" || parsed.data.quality === "best" ? "1080p" : "720p";
+  // Resolution: HARDENING (Sprint 4.1) — taken ONLY from the explicit selector,
+  // never silently overridden by quality (that desynced the UI). 1080p is not
+  // yet wired end-to-end (worker renders 720p source regardless) and the UI
+  // disables it, so this is effectively 720p today; the field is forwarded for
+  // the future wiring point.
+  const resolution: "720p" | "1080p" = parsed.data.resolution === "1080p" ? "1080p" : "720p";
   const quality = parsed.data.quality;
   // Duration ("Auto" = omitted): certified keeps its proven 20s; other engines
   // use the platform profile's target window (upper bound, clamped to ≤90s).

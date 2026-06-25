@@ -23,11 +23,14 @@ export interface SceneCostLine {
 
 export type Resolution = "720p" | "1080p";
 
-/** Cost-only multiplier for the chosen scene resolution (1080p ≈ 1.5× the 720p
- * standard rate). Conservative upper bound for the approval gate; recalibrate
- * against AtlasCloud 1080p pricing once a 1080p render lands. */
-export function resolutionRateMultiplier(resolution: Resolution = "720p"): number {
-  return resolution === "1080p" ? 1.5 : 1;
+/** Resolution cost multiplier. HARDENING (Sprint 4.1): 1080p is NOT yet wired
+ * end-to-end (the worker/Seedance render the 720p source regardless), so we do
+ * NOT charge a different rate for it — pricing must reflect the real pipeline.
+ * Returns 1 for every tier until 1080p source generation actually ships; then
+ * recalibrate against a real 1080p render. (Kept as a function so the call sites
+ * and the future wiring point are explicit.) */
+export function resolutionRateMultiplier(_resolution: Resolution = "720p"): number {
+  return 1;
 }
 
 /** Pre-render cost split for the modal breakdown. Scene generation is the only

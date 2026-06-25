@@ -36,6 +36,18 @@ const MODE_OPTIONS: { value: string; label: string }[] = [
   { value: "social_ad", label: "Social Ad" },
 ];
 
+/** HARDENING (Sprint 4.1) — honest, per-mode note of the engine each preset
+ * currently maps to (mirrors route UI_MODE_TO_ENGINE). Shown under the picker so
+ * no mode misrepresents what it produces today. */
+const MODE_ENGINE_NOTE: Record<string, string> = {
+  commercial_story: "Engine: human-first commercial · 6 beats",
+  product_demo: "Engine: human-first commercial · 6 beats (shared with Commercial Story today)",
+  explainer: "Engine: human-first commercial · 6 beats (shared with Commercial Story today)",
+  founder_video: "Engine: human-first commercial · 6 beats (shared with Commercial Story today)",
+  social_ad: "Engine: human-first commercial · 6 beats (shared with Commercial Story today)",
+  ai_storytelling: "Engine: AI storytelling · abstract 4-beat (certified)",
+};
+
 const PLATFORM_ORDER: Platform[] = [
   "tiktok",
   "instagram_reels",
@@ -92,7 +104,9 @@ export function VideoConfigModal({
   const [resolution, setResolution] = useState<Resolution>("720p");
   const [duration, setDuration] = useState<DurationChoice>("auto");
   const [mode, setMode] = useState<string>("commercial_story");
-  const [quality, setQuality] = useState<Quality>("balanced");
+  // HARDENING (Sprint 4.1): "best" is the only quality tier wired today; Fast /
+  // Balanced are disabled (Coming soon), so default to the truthful one.
+  const [quality, setQuality] = useState<Quality>("best");
 
   const [estimate, setEstimate] = useState<RenderCostEstimate | null>(null);
   const [strategy, setStrategy] = useState<StrategySummary | null>(null);
@@ -240,7 +254,7 @@ export function VideoConfigModal({
             <label className={labelCls}>Resolution</label>
             <select className={selCls} value={resolution} onChange={(e) => setResolution(e.target.value as Resolution)}>
               <option value="720p">720p · Standard</option>
-              <option value="1080p">1080p · High (≈1.5× cost)</option>
+              <option value="1080p" disabled>1080p · Coming soon</option>
             </select>
           </div>
           <div>
@@ -263,13 +277,14 @@ export function VideoConfigModal({
                 <option key={m.value} value={m.value}>{m.label}</option>
               ))}
             </select>
+            <p className="text-3xs text-white/40 mt-1">{MODE_ENGINE_NOTE[mode]}</p>
           </div>
           <div>
             <label className={labelCls}>Quality</label>
             <select className={selCls} value={quality} onChange={(e) => setQuality(e.target.value as Quality)}>
-              <option value="fast">Fast</option>
-              <option value="balanced">Balanced</option>
-              <option value="best">Best Quality (1080p)</option>
+              <option value="best">Best (Recommended)</option>
+              <option value="balanced" disabled>Balanced · Coming soon</option>
+              <option value="fast" disabled>Fast · Coming soon</option>
             </select>
           </div>
         </div>
