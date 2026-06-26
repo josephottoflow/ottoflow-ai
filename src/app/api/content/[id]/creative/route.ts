@@ -17,6 +17,7 @@ import { createAdminClient } from "@/lib/supabase";
 import { rateLimit } from "@/lib/rate-limit";
 import { captureFallback } from "@/lib/observability";
 import { composeCreativeBrief, BriefValidationError, type ComposeBriefInput } from "@/lib/creative/brief";
+import { loadCreativeIntelligence } from "@/lib/creative/brand-intelligence";
 import type { DbBrand, DbBrandAsset } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -175,6 +176,17 @@ export async function POST(
     console.error("[creative] recent-directions fetch failed (non-fatal):", err);
   }
 
+  // Brand Learning Engine (Sprint 22) — compute this brand's Creative Intelligence
+  // profile (what consistently works best, what's overused/underused) so the concept
+  // model leans into proven dimensions while protecting diversity. Non-fatal: an
+  // empty profile simply means "explore broadly". Reads delivered creatives only.
+  let intelligence = null;
+  try {
+    intelligence = await loadCreativeIntelligence(admin, item.brand_id, brand.industry);
+  } catch (err) {
+    console.error("[creative] brand-intelligence load failed (non-fatal):", err);
+  }
+
   try {
     const { brief, backgroundPromptReplaced } = await composeCreativeBrief({
       brand,
@@ -188,6 +200,7 @@ export async function POST(
       topic,
       branding: (item.creative_branding as ComposeBriefInput["branding"]) ?? null,
       recentDirections,
+      intelligence,
     });
 
     if (backgroundPromptReplaced) {

@@ -2359,6 +2359,11 @@ export async function generateCreativeConcept(input: {
    * directions (most-recent first). The model must pick a DIFFERENT valid world for
    * controlled variety unless the brief specifically requires repetition. */
   recentDirections?: string[];
+  /** Brand Intelligence (Sprint 22) — a pre-rendered block of what consistently
+   * works best for this brand (best worlds/lighting/lens/..., overused worlds to
+   * avoid, underused worlds to explore). Priority #3: informs, never overrides the
+   * brief. Empty/undefined when nothing has been learned yet. */
+  brandIntelligence?: string;
 }): Promise<{ data: CreativeConcept; meta: GenerationMeta }> {
   const direction = HIERARCHY_DIRECTION[input.hierarchy] ?? HIERARCHY_DIRECTION.brand_led;
   const pal = input.palette;
@@ -2373,6 +2378,10 @@ export async function generateCreativeConcept(input: {
   const recentBlock = input.recentDirections && input.recentDirections.length
     ? `CREATIVE MEMORY — recent creatives for THIS brand (most recent first). Do NOT repeat these worlds / environments / lighting / lens; choose a DIFFERENT valid world that still satisfies the brief (controlled variety). Repeat only if the brief specifically demands it:\n${input.recentDirections.map((d, i) => `  ${i + 1}. ${d}`).join("\n")}`
     : `CREATIVE MEMORY: no recent creatives for this brand — clean slate; pick the strongest world for the brief.`;
+
+  const intelligenceBlock = input.brandIntelligence && input.brandIntelligence.trim()
+    ? input.brandIntelligence.trim()
+    : `BRAND INTELLIGENCE: none yet — this brand has no learned track record; rely on the brief and pick the strongest world.`;
 
   const prompt = `
 Design the creative strategy for a single ${input.platform} image creative
@@ -2407,13 +2416,19 @@ Work the brief IN THIS ORDER and let it drive everything (this is the source of 
   4. KEY MESSAGE — the one idea to land
   → CREATIVE STRATEGY → PHOTOGRAPHIC WORLD → the final background.
 
-${industryConstraintBlock(input.brand.industry)}
+${intelligenceBlock}
 
 ${recentBlock}
 
+${industryConstraintBlock(input.brand.industry)}
+
 PRIORITY OF INPUTS (highest first): 1) this Campaign Brief, 2) Brand DNA (voice,
-positioning, palette), 3) Creative Memory above (push for variety), 4) Industry
-constraint, 5) art direction. Creative Memory INFLUENCES but never overrides the brief.
+positioning, palette), 3) Brand Intelligence (what consistently works for this brand
+— lean into the best dimensions, avoid the overused worlds, prefer the underused
+ones), 4) Creative Memory (push for variety vs the most recent), 5) Industry
+constraint, 6) art direction. Campaigns ALWAYS override history — Brand Intelligence
+and Creative Memory INFORM and GUIDE, they never override the brief. Keep the brand
+recognizable while maximizing variety.
 
 Now direct ONE specific real PHOTOGRAPH like a cinematographer — the exact environment,
 where the light comes from, the lens and depth of field, foreground/background layers,

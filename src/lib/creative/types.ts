@@ -277,6 +277,24 @@ export const creativeBriefSchema = z.object({
   /** Number of improvement cycles performed (0 = approved on first generation). */
   revision_count: z.number().optional(),
 
+  /** Brand Learning Engine (Sprint 22) — the Creative Intelligence snapshot that
+   *  GUIDED this generation + the internal "chosen because" rationale. Recorded
+   *  at compose time; internal-only (never shown to the customer). jsonb. */
+  intelligence: z
+    .object({
+      applied: z.boolean(),
+      sample_size: z.number(),
+      delivered_count: z.number(),
+      avg_score: z.number(),
+      pass_rate: z.number(),
+      diversity_score: z.number(),
+      improvement_trend: z.number(),
+      rationale: z.array(z.string()).default([]),
+      overused: z.array(z.string()).default([]),
+      explore: z.array(z.string()).default([]),
+    })
+    .optional(),
+
   // ── Code-computed asset + identity usage (deterministic, trustworthy) ───
   logo_usage: assetUsageSchema,
   headshot_usage: assetUsageSchema,

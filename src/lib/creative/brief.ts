@@ -16,6 +16,11 @@
  */
 import { generateCreativeConcept, type CreativeConcept } from "@/lib/gemini";
 import { fallbackWorldPrompt } from "./creative-direction";
+import {
+  renderIntelligenceBlock,
+  intelligenceSummary,
+  type CreativeIntelligence,
+} from "./brand-intelligence";
 import type { DbBrand, DbBrandAsset } from "@/lib/types";
 import {
   rankHierarchies,
@@ -53,6 +58,10 @@ export interface ComposeBriefInput {
    *  directions (most-recent first), so the concept model picks a DIFFERENT world.
    *  Optional: callers without history (or older callers) pass nothing. */
   recentDirections?: string[];
+  /** Brand Intelligence (Sprint 22) — the brand's Creative Intelligence profile,
+   *  computed from delivered creatives. Drives the concept at priority #3 and is
+   *  recorded (compactly) on the brief for internal explainability. Optional. */
+  intelligence?: CreativeIntelligence | null;
   /**
    * Per-creative branding overrides captured on /content/generate. Names
    * override the defaults (company = brand.name, founder = headshot label);
@@ -197,6 +206,7 @@ async function composeConceptValidated(
       founderName,
       assetSummary,
       recentDirections: input.recentDirections,
+      brandIntelligence: input.intelligence ? renderIntelligenceBlock(input.intelligence) : undefined,
     });
     lastConcept = concept;
     if (!findForbiddenBackgroundToken(concept.background_prompt)) {
@@ -320,6 +330,11 @@ export async function composeCreativeBrief(
     // Creative Memory (Sprint 19) — persist the structured art direction so future
     // creatives recall it and choose a different world.
     creative_direction: concept.creative_direction,
+    // Brand Learning Engine (Sprint 22) — record the Creative Intelligence that
+    // guided this generation + the internal "chosen because" rationale.
+    intelligence: input.intelligence
+      ? intelligenceSummary(input.intelligence, input.intelligence.delivered_count >= 1)
+      : undefined,
 
     logo_usage: useLogo
       ? {

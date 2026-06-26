@@ -204,7 +204,18 @@ export function BrandDetailClient({
             </div>
           </div>
         </div>
-        <StatusPill status={brand.status} />
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Creative Intelligence — internal ops view of what the brand has learned. */}
+          <Link
+            href={`/brands/${brand.id}/intelligence`}
+            className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-white/10 text-white/55 hover:text-white/85 hover:border-white/20 transition-colors"
+            title="Creative Intelligence — internal"
+          >
+            <Sparkles size={12} className="text-violet-400" />
+            Intelligence
+          </Link>
+          <StatusPill status={brand.status} />
+        </div>
       </div>
 
       {/* Brand asset library (Creative Orchestrator Phase A) — independent of
