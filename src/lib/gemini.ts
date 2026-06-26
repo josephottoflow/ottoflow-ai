@@ -6,6 +6,7 @@
  */
 import { GoogleGenAI, Type, type Schema } from "@google/genai";
 import { addBreadcrumb, captureFallback } from "./observability";
+import { industryConstraintBlock } from "./creative/creative-direction";
 import type {
   BrandProfile,
   BrandProfileService,
@@ -2099,11 +2100,11 @@ export async function generateCreativeConcept(input: {
   const pal = input.palette;
   const hasPalette = !!(pal.primary || pal.secondary || pal.accent);
   const paletteBlock = hasPalette
-    ? `BRAND PALETTE — the background MUST be built in this exact color world. Name these colors in the background_prompt and reinforce them so the image reads unmistakably on-brand:
+    ? `BRAND COLOURS — express these ONLY as light inside the scene (sunlight, reflections, LEDs, windows, materials, ambient glow). NEVER as a flat colour field, shape, bar or graphic overlay:
 - primary: ${pal.primary ?? "(none)"}
 - secondary: ${pal.secondary ?? "(none)"}
 - accent: ${pal.accent ?? "(none)"}`
-    : `BRAND PALETTE: none configured — use a RESTRAINED, NEUTRAL, desaturated palette (soft grays / muted neutral tones). Do NOT invent a saturated brand color.`;
+    : `BRAND COLOURS: none configured — use the natural light of the chosen scene; restrained and neutral. Do NOT invent a saturated brand colour.`;
 
   const prompt = `
 Design the creative strategy for a single ${input.platform} image creative
@@ -2126,47 +2127,58 @@ ${input.topic ? `SOURCE IDEA: ${input.topic.title}${input.topic.kind ? ` (${inpu
 CREATIVE HIERARCHY (decided — execute it, don't change it):
 ${direction}
 
-The image must COMMUNICATE THE TOPIC before any text is read. Translate the
-topic into a visual metaphor, then design the background to render it.
+You are the ART DIRECTOR reading a CLIENT BRIEF — NOT a template engine picking an
+industry preset. Design this creative as a CINEMATIC, EDITORIAL PHOTOGRAPH for a
+premium agency campaign — a real photographic WORLD, never an abstract graphic,
+geometric pattern, template, or decorative overlay.
 
-TENSION → METAPHOR EXAMPLES (abstract, no text/people/objects-with-words):
-- Complexity vs Simplicity → tangled lines resolving into clean organized lines
-- Fragmentation vs Alignment → scattered elements converging into one structure
-- Technical debt → a cracked foundation knitting back together / being repaired
-- Slow processes → a bottleneck opening into smooth flow
-- Productivity → momentum: smooth directional flow and forward movement
-- Manual work vs Automation → repetitive blocks becoming a continuous flow
+Work the brief IN THIS ORDER and let it drive everything (this is the source of truth):
+  1. CAMPAIGN OBJECTIVE — what must THIS specific creative achieve? (infer from the post + idea)
+  2. TARGET AUDIENCE — who is it for?
+  3. DESIRED EMOTION — what should the viewer feel in a single glance?
+  4. KEY MESSAGE — the one idea to land
+  → CREATIVE STRATEGY → PHOTOGRAPHIC WORLD → the final background.
+
+${industryConstraintBlock(input.brand.industry)}
+
+Now direct ONE specific real PHOTOGRAPH like a cinematographer — the exact environment,
+where the light comes from, the lens and depth of field, foreground/background layers,
+reflections, texture and mood — ALL dictated by the OBJECTIVE + EMOTION above, NOT by the
+industry alone. Two campaigns in the SAME industry but with different objectives MUST
+produce COMPLETELY DIFFERENT worlds — e.g. luxury villas → aspirational golden-hour
+architecture; property management → clean, trustworthy, professional maintenance; property
+investment → executive financial-confidence city imagery. Leave genuine quiet space where
+the headline and assets will sit.
 
 Produce these IN ORDER — each builds on the previous:
 - visual_tension: the core opposition THIS topic dramatizes, as "X vs Y"
   (e.g. "Complexity vs Simplicity"). Derive it from the ACTUAL post, not generic.
-- visual_metaphor: ONE concrete, ABSTRACT-SAFE visual that depicts that tension
-  resolving — describe geometry, structure, composition, and motion only. NO
-  people, faces, text, letters, logos, or objects bearing words. This is the
-  idea the background renders.
-- visual_concept: 2-3 sentences. The finished creative built ON the metaphor —
-  composition, where the eye lands, where the headline + assets sit. Concrete.
-- visual_rationale: 2-3 sentences. WHY this metaphor + design fit this brand,
-  this idea, and ${input.platform}. Reference the actual content.
+- visual_metaphor: ONE concrete PHOTOGRAPHIC scene that embodies that tension — a
+  real environment, moment, and lighting (e.g. "a cluttered workspace dissolving
+  into a calm, ordered desk in soft morning light"). Describe place, light, depth,
+  and mood — NOT geometry or shapes. No readable text, no synthesized faces.
+- visual_concept: 2-3 sentences. The finished creative built ON that scene —
+  where the eye lands, where the headline + assets sit. Concrete.
+- visual_rationale: 2-3 sentences. WHY this world + scene fit this brand, this
+  idea, and ${input.platform}. Reference the actual content.
 - headline: the overlay text (≤ 80 chars). Rendered as crisp typography
   later — make every word earn its place.
 - subheadline: ONE supporting line under the headline (≤ 120 chars) that adds
   the specific proof/angle from THIS post. Empty string if the headline fully
   stands alone — never padding.
 - cta: short action line (≤ 60 chars), platform-appropriate.
-- background_prompt: an image-generation prompt for the BACKGROUND ONLY that
-  RENDERS the visual_metaphor — express it through composition, geometry,
-  structure, and visual tension so the metaphor is recognizable in the image
-  before any headline is read. Build it explicitly in the BRAND PALETTE above —
-  name the primary and accent colors and reinforce them; if no palette is
-  configured keep it neutral and desaturated. Include lighting and mood. Leave
-  compositional quiet space where the headline and assets land.
-  WRITE IT AS POSITIVE DESCRIPTION ONLY — describe what IS in the frame (shapes,
-  geometry, flow, color, light). Do NOT write negative phrases like "no text"
-  or "no people", and do NOT use the words text, letters, words, logo, sign,
-  person, people, face, human, or portrait ANYWHERE in the prompt — those
-  elements are already excluded by design, and naming them (even to forbid
-  them) is itself disallowed. Just describe the clean abstract scene.
+- background_prompt: a premium photographic image-generation prompt for the
+  BACKGROUND ONLY that renders the visual_metaphor as a CINEMATIC EDITORIAL
+  PHOTOGRAPH. Specify the real environment, the lighting (direction + quality),
+  the lens and depth of field, the materials, textures, atmosphere and reflections.
+  The brand colours must appear ONLY as light within the scene (sunlight,
+  reflections, LEDs, windows, materials) — never as a shape, bar, gradient overlay
+  or flat colour field. Leave quiet space where the headline + assets land.
+  WRITE IT AS POSITIVE DESCRIPTION ONLY — describe what IS in the frame. Do NOT
+  write negative phrases, and do NOT use the words text, letters, words, logo,
+  sign, person, people, face, human, portrait, geometric, rectangle, bar, grid,
+  block, or stripe ANYWHERE in the prompt — those are excluded by design and even
+  naming them is disallowed. Describe a clean, real, cinematic scene.
 - model_confidence: 0.0-1.0 — your honest assessment of how well THIS
   hierarchy fits THIS content. A mismatch (e.g. quote-led on a stats post)
   should score ≤ 0.5. Don't flatter.

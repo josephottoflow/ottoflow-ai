@@ -15,6 +15,7 @@
  * NO image generation happens here or anywhere in Phase B.
  */
 import { generateCreativeConcept, type CreativeConcept } from "@/lib/gemini";
+import { fallbackWorldPrompt } from "./creative-direction";
 import type { DbBrand, DbBrandAsset } from "@/lib/types";
 import {
   rankHierarchies,
@@ -128,23 +129,14 @@ function safeFallbackBackgroundPrompt(
   industry: string | null,
   metaphor?: string,
 ): string {
+  // Sprint 18b — the deterministic fallback now draws from the Creative Direction
+  // engine: an INDUSTRY-SPECIFIC cinematic photographic world, brand colour only
+  // as in-scene light. No geometry, no reusable overlay.
   const colors = [palette.primary, palette.secondary, palette.accent].filter(Boolean);
-  const colorClause = colors.length ? ` in ${colors.join(", ")}` : "";
-  const moodClause = industry ? `, mood suited to the ${industry} industry` : "";
-  // Sprint 18 — cinematic, photographic, atmosphere-driven language. NO geometric
-  // shapes/bars/blocks: brand colour is expressed through light, not decoration.
-  const cinematic =
-    `cinematic premium commercial photography, soft volumetric lighting and atmospheric depth, ` +
-    `natural reflections and realistic textures, editorial composition with generous negative space ` +
-    `in the center, shallow depth of field, no geometric shapes, no bars, no rectangles, no graphic overlays`;
-  if (metaphor && metaphor.trim() && !findForbiddenBackgroundToken(metaphor)) {
-    return `Atmospheric scene${colorClause}: ${metaphor.trim()}. ${cinematic}${moodClause}`;
-  }
-  return (
-    `Premium editorial background where ${colors.length ? `the colours ${colors.join(", ")} appear only as ambient light, glow and gradient atmosphere` : "brand colour appears only as ambient light"}, ` +
-    cinematic +
-    moodClause
-  );
+  const colorClause = colors.length ? ` (${colors.join(", ")} tones)` : "";
+  const cleanMetaphor =
+    metaphor && metaphor.trim() && !findForbiddenBackgroundToken(metaphor) ? metaphor.trim() : undefined;
+  return fallbackWorldPrompt(industry, colorClause, cleanMetaphor);
 }
 
 export class BriefValidationError extends Error {
