@@ -27,6 +27,7 @@ import { createAdminClient } from "@/lib/supabase";
 import {
   generateCreativeBackground,
   validateGeneratedBackground,
+  reviewCreativeImage,
 } from "@/lib/gemini";
 import { compositeCreative, renderFallbackBackground } from "@/lib/creative/compositor";
 import {
@@ -175,10 +176,11 @@ export async function processCreativeGeneration(
     // Brand name for the wordmark fallback.
     const { data: brand } = await admin
       .from("brands")
-      .select("name")
+      .select("name, industry")
       .eq("id", creative.brand_id)
       .single();
     const brandName = (brand?.name as string | undefined) ?? "";
+    const brandIndustry = (brand?.industry as string | null | undefined) ?? null;
     // Active Brand Pattern (P4 Phase 2A) — null until migration 023 + an
     // authored pattern exist; null → compositor renders exactly as before.
     const brandPattern = await loadActiveBrandPattern(admin, creative.brand_id as string);
@@ -198,6 +200,54 @@ export async function processCreativeGeneration(
       founderName,
       pattern: brandPattern?.pattern ?? null,
     });
+
+    // ─── Step 4b: AI Creative Review (Sprint 20) — vision QC on the rendered ──
+    // creative. Best-effort: a review failure must NEVER fail the creative (the
+    // image is already valid). Stored in the brief jsonb; recommendation derived
+    // from CREATIVE_REVIEW_THRESHOLD. Originality compares against this brand's
+    // recent creative directions (Creative Memory).
+    report("reviewing", 80);
+    let review: CreativeBrief["review"] = undefined;
+    try {
+      // Recall recent directions for the originality dimension (exclude self).
+      const { data: recent } = await admin
+        .from("content_creatives")
+        .select("creative_brief, created_at")
+        .eq("brand_id", creative.brand_id)
+        .neq("id", creativeId)
+        .order("created_at", { ascending: false })
+        .limit(8);
+      const recentDirections = (recent ?? [])
+        .map((r) => {
+          const cd = (r.creative_brief as { creative_direction?: Record<string, string> } | null)
+            ?.creative_direction;
+          return cd?.world ? [cd.world, cd.environment, cd.lighting, cd.lens].filter(Boolean).join(" · ") : null;
+        })
+        .filter((s): s is string => !!s)
+        .slice(0, 6);
+
+      const { data: verdict } = await reviewCreativeImage({
+        imageBase64: finalPng.toString("base64"),
+        mimeType: "image/png",
+        brand: { name: brandName, industry: brandIndustry },
+        platform: brief.platform,
+        headline: brief.headline,
+        cta: brief.cta,
+        creativeDirection: brief.creative_direction ?? null,
+        recentDirections,
+      });
+      const thr = Number(process.env.CREATIVE_REVIEW_THRESHOLD);
+      review = {
+        ...verdict,
+        threshold: Number.isFinite(thr) && thr > 0 && thr <= 100 ? thr : 85,
+        reviewed_at: new Date().toISOString(),
+      };
+      console.log(
+        `[creative-generation] ${creativeId}: review overall=${verdict.overall_score} → ${verdict.recommendation} (${verdict.issues.length} issues)`,
+      );
+    } catch (err) {
+      captureFallback("creative-generation.review_failed", err, { creativeId });
+    }
 
     // ─── Step 5: upload background (provenance) + final composite ────────────
     report("uploading", 85);
@@ -236,6 +286,9 @@ export async function processCreativeGeneration(
         generated_at: doneAt,
         generation_error: null,
         status_history: finalHistory,
+        // Persist the AI Creative Review alongside Creative Memory (jsonb, no
+        // migration). Only rewrite the brief when a review was produced.
+        ...(review ? { creative_brief: { ...brief, review } } : {}),
       })
       .eq("id", creativeId);
     if (updErr) throw new Error(`Failed to finalize creative: ${updErr.message}`);

@@ -216,6 +216,28 @@ export const creativeBriefSchema = z.object({
     })
     .default({ world: "", environment: "", lighting: "", lens: "", composition: "", mood: "", color_grade: "", emotional_tone: "" }),
 
+  /** AI Creative Review (Sprint 20) — the vision QC verdict on the RENDERED creative,
+   *  written by the worker after compositing. Absent on briefs at the gate (no image yet)
+   *  and on briefs predating this field. Stored here (jsonb) so no migration is needed. */
+  review: z
+    .object({
+      overall_score: z.number(),
+      brand_score: z.number(),
+      commercial_score: z.number(),
+      story_score: z.number(),
+      composition_score: z.number(),
+      readability_score: z.number(),
+      originality_score: z.number(),
+      platform_score: z.number(),
+      confidence: z.number(),
+      recommendation: z.enum(["approve", "improve", "reject"]),
+      issues: z.array(z.string()),
+      suggestions: z.array(z.string()),
+      threshold: z.number(),
+      reviewed_at: z.string(),
+    })
+    .optional(),
+
   // ── Code-computed asset + identity usage (deterministic, trustworthy) ───
   logo_usage: assetUsageSchema,
   headshot_usage: assetUsageSchema,

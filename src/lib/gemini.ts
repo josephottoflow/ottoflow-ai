@@ -392,6 +392,9 @@ interface StructuredOpts {
   tools?: Array<{ urlContext?: object; googleSearch?: object }>;
   systemInstruction?: string;
   label?: string;
+  /** Sprint 20 — optional images (base64) for multimodal VISION (e.g. the AI
+   * Creative Review looks at the rendered creative). */
+  images?: Array<{ mimeType: string; data: string }>;
 }
 
 async function generateStructured<T>(opts: StructuredOpts): Promise<T> {
@@ -490,9 +493,19 @@ ${schemaToHint(opts.schema)}`
     // +0.1 per attempt, so a retry explores instead of re-rolling the same
     // flaky answer.
     const { seed, temperature } = entropy();
+    // Multimodal when images are supplied (Sprint 20 vision review), else text.
+    const contents = opts.images && opts.images.length
+      ? [{
+          role: "user",
+          parts: [
+            { text: promptWithSchemaHint },
+            ...opts.images.map((im) => ({ inlineData: { mimeType: im.mimeType, data: im.data } })),
+          ],
+        }]
+      : promptWithSchemaHint;
     return ai().models.generateContent({
       model: MODEL,
-      contents: promptWithSchemaHint,
+      contents,
       config: {
         systemInstruction,
         // Strict structured output ONLY when no tools — Gemini rejects both together.
@@ -2107,6 +2120,109 @@ const HIERARCHY_DIRECTION: Record<string, string> = {
   quote_led:
     "QUOTE-LED: a short, punchy quote lifted or distilled from the content is the hero. The headline IS the quote (≤ 80 chars, no surrounding quote marks needed). Background is textural and calm — the words carry the design.",
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AI Creative Review Engine (Sprint 20) — grades the RENDERED creative (vision)
+// across measurable dimensions, compares originality against Creative Memory, and
+// returns structured metadata + issues + suggestions + a threshold recommendation.
+// ─────────────────────────────────────────────────────────────────────────────
+export interface CreativeReview {
+  overall_score: number;
+  brand_score: number;
+  commercial_score: number;
+  story_score: number;
+  composition_score: number;
+  readability_score: number;
+  originality_score: number;
+  platform_score: number;
+  confidence: number;
+  /** Threshold-derived (configurable) — what to do with this creative. */
+  recommendation: "approve" | "improve" | "reject";
+  issues: string[];
+  suggestions: string[];
+}
+
+const creativeReviewSchema: Schema = {
+  type: Type.OBJECT,
+  required: [
+    "overall_score", "brand_score", "commercial_score", "story_score", "composition_score",
+    "readability_score", "originality_score", "platform_score", "confidence", "issues", "suggestions",
+  ],
+  properties: {
+    overall_score: { type: Type.NUMBER },
+    brand_score: { type: Type.NUMBER },
+    commercial_score: { type: Type.NUMBER },
+    story_score: { type: Type.NUMBER },
+    composition_score: { type: Type.NUMBER },
+    readability_score: { type: Type.NUMBER },
+    originality_score: { type: Type.NUMBER },
+    platform_score: { type: Type.NUMBER },
+    confidence: { type: Type.NUMBER },
+    issues: { type: Type.ARRAY, items: { type: Type.STRING } },
+    suggestions: { type: Type.ARRAY, items: { type: Type.STRING } },
+  },
+} as Schema;
+
+/** Default quality gate (override with CREATIVE_REVIEW_THRESHOLD). */
+function reviewThreshold(): number {
+  const n = Number(process.env.CREATIVE_REVIEW_THRESHOLD);
+  return Number.isFinite(n) && n > 0 && n <= 100 ? n : 85;
+}
+
+/**
+ * Review a finished creative IMAGE with a vision model. Returns scores + issues +
+ * suggestions + a threshold-derived recommendation (approve / improve / reject).
+ */
+export async function reviewCreativeImage(input: {
+  imageBase64: string;
+  mimeType?: string;
+  brand: { name: string; industry: string | null };
+  platform: string;
+  headline: string;
+  cta: string;
+  creativeDirection: Record<string, string> | null;
+  recentDirections: string[];
+}): Promise<{ data: CreativeReview; meta: GenerationMeta }> {
+  const memBlock = input.recentDirections.length
+    ? `RECENT CREATIVES for this brand (for the ORIGINALITY score — penalise similarity in world / lighting / composition / environment / mood):\n${input.recentDirections.map((d, i) => `  ${i + 1}. ${d}`).join("\n")}`
+    : `RECENT CREATIVES: none yet — originality is unconstrained.`;
+  const dir = input.creativeDirection
+    ? `THIS creative's intended direction: ${[input.creativeDirection.world, input.creativeDirection.environment, input.creativeDirection.lighting, input.creativeDirection.lens].filter(Boolean).join(" · ")}`
+    : "";
+
+  const prompt = `You are a SENIOR CREATIVE DIRECTOR doing quality control on a finished
+advertising creative for ${input.brand.name}${input.brand.industry ? ` (${input.brand.industry})` : ""},
+intended for ${input.platform}. The headline reads "${input.headline}" and the CTA "${input.cta}".
+${dir}
+${memBlock}
+
+LOOK AT THE ATTACHED IMAGE and score it 0-100 on each dimension. Be honest and specific —
+a real creative director, never flattering:
+- brand_score: does it feel like this brand? is brand personality visible? are colours used naturally (as light/atmosphere, not flat blocks)?
+- commercial_score: does it look like premium advertising? cinematic? does it AVOID AI clichés (plastic skin, warped text/objects, fake bokeh, uncanny artifacts)?
+- story_score: is there a clear visual story, an obvious focal point, emotional impact?
+- composition_score: camera angle, framing, depth, negative space, subject placement.
+- readability_score: will the headline / CTA / logo sit legibly with strong contrast against this background?
+- originality_score: how DIFFERENT is this from the recent creatives above? penalise repeated world/lighting/composition/environment/mood.
+- platform_score: would this perform well on ${input.platform} specifically?
+- overall_score: your holistic verdict (NOT a plain average — weight what matters for premium advertising).
+- confidence: how confident you are in this assessment (0-100).
+- issues: concrete problems you SEE in the image (empty array if none).
+- suggestions: specific, actionable improvements (empty array if none).`.trim();
+
+  const { data, meta } = await generateStructuredFull<Omit<CreativeReview, "recommendation">>({
+    prompt,
+    schema: creativeReviewSchema,
+    images: [{ mimeType: input.mimeType ?? "image/png", data: input.imageBase64 }],
+    systemInstruction: "You are a discerning senior creative director doing QC. Be precise, honest and concrete. Never flatter; surface real problems.",
+    label: "creativeReview",
+  });
+
+  const t = reviewThreshold();
+  const recommendation: CreativeReview["recommendation"] =
+    data.overall_score >= t ? "approve" : data.overall_score >= t - 15 ? "improve" : "reject";
+  return { data: { ...data, recommendation }, meta };
+}
 
 export async function generateCreativeConcept(input: {
   brand: {
