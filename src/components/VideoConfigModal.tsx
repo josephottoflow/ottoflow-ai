@@ -344,18 +344,40 @@ export function VideoConfigModal({
     { k: "Structure", v: scenes.length ? `A ${scenes.length}-beat arc (${journey.join(" → ")}) — a complete story from hook to action.` : `A complete arc from hook to call-to-action.` },
   ];
 
-  // ── Creative Moodboard (P3) — real value or honest Coming-soon ──
-  const moodboard: { icon: ReactNode; label: string; node: ReactNode }[] = [
-    { icon: <PaletteIcon size={11} />, label: "Color palette", node: hasPalette
-        ? <span className="inline-flex items-center gap-1">{swatch(branding?.palette?.primary)}{swatch(branding?.palette?.secondary)}{swatch(branding?.palette?.accent)}</span>
-        : <Soon /> },
-    { icon: <Gauge size={11} />, label: "Motion", node: <span className="text-white/80">{cap(st.pacing)} pacing</span> },
-    { icon: <Layers size={11} />, label: "Transition style", node: <span className="text-white/80">{transitionWord}</span> },
-    { icon: <Camera size={11} />, label: "Camera", node: cameraStyles.length
-        ? <span className="text-white/80 line-clamp-1">{cameraStyles.slice(0, 2).join(", ")}</span>
-        : <Soon /> },
-    { icon: <Sun size={11} />, label: "Lighting", node: <Soon /> },
-    { icon: <TypeIcon size={11} />, label: "Typography", node: <Soon /> },
+  // ── Phase 1: AI Art Direction — chosen from real signals (platform tone + style).
+  //    Industry isn't in the dryRun payload, so the direction keys off the platform's
+  //    conversion style + the selected video style (both real). Presentation only. ──
+  const ART = {
+    authority: { name: "Editorial Corporate", lighting: "Soft directional key with deep, controlled falloff", camera: "Composed and locked-off, with generous negative space", texture: "Matte, fine-grain — premium and understated", imagery: "Real people in considered, credible product moments", emotion: "Assured and trustworthy", feeling: "a brand you can rely on" },
+    direct: { name: "Bold Modern", lighting: "High-contrast with punchy, confident highlights", camera: "Close and kinetic, around a single large focal subject", texture: "Crisp and saturated with a clean, glossy finish", imagery: "Hero product, decisive gestures, strong silhouettes", emotion: "Energetic and confident", feeling: "made for right now" },
+    soft: { name: "Lifestyle Editorial", lighting: "Warm natural light with a gentle, flattering bloom", camera: "Handheld warmth and shallow depth of field", texture: "Soft and tactile — organic and human", imagery: "Candid, in-the-moment, human-first", emotion: "Warm and relatable", feeling: "a brand that gets you" },
+  } as const;
+  const art = ART[st.conversionStyle as keyof typeof ART] ?? ART.authority;
+  const otherArts = (Object.keys(ART) as (keyof typeof ART)[]).filter((k) => k !== (st.conversionStyle as keyof typeof ART)).map((k) => ART[k]);
+  const directions = [
+    { tag: "A", name: art.name, note: "Recommended · renders today", live: true },
+    { tag: "B", name: otherArts[0]?.name ?? "Modern Tech", note: "Preview only", live: false },
+    { tag: "C", name: otherArts[1]?.name ?? "Bold Editorial", note: "Preview only", live: false },
+  ];
+  const platformRationale = `Tuned for ${profile.label}: ${aspect} · ${cap(st.pacing)} pace · hook by ${st.hookBySec}s · ${profile.video.captionDensity}-density captions.`;
+  const recommendation = `${art.name} suits ${branding?.brandName ?? "your brand"} on ${profile.label} — ${art.feeling}, delivered with ${art.emotion.toLowerCase()} energy.`;
+
+  // Brand palette → atmosphere (colour becomes light & gradient, never a flat block).
+  const pal = [branding?.palette?.primary, branding?.palette?.secondary, branding?.palette?.accent].filter(Boolean) as string[];
+  const atmosphere = pal.length
+    ? `radial-gradient(120% 120% at 18% 0%, ${pal[0]}66, transparent 58%), radial-gradient(130% 120% at 100% 100%, ${(pal[1] ?? pal[0])}4d, transparent 55%), linear-gradient(125deg, ${pal[0]}26, ${(pal[2] ?? pal[1] ?? pal[0])}1a)`
+    : "radial-gradient(120% 120% at 18% 0%, rgba(34,211,238,0.28), transparent 58%), linear-gradient(125deg, rgba(34,211,238,0.12), rgba(129,140,248,0.10))";
+
+  // ── Phase 2: Creative moodboard (agency board, not info boxes) — derived from the
+  //    chosen art direction + real scene camera + pacing. ──
+  const board: { icon: ReactNode; label: string; value: string }[] = [
+    { icon: <Film size={11} />, label: "Imagery", value: art.imagery },
+    { icon: <Sun size={11} />, label: "Lighting", value: art.lighting },
+    { icon: <Camera size={11} />, label: "Camera", value: cameraStyles.length ? cameraStyles.slice(0, 2).join(", ") : art.camera },
+    { icon: <Layers size={11} />, label: "Texture", value: art.texture },
+    { icon: <Gauge size={11} />, label: "Motion", value: `${cap(st.pacing)} pacing — ${transitionWord.toLowerCase()}` },
+    { icon: <Heart size={11} />, label: "Emotional tone", value: art.emotion },
+    { icon: <TypeIcon size={11} />, label: "Composition", value: `${profile.video.aspect} · ${st.sceneComplexity} framing, generous focal space` },
   ];
 
   // ── Deliverables (P5) ──
@@ -368,13 +390,6 @@ export function VideoConfigModal({
     { label: "Caption & hashtags", value: "Included", on: true },
     { label: "Transcript", value: <Soon />, on: false },
     { label: "Thumbnail", value: <Soon />, on: false },
-  ];
-
-  // ── Creative Alternatives (P7) — placeholders, regeneration needs backend ──
-  const alternatives = [
-    { name: "Bold & Punchy", desc: "Faster cuts, louder hook" },
-    { name: "Story-Driven", desc: "Slower build, deeper arc" },
-    { name: "Minimal & Clean", desc: "Restrained, product-forward" },
   ];
 
   return (
@@ -508,20 +523,57 @@ export function VideoConfigModal({
               ) : <p className="text-2xs text-white/45 italic">Your scenes appear here once the story is composed.</p>}
             </Section>
 
-            {/* ── P3: Creative Moodboard ── */}
-            <Section open={!!openSec["mood"]} onToggle={() => toggle("mood")} title="Creative Moodboard" icon={<PaletteIcon size={11} />} hint="the look & feel">
-              <div className="grid grid-cols-2 gap-2">
-                {moodboard.map((m) => (
-                  <div key={m.label} className="rounded-lg p-2 flex items-center gap-2" style={card}>
-                    <span className="text-cyan-300/70 shrink-0">{m.icon}</span>
-                    <div className="min-w-0">
-                      <p className="text-3xs uppercase tracking-wider text-white/40 font-semibold">{m.label}</p>
-                      <div className="text-2xs mt-0.5">{m.node}</div>
+            {/* ── Phase 1: AI Art Direction (open by default — the creative headline) ── */}
+            <div className="mb-3 rounded-xl overflow-hidden cs-fade" style={{ border: "1px solid rgba(34,211,238,0.16)" }}>
+              <div className="px-3.5 pt-3.5 pb-3" style={{ background: atmosphere }}>
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <Sparkles size={11} className="text-white" />
+                  <span className="text-3xs uppercase tracking-wider font-semibold text-white/90">Art direction</span>
+                  <span className="ml-auto text-3xs text-white/80">Confidence {estimating ? "…" : quality100}</span>
+                </div>
+                <p className="text-base font-bold text-white leading-none drop-shadow">{art.name}</p>
+                <p className="text-2xs text-white/85 mt-1 max-w-xl leading-snug drop-shadow">{recommendation}</p>
+              </div>
+              <div className="px-3.5 py-2.5" style={card}>
+                <p className="text-3xs text-white/55 mb-2">{platformRationale}</p>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {directions.map((d) => (
+                    <div key={d.tag} className="rounded-lg p-2"
+                      style={d.live ? { background: "rgba(34,211,238,0.08)", border: "1px solid rgba(34,211,238,0.35)" } : { ...card, opacity: 0.7 }}>
+                      <div className="flex items-center gap-1 mb-0.5">
+                        <span className="text-3xs font-bold" style={{ color: d.live ? "#67e8f9" : "rgba(255,255,255,0.5)" }}>Direction {d.tag}</span>
+                        {!d.live && <Lock size={8} className="text-white/35 ml-auto" />}
+                      </div>
+                      <p className="text-2xs font-medium text-white/85 leading-snug">{d.name}</p>
+                      <p className="text-3xs mt-0.5" style={{ color: d.live ? "#5eead4" : "rgba(255,255,255,0.4)" }}>{d.live ? d.note : "Preview only · soon"}</p>
                     </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* ── Phase 2: Creative moodboard — agency board (atmosphere + direction, not boxes) ── */}
+            <Section open={!!openSec["mood"]} onToggle={() => toggle("mood")} title="Creative moodboard" icon={<PaletteIcon size={11} />} hint="the look & feel">
+              {/* Atmosphere band — brand colour as light, not a swatch */}
+              <div className="rounded-xl h-16 mb-2.5 relative overflow-hidden" style={{ background: atmosphere, border: "1px solid rgba(255,255,255,0.06)" }}>
+                <div className="absolute inset-0 flex items-end justify-between px-3 pb-2">
+                  <span className="text-3xs text-white/85 drop-shadow">Atmosphere · your palette as light</span>
+                  <span className="flex items-center gap-1">
+                    {pal.slice(0, 3).map((c, i) => <span key={i} className="w-2 h-2 rounded-full" style={{ background: c, boxShadow: "0 0 0 1px rgba(255,255,255,0.25)" }} />)}
+                  </span>
+                </div>
+              </div>
+              {/* Direction lines — clean rows, no boxed cards */}
+              <div className="divide-y divide-white/[0.04]">
+                {board.map((b) => (
+                  <div key={b.label} className="flex items-start gap-2.5 py-1.5">
+                    <span className="text-cyan-300/60 mt-0.5 shrink-0">{b.icon}</span>
+                    <span className="text-3xs uppercase tracking-wider text-white/40 font-semibold w-24 shrink-0 pt-0.5">{b.label}</span>
+                    <span className="text-2xs text-white/75 leading-snug">{b.value}</span>
                   </div>
                 ))}
               </div>
-              <p className="text-3xs text-white/30 mt-2">Derived from your platform &amp; brand — the final look is set during production.</p>
+              <p className="text-3xs text-white/30 mt-2">Brand colours guide the lighting, gradients &amp; accents — the final look is set during production.</p>
             </Section>
 
             {/* ── P6: AI Director Reasoning ── */}
@@ -569,20 +621,6 @@ export function VideoConfigModal({
               </div>
             </Section>
 
-            {/* ── P7: Creative Alternatives (Coming soon) ── */}
-            <Section open={!!openSec["alts"]} onToggle={() => toggle("alts")} title="Creative alternatives" icon={<Layers size={11} />} hint="explore other directions">
-              <div className="grid grid-cols-3 gap-2">
-                {alternatives.map((a) => (
-                  <div key={a.name} className="rounded-lg p-2.5 text-center opacity-70" style={card}>
-                    <p className="text-2xs font-semibold text-white/80">{a.name}</p>
-                    <p className="text-3xs text-white/45 leading-snug mt-0.5">{a.desc}</p>
-                    <p className="mt-1.5"><Soon /></p>
-                  </div>
-                ))}
-              </div>
-              <p className="text-3xs text-white/30 mt-2">Generate this video first — alternate creative directions are on the way.</p>
-            </Section>
-
             {/* ── Production controls (collapsibles) ── */}
             <Section open={!!openSec["visual"]} onToggle={() => toggle("visual")} title="Visual source" hint="how it's made">
               <div className="grid grid-cols-2 gap-2">
@@ -603,11 +641,14 @@ export function VideoConfigModal({
             </Section>
 
             <Section open={!!openSec["brand"]} onToggle={() => toggle("brand")} title="Brand" hint={`match ${estimating ? "…" : `${brand100}%`}`}>
-              <div className="flex items-center gap-3 text-2xs text-white/75">
-                <span className="flex items-center gap-1">{swatch(branding?.palette?.primary)}{swatch(branding?.palette?.secondary)}</span>
-                <span className="text-white/40">·</span><span>{branding?.brandName ?? "—"}</span>
-                <span className="text-white/40">·</span><span>{branding?.logoAssetId ? "Logo" : "Wordmark"} + CTA applied</span>
+              {/* Phase 3 — palette expressed as atmosphere, not swatches */}
+              <div className="rounded-lg h-10 relative overflow-hidden mb-2" style={{ background: atmosphere, border: "1px solid rgba(255,255,255,0.06)" }}>
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-2xs font-medium text-white/90 drop-shadow">{branding?.brandName ?? "Your brand"}</span>
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                  {pal.slice(0, 3).map((c, i) => <span key={i} className="w-2 h-2 rounded-full" style={{ background: c, boxShadow: "0 0 0 1px rgba(255,255,255,0.25)" }} />)}
+                </span>
               </div>
+              <p className="text-3xs text-white/45">{branding?.logoAssetId ? "Logo" : "Wordmark"} + CTA applied · colours guide lighting &amp; accents, not flat blocks.</p>
             </Section>
 
             <Section open={!!openSec["check"]} onToggle={() => toggle("check")} title={`Content check · ${profile.label}`} hint={validation.ok ? "all good" : "needs fix"}>
@@ -668,11 +709,4 @@ export function VideoConfigModal({
       </div>
     </div>
   );
-}
-
-/** Small colour swatch (module-level so it's usable in derived render arrays). */
-function swatch(c?: string | null) {
-  return c
-    ? <span className="inline-block h-3.5 w-3.5 rounded-full border border-white/15 align-middle" style={{ background: c }} title={c} />
-    : <span className="text-white/30 text-3xs">—</span>;
 }
