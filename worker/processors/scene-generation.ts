@@ -93,12 +93,14 @@ export async function processSceneGeneration(
   const { strategy } = data;
   const workDir = path.join(tmpdir(), `scenegen-${data.renderJobId}-${randomUUID()}`);
 
+  // Sprint 15 — Royalty-Free Library (source="pexels") records a stock-first job.
+  const isPexels = data.source === "pexels";
   await admin
     .from("render_jobs")
     .update({
       merge_status: "merging",
-      render_kind: "ai-first",
-      scene_provider: "seedance",
+      render_kind: isPexels ? "stock-first" : "ai-first",
+      scene_provider: isPexels ? "pexels" : "seedance",
       video_strategy: strategy as unknown as Record<string, unknown>,
       progress: 5,
     })
@@ -180,6 +182,8 @@ export async function processSceneGeneration(
       const startedAt = Date.now();
       let fallbackReason: string | null = null;
 
+      // Sprint 15 — Royalty-Free Library forces Pexels ONLY (no AI fallback, no AI
+      // cost); the AI path is unchanged (Seedance-preferred with the usual fallbacks).
       const result = await generateScene(
         {
           // Shared style preamble + beat-specific prompt (Task 3).
@@ -192,9 +196,11 @@ export async function processSceneGeneration(
           // Exclude stock clips already used by earlier scenes (P1 de-dup).
           excludeSourceIds: usedPexelsIds,
         },
-        { preferProvider: "seedance" },
+        isPexels ? { forceProvider: "pexels" } : { preferProvider: "seedance" },
       );
-      if (result.provider !== "seedance") {
+      // Only the AI path treats a non-Seedance provider as a fall-through; for the
+      // Royalty-Free path, Pexels IS the intended source.
+      if (!isPexels && result.provider !== "seedance") {
         fallbackReason = `seedance unavailable → fell through to ${result.provider}`;
       }
       // Track the chosen stock asset so later scenes can't reuse it.

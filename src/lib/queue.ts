@@ -326,6 +326,10 @@ export interface SceneGenerationJobData {
   /** Sprint 4 — quality preset hint (fast|balanced|best). Informational/forward-
    *  compat; absent = unchanged behaviour. */
   quality?: "fast" | "balanced" | "best";
+  /** Sprint 15 — visual source. Absent/"ai" → unchanged AI-first pipeline
+   *  (Seedance). "pexels" → Royalty-Free Library: footage-only via the Pexels
+   *  provider, NO AI scene generation, NO AI cost. */
+  source?: "ai" | "pexels";
   strategy: VideoStrategy;
   /** Resolved narration (data: or https URL). Forwarded into the CompositionPlan. */
   narrationUrl?: string | null;

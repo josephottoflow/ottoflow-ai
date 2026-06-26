@@ -46,30 +46,31 @@ const MODE_DETAIL: Record<string, { engine: string; bestFor: string }> = {
   founder_video: { engine: "Human-first Story", bestFor: "Founder & thought leadership" },
   social_ad: { engine: "Human-first Story", bestFor: "Short social ads" },
 };
-// Visual sources (Sprint 14). `available:true` = wired & selectable today (only AI
-// Generated — the route auto-runs AI-first; no user-selectable source backend exists).
-// Everything else is honestly "Coming soon". Data-driven so new engines slot in (P6).
-type SourceId = "ai" | "premium_stock" | "free_stock" | "hybrid" | "brand_footage" | "customer_uploads" | "motion_templates";
+// Visual sources (Sprint 15). `available:true` = selectable today. AI Generated is
+// live. Royalty-Free Library (Pexels) backend is shipped but kept Beta-locked
+// (not selectable) until verified end-to-end. Premium Stock & Hybrid stay Coming soon.
+type SourceId = "ai" | "pexels" | "premium_stock" | "hybrid" | "brand_footage" | "customer_uploads" | "motion_templates";
 interface VisualSource {
-  id: SourceId; name: string; available: boolean; recommended?: boolean; future?: boolean;
+  id: SourceId; name: string; available: boolean; recommended?: boolean; beta?: boolean;
   desc: string; bestFor?: string; pros?: string[]; cons?: string[]; note?: string;
-  example: "abstract" | "photo" | "mix";
+  example: "abstract" | "photo" | "mix"; pricing?: string;
 }
 const VISUAL_SOURCES: VisualSource[] = [
   { id: "ai", name: "AI Generated", available: true, recommended: true, example: "abstract",
-    desc: "Completely original visuals, created by AI.",
-    bestFor: "SaaS · Technology · Corporate · Abstract concepts",
+    desc: "Original AI-created scenes.",
+    bestFor: "SaaS · Technology · Corporate · Product launches · Abstract concepts",
     pros: ["Unique", "Brand-aligned", "Unlimited creativity"],
     cons: ["Highest render cost", "Slightly longer to generate"] },
+  { id: "pexels", name: "Royalty-Free Library", available: false, beta: true, example: "photo",
+    desc: "Professional licensed footage from a royalty-free library.",
+    bestFor: "Travel · Lifestyle · Food · Real people · Construction",
+    pros: ["Authentic", "Fast", "No AI generation cost"], cons: ["Limited to library footage"],
+    pricing: "No AI generation cost",
+    note: "Backend is shipping now — unlocking once it's verified end-to-end in production." },
   { id: "premium_stock", name: "Premium Stock", available: false, example: "photo",
-    desc: "Licensed premium stock footage & photography.",
+    desc: "Curated premium stock footage & photography.",
     bestFor: "Real people · Lifestyle · Travel · Food · Fashion",
-    pros: ["Very realistic", "Fast", "Lower AI cost"], cons: ["Limited to available footage"] },
-  { id: "free_stock", name: "Free Stock", available: false, example: "photo",
-    desc: "Royalty-free footage only.",
-    bestFor: "MVP · Testing · Budget projects",
-    pros: ["Lowest cost", "Fastest"], cons: ["Less unique", "Limited library"],
-    note: "Today this runs only as an automatic fallback when AI is unavailable — not yet a direct choice." },
+    pros: ["Very realistic", "Fast"], cons: ["Limited to available footage"] },
   { id: "hybrid", name: "Hybrid", available: false, example: "mix",
     desc: "AI-generated hero scenes combined with stock footage.",
     bestFor: "Highest production quality",
@@ -81,15 +82,19 @@ const FUTURE_SOURCES: { id: SourceId; name: string }[] = [
   { id: "customer_uploads", name: "Customer Uploads" },
   { id: "motion_templates", name: "Motion Templates" },
 ];
-// Industry → ideal source (P3). Returns the recommended id + the human reason.
-function recommendSource(industry?: string | null): { id: SourceId; why: string } {
+// Intelligent recommendation (Sprint 15 P6) — multi-factor: industry + platform +
+// content objective (mode). Returns the ideal source + an AI-Creative-Director reason.
+function recommendSource(industry: string | null | undefined, platformLabel: string, mode: string): { id: SourceId; why: string } {
   const i = (industry ?? "").toLowerCase();
-  if (/restaurant|food|travel|hospitality|fashion|retail|lifestyle|fitness|beauty/.test(i))
-    return { id: "premium_stock", why: "real people & places land best with licensed footage" };
-  if (/construction|real estate|manufactur|industrial|architecture/.test(i))
-    return { id: "hybrid", why: "real sites plus AI hero shots give the strongest result" };
-  // SaaS / tech / corporate / education / finance / abstract → AI Generated.
-  return { id: "ai", why: "original, on-brand visuals suit software, abstract & corporate concepts" };
+  const realWorld = /travel|tourism|food|restaurant|hospitality|hotel|fashion|retail|lifestyle|fitness|beauty|construction|event|wellness/.test(i);
+  const productLed = mode === "product_demo" || mode === "founder_video";
+  // Luxury & product-led stories favour AI's controlled, premium look even in
+  // otherwise real-world industries (e.g. luxury real estate, product launches).
+  if (realWorld && !productLed && !/luxury/.test(i)) {
+    const what = (i.match(/travel|tourism|food|restaurant|hospitality|fashion|lifestyle|fitness|beauty|construction/) ?? ["real-world"])[0];
+    return { id: "pexels", why: `authentic footage typically performs better for ${what} & lifestyle content on ${platformLabel}` };
+  }
+  return { id: "ai", why: `original AI scenes give a controlled, premium, on-brand look — ideal for software, corporate${productLed ? " and product-led" : ""} stories` };
 }
 const PLATFORM_ORDER: Platform[] = [
   "linkedin", "tiktok", "instagram_reels", "instagram_feed",
@@ -419,8 +424,8 @@ export function VideoConfigModal({
   ];
   const platformRationale = `Tuned for ${profile.label}: ${aspect} · ${cap(st.pacing)} pace · hook by ${st.hookBySec}s · ${profile.video.captionDensity}-density captions.`;
   const recommendation = `${art.name} suits ${branding?.brandName ?? "your brand"} on ${profile.label} — ${art.feeling}, delivered with ${art.emotion.toLowerCase()} energy.`;
-  // Visual-source recommendation (P3) — industry-aware when the wizard passed it.
-  const rec = recommendSource(brandIndustry);
+  // Visual-source recommendation (Sprint 15 P6) — multi-factor (industry + platform + objective).
+  const rec = recommendSource(brandIndustry, profile.label, mode);
   const recSource = VISUAL_SOURCES.find((s) => s.id === rec.id);
 
   // Brand palette → atmosphere (colour becomes light & gradient, never a flat block).
@@ -706,11 +711,13 @@ export function VideoConfigModal({
                         <ExampleChip kind={s.example} />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="text-2xs font-semibold text-white/90">{s.name}</span>
-                            {s.recommended && <span className="text-3xs px-1.5 py-0.5 rounded bg-amber-400/15 text-amber-300">⭐ Recommended</span>}
+                            <span className="text-2xs font-semibold text-white/90">{s.id === "ai" ? "⭐ " : s.id === "pexels" ? "🎥 " : ""}{s.name}</span>
+                            {s.recommended && <span className="text-3xs px-1.5 py-0.5 rounded bg-amber-400/15 text-amber-300">Recommended</span>}
                             {s.available
                               ? <span className="text-3xs text-cyan-300 ml-auto">{estimating ? "…" : money(estimate?.estimatedCostUsd)}</span>
-                              : <span className="text-3xs text-white/40 flex items-center gap-0.5 ml-auto"><Lock size={9} /> Coming soon</span>}
+                              : s.beta
+                                ? <span className="text-3xs text-cyan-300/80 flex items-center gap-0.5 ml-auto"><Lock size={9} /> Beta · coming soon</span>
+                                : <span className="text-3xs text-white/40 flex items-center gap-0.5 ml-auto"><Lock size={9} /> Coming soon</span>}
                           </div>
                           <p className="text-3xs text-white/55 leading-snug mt-0.5">{s.desc}</p>
                           {s.bestFor && <p className="text-3xs text-white/40 mt-1">Best for: {s.bestFor}</p>}
@@ -718,7 +725,7 @@ export function VideoConfigModal({
                             {s.pros?.map((p) => <span key={p} className="text-3xs text-emerald-300/70">✓ {p}</span>)}
                             {s.cons?.map((c) => <span key={c} className="text-3xs text-white/35">• {c}</span>)}
                           </div>
-                          {!s.available && <p className="text-3xs text-white/30 mt-1">Estimated pricing coming soon.{s.note ? ` ${s.note}` : ""}</p>}
+                          {!s.available && <p className="text-3xs text-white/30 mt-1">{s.pricing ?? "Estimated pricing coming soon."}{s.note ? ` ${s.note}` : ""}</p>}
                         </div>
                       </div>
                     </button>

@@ -58,20 +58,26 @@ function getChain(): VideoProvider[] {
  * Pass `preferProvider` to bias toward a specific backend (e.g. UI lets the
  * user request "stock only" → preferProvider="pexels"). Skipped providers
  * are NOT counted as failures.
+ *
+ * Pass `forceProvider` to use ONLY that backend with NO fallback — for an
+ * explicit user source choice (Sprint 15: source="pexels" → Royalty-Free Library
+ * must never silently fall through to a paid AI provider). If the forced provider
+ * fails, the scene fails cleanly (AllProvidersExhaustedError).
  */
 export async function generateScene(
   request: SceneRequest,
-  opts?: { preferProvider?: string },
+  opts?: { preferProvider?: string; forceProvider?: string },
 ): Promise<SceneResult> {
   const ordered = getChain();
-  // If user prefers a specific provider, put it first in the local chain.
   const sortedChain =
-    opts?.preferProvider
-      ? [
-          ...ordered.filter((p) => p.name === opts.preferProvider),
-          ...ordered.filter((p) => p.name !== opts.preferProvider),
-        ]
-      : ordered;
+    opts?.forceProvider
+      ? ordered.filter((p) => p.name === opts.forceProvider)
+      : opts?.preferProvider
+        ? [
+            ...ordered.filter((p) => p.name === opts.preferProvider),
+            ...ordered.filter((p) => p.name !== opts.preferProvider),
+          ]
+        : ordered;
 
   const attempts: { provider: string; error: string }[] = [];
 

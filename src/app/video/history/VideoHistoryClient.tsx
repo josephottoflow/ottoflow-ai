@@ -290,6 +290,16 @@ function VideoCard({
         <Link href={`/video/${job.id}`} className="block">
           <p className="text-sm font-semibold text-white line-clamp-2 leading-snug hover:text-cyan-200 transition-colors">{headline}</p>
         </Link>
+        {/* Sprint 15 — creative source badge (from render_jobs.scene_provider) */}
+        {(() => {
+          const isPexels = (job as { scene_provider?: string | null }).scene_provider === "pexels";
+          return (
+            <span className="inline-flex items-center gap-1 w-fit mt-1.5 text-3xs px-1.5 py-0.5 rounded-md"
+              style={isPexels ? { background: "rgba(34,211,238,0.10)", color: "#67e8f9" } : { background: "rgba(168,139,250,0.12)", color: "#c4b5fd" }}>
+              {isPexels ? "🎥 Royalty-Free Library" : "⭐ AI Generated"}
+            </span>
+          );
+        })()}
         <div className="flex items-center gap-1.5 text-2xs text-white/45 mt-1.5 flex-wrap">
           {brandName && (
             <Link href={`/brands/${job.brand_id}`} className="hover:text-cyan-400 transition-colors">{brandName}</Link>

@@ -74,12 +74,16 @@ const STEPS = [
 function friendlyLabel(stage: VideoJobStage): string {
   return { queued: "Preparing", generating: "Generating", composing: "Creating video", ready: "Ready", failed: "Needs attention" }[stage];
 }
-/** Customer-facing one-line detail (softens internal/worker language). */
-function friendlyDetail(status: { stage: VideoJobStage; detail: string; isStuck: boolean; scenesDone: number; scenesTotal: number }): string {
+/** Customer-facing one-line detail (softens internal/worker language).
+ * Sprint 15 — the "generating" stage reads differently for the Royalty-Free
+ * Library (footage sourcing) vs AI Generated (scene filming). */
+function friendlyDetail(status: { stage: VideoJobStage; detail: string; isStuck: boolean; scenesDone: number; scenesTotal: number }, isPexels = false): string {
   if (status.isStuck) return "This is taking longer than usual to start. Try refreshing in a moment.";
   switch (status.stage) {
     case "queued": return "Getting your story ready…";
-    case "generating": return `Filming scene ${Math.min(status.scenesDone + 1, status.scenesTotal)} of ${status.scenesTotal}…`;
+    case "generating": return isPexels
+      ? `Finding licensed footage — clip ${Math.min(status.scenesDone + 1, status.scenesTotal)} of ${status.scenesTotal}…`
+      : `Filming scene ${Math.min(status.scenesDone + 1, status.scenesTotal)} of ${status.scenesTotal}…`;
     case "composing": return "Editing your video — adding captions & brand…";
     case "ready": return "Your video is ready to preview and download.";
     case "failed": return status.detail;
@@ -189,6 +193,9 @@ export function VideoJobClient({ job: initialJob, brand, scenes: initialScenes }
   const step = activeStep(status.stage, status.scenesDone, status.scenesTotal);
   const playUrl = job.merged_video_url ?? null;
   const showRefresh = stopped && !terminal;
+  // Sprint 15 — creative source (from render_jobs.scene_provider) drives the badge
+  // + the "generating" stage wording (Royalty-Free footage vs AI scenes).
+  const isPexels = (job as { scene_provider?: string | null }).scene_provider === "pexels";
 
   return (
     <div className="min-h-screen text-white">
@@ -203,6 +210,9 @@ export function VideoJobClient({ job: initialJob, brand, scenes: initialScenes }
           <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-xl font-bold">{job.name || "Your video"}</h1>
             <Badge variant={STAGE_BADGE[status.stage]} className="text-3xs">{friendlyLabel(status.stage)}</Badge>
+            <span className="text-3xs px-1.5 py-0.5 rounded-md" style={isPexels ? { background: "rgba(34,211,238,0.10)", color: "#67e8f9" } : { background: "rgba(168,139,250,0.12)", color: "#c4b5fd" }}>
+              {isPexels ? "🎥 Royalty-Free Library" : "⭐ AI Generated"}
+            </span>
             {showRefresh && (
               <Button variant="outline" size="sm" className="gap-1.5 ml-auto" onClick={onManualRefresh} disabled={refreshing}>
                 {refreshing ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
@@ -230,14 +240,14 @@ export function VideoJobClient({ job: initialJob, brand, scenes: initialScenes }
           <div className="rounded-xl px-4 py-3 text-2xs flex items-start gap-2"
             style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.25)" }}>
             <AlertCircle size={14} className="text-amber-400 shrink-0 mt-0.5" />
-            <span className="text-amber-200/90">{friendlyDetail(status)}</span>
+            <span className="text-amber-200/90">{friendlyDetail(status, isPexels)}</span>
           </div>
         )}
 
         {/* Progress */}
         <section className="space-y-2">
           <div className="flex items-center justify-between text-2xs text-white/60">
-            <span>{friendlyDetail(status)}</span>
+            <span>{friendlyDetail(status, isPexels)}</span>
             <span>{status.progressPct}%</span>
           </div>
           <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>

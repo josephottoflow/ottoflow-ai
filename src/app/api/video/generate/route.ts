@@ -104,6 +104,9 @@ const Schema = z.object({
   /** Sprint 4 — total target video length (s). Absent ("Auto") → certified keeps
    * its proven 20s; other engines use the platform profile target. */
   durationSec: z.number().int().min(8).max(90).optional(),
+  /** Sprint 15 — visual source. Absent/"ai" → unchanged AI-first pipeline.
+   * "pexels" → Royalty-Free Library (footage-only, no AI scene generation, no AI cost). */
+  source: z.enum(["ai", "pexels"]).optional().default("ai"),
   /** Generation mode (Video V1.1 + Sprint 4 presets). Absent → "certified" = the
    * unchanged 4-beat path that keeps render 46bd40cd reproducible. The 6 UI
    * presets map to the 2 real engines via UI_MODE_TO_ENGINE. */
@@ -191,6 +194,8 @@ export async function POST(req: NextRequest) {
   // the future wiring point.
   const resolution: "720p" | "1080p" = parsed.data.resolution === "1080p" ? "1080p" : "720p";
   const quality = parsed.data.quality;
+  // Sprint 15 — visual source. "pexels" = Royalty-Free Library (footage-only, no AI cost).
+  const source: "ai" | "pexels" = parsed.data.source === "pexels" ? "pexels" : "ai";
   // Duration ("Auto" = omitted): certified keeps its proven 20s; other engines
   // use the platform profile's target window (upper bound, clamped to ≤90s).
   const [profLo, profHi] = profile.video.targetDurationSec;
@@ -305,7 +310,8 @@ export async function POST(req: NextRequest) {
             });
 
     // ─── Cost estimate (computed BEFORE any spend) ────────────────────────────
-    const estimate = estimateRenderCost(strategy, { resolution });
+    // Royalty-Free Library has NO AI generation cost (Pexels footage is free).
+    const estimate = estimateRenderCost(strategy, { resolution, source });
 
     // ─── Dry run: build strategy + scene plan + composition plan, NO spend ────
     // Synthesizes placeholder clips so buildAiFirstPlan produces an inspectable
@@ -399,8 +405,8 @@ export async function POST(req: NextRequest) {
         template: "ffmpeg-v2",
         user_id: userId,
         brand_id: brandId,
-        render_kind: "ai-first",
-        scene_provider: "seedance",
+        render_kind: source === "pexels" ? "stock-first" : "ai-first",
+        scene_provider: source === "pexels" ? "pexels" : "seedance",
         merge_status: "pending",
         prompt: topic,
         video_strategy: strategy as unknown as Record<string, unknown>,
@@ -428,6 +434,7 @@ export async function POST(req: NextRequest) {
         platform: parsed.data.platform,
         resolution,
         quality,
+        source,
         strategy,
         branding,
       },
