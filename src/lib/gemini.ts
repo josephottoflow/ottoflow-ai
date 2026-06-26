@@ -2039,6 +2039,19 @@ export interface CreativeConcept {
   subheadline: string;
   cta: string;
   background_prompt: string;
+  /** Creative Memory (Sprint 19) — structured art-direction metadata persisted on
+   * every creative so future generations can recall recent directions and pick a
+   * DIFFERENT valid world for controlled variety. */
+  creative_direction: {
+    world: string;
+    environment: string;
+    lighting: string;
+    lens: string;
+    composition: string;
+    mood: string;
+    color_grade: string;
+    emotional_tone: string;
+  };
   /** Model's self-assessed fit of this hierarchy for this content (0-1). */
   model_confidence: number;
 }
@@ -2054,6 +2067,7 @@ const creativeConceptSchema: Schema = {
     "subheadline",
     "cta",
     "background_prompt",
+    "creative_direction",
     "model_confidence",
   ],
   properties: {
@@ -2065,6 +2079,20 @@ const creativeConceptSchema: Schema = {
     subheadline: { type: Type.STRING },
     cta: { type: Type.STRING },
     background_prompt: { type: Type.STRING },
+    creative_direction: {
+      type: Type.OBJECT,
+      required: ["world", "environment", "lighting", "lens", "composition", "mood", "color_grade", "emotional_tone"],
+      properties: {
+        world: { type: Type.STRING },
+        environment: { type: Type.STRING },
+        lighting: { type: Type.STRING },
+        lens: { type: Type.STRING },
+        composition: { type: Type.STRING },
+        mood: { type: Type.STRING },
+        color_grade: { type: Type.STRING },
+        emotional_tone: { type: Type.STRING },
+      },
+    } as Schema,
     model_confidence: { type: Type.NUMBER },
   },
 } as Schema;
@@ -2095,6 +2123,10 @@ export async function generateCreativeConcept(input: {
   topic: { title: string; hookAngle: string | null; kind: string | null } | null;
   founderName: string | null;
   assetSummary: string; // e.g. "logo (transparent PNG 800×200), headshot (\"Jane Doe — Founder\", 1200×1200)"
+  /** Creative Memory (Sprint 19) — compact summaries of this brand's RECENT creative
+   * directions (most-recent first). The model must pick a DIFFERENT valid world for
+   * controlled variety unless the brief specifically requires repetition. */
+  recentDirections?: string[];
 }): Promise<{ data: CreativeConcept; meta: GenerationMeta }> {
   const direction = HIERARCHY_DIRECTION[input.hierarchy] ?? HIERARCHY_DIRECTION.brand_led;
   const pal = input.palette;
@@ -2105,6 +2137,10 @@ export async function generateCreativeConcept(input: {
 - secondary: ${pal.secondary ?? "(none)"}
 - accent: ${pal.accent ?? "(none)"}`
     : `BRAND COLOURS: none configured — use the natural light of the chosen scene; restrained and neutral. Do NOT invent a saturated brand colour.`;
+
+  const recentBlock = input.recentDirections && input.recentDirections.length
+    ? `CREATIVE MEMORY — recent creatives for THIS brand (most recent first). Do NOT repeat these worlds / environments / lighting / lens; choose a DIFFERENT valid world that still satisfies the brief (controlled variety). Repeat only if the brief specifically demands it:\n${input.recentDirections.map((d, i) => `  ${i + 1}. ${d}`).join("\n")}`
+    : `CREATIVE MEMORY: no recent creatives for this brand — clean slate; pick the strongest world for the brief.`;
 
   const prompt = `
 Design the creative strategy for a single ${input.platform} image creative
@@ -2140,6 +2176,12 @@ Work the brief IN THIS ORDER and let it drive everything (this is the source of 
   → CREATIVE STRATEGY → PHOTOGRAPHIC WORLD → the final background.
 
 ${industryConstraintBlock(input.brand.industry)}
+
+${recentBlock}
+
+PRIORITY OF INPUTS (highest first): 1) this Campaign Brief, 2) Brand DNA (voice,
+positioning, palette), 3) Creative Memory above (push for variety), 4) Industry
+constraint, 5) art direction. Creative Memory INFLUENCES but never overrides the brief.
 
 Now direct ONE specific real PHOTOGRAPH like a cinematographer — the exact environment,
 where the light comes from, the lens and depth of field, foreground/background layers,
@@ -2179,6 +2221,13 @@ Produce these IN ORDER — each builds on the previous:
   sign, person, people, face, human, portrait, geometric, rectangle, bar, grid,
   block, or stripe ANYWHERE in the prompt — those are excluded by design and even
   naming them is disallowed. Describe a clean, real, cinematic scene.
+- creative_direction: a STRUCTURED record of the art direction you chose, so future
+  creatives can recall it and avoid repeating it. Fill EVERY field concretely:
+  world (the photographic world, e.g. "modern glass office" / "golden-hour villa
+  exterior" / "executive boardroom"), environment (the specific setting), lighting
+  (style + direction), lens (focal length + depth of field), composition, mood,
+  color_grade (the grade/tone), emotional_tone. Make these DISTINCT from the
+  Creative Memory entries above.
 - model_confidence: 0.0-1.0 — your honest assessment of how well THIS
   hierarchy fits THIS content. A mismatch (e.g. quote-led on a stats post)
   should score ≤ 0.5. Don't flatter.

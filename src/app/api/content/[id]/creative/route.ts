@@ -153,6 +153,28 @@ export async function POST(
     }
   }
 
+  // Creative Memory (Sprint 19) — recall this brand's recent creative directions so the
+  // concept model picks a DIFFERENT valid world (controlled variety). Reads the structured
+  // creative_direction persisted on recent content_creatives (jsonb). Non-fatal on error.
+  let recentDirections: string[] = [];
+  try {
+    const { data: recent } = await admin
+      .from("content_creatives")
+      .select("creative_brief, created_at")
+      .eq("brand_id", item.brand_id)
+      .order("created_at", { ascending: false })
+      .limit(8);
+    recentDirections = (recent ?? [])
+      .map((r) => {
+        const cd = (r.creative_brief as { creative_direction?: Record<string, string> } | null)?.creative_direction;
+        return cd?.world ? [cd.world, cd.environment, cd.lighting, cd.lens].filter(Boolean).join(" · ") : null;
+      })
+      .filter((s): s is string => !!s)
+      .slice(0, 6);
+  } catch (err) {
+    console.error("[creative] recent-directions fetch failed (non-fatal):", err);
+  }
+
   try {
     const { brief, backgroundPromptReplaced } = await composeCreativeBrief({
       brand,
@@ -165,6 +187,7 @@ export async function POST(
       },
       topic,
       branding: (item.creative_branding as ComposeBriefInput["branding"]) ?? null,
+      recentDirections,
     });
 
     if (backgroundPromptReplaced) {

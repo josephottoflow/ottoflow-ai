@@ -200,6 +200,21 @@ export const creativeBriefSchema = z.object({
   cta: z.string().min(2).max(60),
   /** Imagen prompt for the BACKGROUND ONLY — validated against forbidden tokens. */
   background_prompt: z.string().min(10).max(1000),
+  /** Creative Memory (Sprint 19) — the structured art direction this creative used,
+   *  persisted so future generations recall recent directions and pick a DIFFERENT
+   *  valid world (controlled variety). Defaulted for briefs predating this field. */
+  creative_direction: z
+    .object({
+      world: z.string().default(""),
+      environment: z.string().default(""),
+      lighting: z.string().default(""),
+      lens: z.string().default(""),
+      composition: z.string().default(""),
+      mood: z.string().default(""),
+      color_grade: z.string().default(""),
+      emotional_tone: z.string().default(""),
+    })
+    .default({ world: "", environment: "", lighting: "", lens: "", composition: "", mood: "", color_grade: "", emotional_tone: "" }),
 
   // ── Code-computed asset + identity usage (deterministic, trustworthy) ───
   logo_usage: assetUsageSchema,

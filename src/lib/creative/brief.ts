@@ -49,6 +49,10 @@ export interface ComposeBriefInput {
     opportunity_kind: string | null;
     category: string | null;
   } | null;
+  /** Creative Memory (Sprint 19) — compact summaries of this brand's recent creative
+   *  directions (most-recent first), so the concept model picks a DIFFERENT world.
+   *  Optional: callers without history (or older callers) pass nothing. */
+  recentDirections?: string[];
   /**
    * Per-creative branding overrides captured on /content/generate. Names
    * override the defaults (company = brand.name, founder = headshot label);
@@ -192,6 +196,7 @@ async function composeConceptValidated(
       topic: topicCtx,
       founderName,
       assetSummary,
+      recentDirections: input.recentDirections,
     });
     lastConcept = concept;
     if (!findForbiddenBackgroundToken(concept.background_prompt)) {
@@ -312,6 +317,9 @@ export async function composeCreativeBrief(
     subheadline: (concept.subheadline ?? "").slice(0, 120),
     cta: concept.cta.slice(0, 60),
     background_prompt: concept.background_prompt.slice(0, 1000),
+    // Creative Memory (Sprint 19) — persist the structured art direction so future
+    // creatives recall it and choose a different world.
+    creative_direction: concept.creative_direction,
 
     logo_usage: useLogo
       ? {
