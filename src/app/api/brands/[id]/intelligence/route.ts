@@ -11,6 +11,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { loadCreativeIntelligence } from "@/lib/creative/brand-intelligence";
+import { loadPerformanceIntelligence } from "@/lib/creative/performance-intelligence";
 import { captureFallback } from "@/lib/observability";
 
 export const runtime = "nodejs";
@@ -37,8 +38,11 @@ export async function GET(
     if (!brand) {
       return NextResponse.json({ error: "Brand not found" }, { status: 404 });
     }
-    const intelligence = await loadCreativeIntelligence(sb, brandId, brand.industry ?? null);
-    return NextResponse.json({ intelligence });
+    const [intelligence, performance] = await Promise.all([
+      loadCreativeIntelligence(sb, brandId, brand.industry ?? null),
+      loadPerformanceIntelligence(sb, brandId, brand.industry ?? null),
+    ]);
+    return NextResponse.json({ intelligence, performance });
   } catch (err) {
     captureFallback("brand.intelligence_failed", err, { brandId });
     return NextResponse.json({ error: "Failed to compute intelligence" }, { status: 500 });

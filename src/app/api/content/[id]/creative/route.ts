@@ -18,6 +18,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { captureFallback } from "@/lib/observability";
 import { composeCreativeBrief, BriefValidationError, type ComposeBriefInput } from "@/lib/creative/brief";
 import { loadCreativeIntelligence } from "@/lib/creative/brand-intelligence";
+import { loadPerformanceIntelligence } from "@/lib/creative/performance-intelligence";
 import type { DbBrand, DbBrandAsset } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -187,6 +188,17 @@ export async function POST(
     console.error("[creative] brand-intelligence load failed (non-fatal):", err);
   }
 
+  // Performance Intelligence (Sprint 23) — REAL audience behavior from measured
+  // campaigns. Priority #3 (above Brand Intelligence): when real engagement and
+  // AI review disagree, the concept follows the performance. Non-fatal + empty
+  // until the brand has published+measured creatives.
+  let performance = null;
+  try {
+    performance = await loadPerformanceIntelligence(admin, item.brand_id, brand.industry);
+  } catch (err) {
+    console.error("[creative] performance-intelligence load failed (non-fatal):", err);
+  }
+
   try {
     const { brief, backgroundPromptReplaced } = await composeCreativeBrief({
       brand,
@@ -201,6 +213,7 @@ export async function POST(
       branding: (item.creative_branding as ComposeBriefInput["branding"]) ?? null,
       recentDirections,
       intelligence,
+      performance,
     });
 
     if (backgroundPromptReplaced) {

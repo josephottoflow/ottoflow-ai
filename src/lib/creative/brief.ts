@@ -21,6 +21,11 @@ import {
   intelligenceSummary,
   type CreativeIntelligence,
 } from "./brand-intelligence";
+import {
+  renderPerformanceBlock,
+  performanceSummary,
+  type PerformanceIntelligence,
+} from "./performance-intelligence";
 import type { DbBrand, DbBrandAsset } from "@/lib/types";
 import {
   rankHierarchies,
@@ -59,9 +64,13 @@ export interface ComposeBriefInput {
    *  Optional: callers without history (or older callers) pass nothing. */
   recentDirections?: string[];
   /** Brand Intelligence (Sprint 22) — the brand's Creative Intelligence profile,
-   *  computed from delivered creatives. Drives the concept at priority #3 and is
+   *  computed from delivered creatives. Drives the concept at priority #4 and is
    *  recorded (compactly) on the brief for internal explainability. Optional. */
   intelligence?: CreativeIntelligence | null;
+  /** Performance Intelligence (Sprint 23) — REAL engagement profile computed from
+   *  measured campaigns. Drives the concept at priority #3 (above Brand
+   *  Intelligence) and is recorded compactly on the brief. Optional. */
+  performance?: PerformanceIntelligence | null;
   /**
    * Per-creative branding overrides captured on /content/generate. Names
    * override the defaults (company = brand.name, founder = headshot label);
@@ -207,6 +216,7 @@ async function composeConceptValidated(
       assetSummary,
       recentDirections: input.recentDirections,
       brandIntelligence: input.intelligence ? renderIntelligenceBlock(input.intelligence) : undefined,
+      performanceIntelligence: input.performance ? renderPerformanceBlock(input.performance) : undefined,
     });
     lastConcept = concept;
     if (!findForbiddenBackgroundToken(concept.background_prompt)) {
@@ -334,6 +344,11 @@ export async function composeCreativeBrief(
     // guided this generation + the internal "chosen because" rationale.
     intelligence: input.intelligence
       ? intelligenceSummary(input.intelligence, input.intelligence.delivered_count >= 1)
+      : undefined,
+    // Performance Intelligence (Sprint 23) — record the REAL-engagement signals
+    // that guided this generation (internal explainability).
+    performance: input.performance
+      ? performanceSummary(input.performance, input.performance.measured_count >= 1)
       : undefined,
 
     logo_usage: useLogo

@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { getBrand } from "@/lib/db-brands";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { loadCreativeIntelligence } from "@/lib/creative/brand-intelligence";
+import { loadPerformanceIntelligence } from "@/lib/creative/performance-intelligence";
 import { IntelligenceDashboard } from "./IntelligenceDashboard";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +18,10 @@ export default async function BrandIntelligencePage({
   if (!brand) notFound();
 
   const sb = await createServerSupabaseClient();
-  const ci = await loadCreativeIntelligence(sb, id, brand.industry);
+  const [ci, pi] = await Promise.all([
+    loadCreativeIntelligence(sb, id, brand.industry),
+    loadPerformanceIntelligence(sb, id, brand.industry),
+  ]);
 
-  return <IntelligenceDashboard brand={brand} ci={ci} />;
+  return <IntelligenceDashboard brand={brand} ci={ci} pi={pi} />;
 }

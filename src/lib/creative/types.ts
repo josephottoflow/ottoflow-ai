@@ -295,6 +295,21 @@ export const creativeBriefSchema = z.object({
     })
     .optional(),
 
+  /** Performance Intelligence (Sprint 23) — REAL engagement signals that guided
+   *  this generation (winning/losing patterns, learning confidence) + rationale.
+   *  Internal-only. jsonb. Absent until the brand has measured campaigns. */
+  performance: z
+    .object({
+      applied: z.boolean(),
+      measured_count: z.number(),
+      baseline_engagement: z.number(),
+      learning_confidence: z.number(),
+      winning_patterns: z.array(z.string()).default([]),
+      losing_patterns: z.array(z.string()).default([]),
+      rationale: z.array(z.string()).default([]),
+    })
+    .optional(),
+
   // ── Code-computed asset + identity usage (deterministic, trustworthy) ───
   logo_usage: assetUsageSchema,
   headshot_usage: assetUsageSchema,

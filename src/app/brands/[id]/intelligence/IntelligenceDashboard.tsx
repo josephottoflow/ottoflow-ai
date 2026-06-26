@@ -7,8 +7,9 @@
  * Pure server component — no customer UI, no interactivity.
  */
 import Link from "next/link";
-import { ArrowLeft, Lock } from "lucide-react";
+import { ArrowLeft, Lock, Activity } from "lucide-react";
 import type { CreativeIntelligence, DimKey, DimStat } from "@/lib/creative/brand-intelligence";
+import type { PerformanceIntelligence, DimPerf, PerfDim } from "@/lib/creative/performance-intelligence";
 import type { DbBrand } from "@/lib/types";
 
 function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
@@ -66,6 +67,63 @@ function Chips({ title, items, tone }: { title: string; items: string[]; tone: "
   );
 }
 
+function PerfDimList({ title, stats }: { title: string; stats: DimPerf[] }) {
+  const strong = stats.filter((s) => s.lift !== 0);
+  return (
+    <div className="glass rounded-2xl p-4">
+      <p className="text-3xs font-semibold uppercase tracking-widest text-white/35 mb-2.5">{title}</p>
+      {strong.length === 0 ? (
+        <p className="text-xs text-white/30">No measured signal yet.</p>
+      ) : (
+        <ul className="space-y-1.5">
+          {strong.map((s, i) => (
+            <li key={i} className="flex items-center justify-between gap-3 text-sm">
+              <span className="text-white/80 truncate">{s.value}</span>
+              <span
+                className={`flex-shrink-0 text-xs font-semibold tabular-nums ${s.lift >= 0 ? "text-emerald-400" : "text-rose-400"}`}
+              >
+                {s.lift >= 0 ? "+" : ""}
+                {s.lift}%<span className="text-white/30 font-normal">{s.count > 1 ? ` ·n=${s.count}` : ""}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** Minimal engagement sparkline (recency left→right). */
+function Sparkline({ pts }: { pts: PerformanceIntelligence["timeline"] }) {
+  if (pts.length < 2) return null;
+  const vals = pts.map((p) => p.engagement);
+  const max = Math.max(...vals);
+  const min = Math.min(...vals);
+  const span = max - min || 1;
+  return (
+    <div className="flex items-end gap-1 h-16">
+      {pts.map((p, i) => {
+        const h = 12 + ((p.engagement - min) / span) * 44;
+        return (
+          <div
+            key={i}
+            className="flex-1 rounded-t bg-gradient-to-t from-violet-600/40 to-violet-400/80"
+            style={{ height: `${h}px` }}
+            title={`${p.date}: eng ${p.engagement}${p.review_score != null ? ` · review ${p.review_score}` : ""}`}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+const PERF_DIM_LABELS: Partial<Record<PerfDim, string>> = {
+  world: "Top performing worlds",
+  lighting: "Top performing lighting",
+  mood: "Top performing mood",
+  lens: "Top performing lens",
+};
+
 const DIM_LABELS: Record<DimKey, string> = {
   world: "Best worlds",
   environment: "Best environments",
@@ -77,10 +135,19 @@ const DIM_LABELS: Record<DimKey, string> = {
   emotional_tone: "Best emotional tones",
 };
 
-export function IntelligenceDashboard({ brand, ci }: { brand: DbBrand; ci: CreativeIntelligence }) {
+export function IntelligenceDashboard({
+  brand,
+  ci,
+  pi,
+}: {
+  brand: DbBrand;
+  ci: CreativeIntelligence;
+  pi: PerformanceIntelligence;
+}) {
   const trend = ci.improvement_trend;
   const trendStr = trend > 0 ? `+${trend}` : `${trend}`;
   const empty = ci.delivered_count < 1;
+  const hasPerf = pi.measured_count > 0;
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6 lg:px-8">
@@ -115,6 +182,115 @@ export function IntelligenceDashboard({ brand, ci }: { brand: DbBrand; ci: Creat
         </div>
       ) : (
         <>
+          {/* ── Performance Intelligence (Sprint 23) — REAL audience behavior;
+                outranks the AI review score. ─────────────────────────────── */}
+          <div className="flex items-center gap-2 mb-3">
+            <Activity size={15} className="text-emerald-400" />
+            <h2 className="text-sm font-semibold text-white/85">Performance Intelligence</h2>
+            <span className="text-3xs uppercase tracking-wider text-white/30">real audience behavior</span>
+          </div>
+
+          {!hasPerf ? (
+            <div className="glass rounded-2xl p-6 text-center mb-8">
+              <p className="text-white/65 text-sm font-medium">No performance data yet.</p>
+              <p className="text-xs text-white/40 mt-1.5 max-w-lg mx-auto">
+                Once published creatives report engagement — logged via Analytics or a connected platform —
+                OttoFlow learns which creatives actually performed and optimizes for real behavior over AI
+                opinion. Generation falls back to review-score intelligence until then.
+              </p>
+            </div>
+          ) : (
+            <div className="mb-8 space-y-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <Stat label="Measured campaigns" value={`${pi.measured_count}`} hint="posts with engagement data" />
+                <Stat label="Baseline engagement" value={`${pi.baseline_engagement}`} hint="recency-weighted brand mean" />
+                <Stat
+                  label="Learning confidence"
+                  value={`${Math.round(pi.learning_confidence * 100)}%`}
+                  hint="grows with measured sample"
+                />
+                <Stat
+                  label="Performance vs review"
+                  value={pi.perf_vs_review == null ? "—" : `r=${pi.perf_vs_review}`}
+                  hint={
+                    pi.perf_vs_review == null
+                      ? "needs ≥4 measured"
+                      : pi.perf_vs_review >= 0.4
+                        ? "review predicts engagement"
+                        : "review ≠ engagement — trust behavior"
+                  }
+                />
+              </div>
+
+              {(pi.winning_patterns.length > 0 || pi.losing_patterns.length > 0) && (
+                <div className="glass rounded-2xl p-5 space-y-4">
+                  <Chips title="Winning patterns — leaning in" items={pi.winning_patterns} tone="good" />
+                  <Chips title="Losing patterns — de-prioritising" items={pi.losing_patterns} tone="bad" />
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {(Object.keys(PERF_DIM_LABELS) as PerfDim[]).map((dim) => (
+                  <PerfDimList key={dim} title={PERF_DIM_LABELS[dim] as string} stats={pi.top[dim]} />
+                ))}
+              </div>
+
+              {pi.platform_breakdown.length > 0 && (
+                <div className="glass rounded-2xl p-4">
+                  <p className="text-3xs font-semibold uppercase tracking-widest text-white/35 mb-2.5">
+                    Platform differences
+                  </p>
+                  <ul className="space-y-1.5">
+                    {pi.platform_breakdown.map((p) => (
+                      <li key={p.platform} className="flex items-center justify-between gap-3 text-sm">
+                        <span className="text-white/80 capitalize">
+                          {p.platform}
+                          {p.top_world && <span className="text-white/35"> · best: {p.top_world}</span>}
+                        </span>
+                        <span className="flex-shrink-0 text-xs font-semibold text-white/70 tabular-nums">
+                          {p.avg_engagement}
+                          <span className="text-white/30 font-normal"> ·{p.count}</span>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {pi.timeline.length >= 2 && (
+                <div className="glass rounded-2xl p-4">
+                  <p className="text-3xs font-semibold uppercase tracking-widest text-white/35 mb-2">
+                    Creative performance timeline
+                  </p>
+                  <Sparkline pts={pi.timeline} />
+                </div>
+              )}
+
+              {pi.rationale.length > 0 && (
+                <div className="glass rounded-2xl p-5">
+                  <p className="text-sm font-semibold text-white/80 mb-2.5">
+                    What's working right now
+                    <span className="ml-2 text-3xs font-normal uppercase tracking-wider text-white/30">internal only</span>
+                  </p>
+                  <ul className="space-y-1.5">
+                    {pi.rationale.map((r, i) => (
+                      <li key={i} className="flex gap-2 text-sm text-white/65">
+                        <span className="text-emerald-400 flex-shrink-0">•</span>
+                        {r}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Review-score intelligence (Sprint 22) ───────────────────────── */}
+          <div className="flex items-center gap-2 mb-3 pt-2 border-t border-white/[0.04]">
+            <h2 className="text-sm font-semibold text-white/85 mt-4">Review-score intelligence</h2>
+            <span className="text-3xs uppercase tracking-wider text-white/30 mt-4">what the AI reviewer rates highest</span>
+          </div>
+
           {/* KPIs */}
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
             <Stat label="Average review score" value={`${ci.avg_score}`} hint={`over ${ci.delivered_count} delivered`} />

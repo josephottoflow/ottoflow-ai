@@ -2361,9 +2361,14 @@ export async function generateCreativeConcept(input: {
   recentDirections?: string[];
   /** Brand Intelligence (Sprint 22) — a pre-rendered block of what consistently
    * works best for this brand (best worlds/lighting/lens/..., overused worlds to
-   * avoid, underused worlds to explore). Priority #3: informs, never overrides the
+   * avoid, underused worlds to explore). Priority #4: informs, never overrides the
    * brief. Empty/undefined when nothing has been learned yet. */
   brandIntelligence?: string;
+  /** Performance Intelligence (Sprint 23) — a pre-rendered block of REAL audience
+   * behavior (winning/losing patterns, top worlds/lighting/mood by engagement,
+   * platform differences). Priority #3 — OUTRANKS Brand Intelligence and the review
+   * score. Empty/undefined when no real engagement data exists yet. */
+  performanceIntelligence?: string;
 }): Promise<{ data: CreativeConcept; meta: GenerationMeta }> {
   const direction = HIERARCHY_DIRECTION[input.hierarchy] ?? HIERARCHY_DIRECTION.brand_led;
   const pal = input.palette;
@@ -2382,6 +2387,10 @@ export async function generateCreativeConcept(input: {
   const intelligenceBlock = input.brandIntelligence && input.brandIntelligence.trim()
     ? input.brandIntelligence.trim()
     : `BRAND INTELLIGENCE: none yet — this brand has no learned track record; rely on the brief and pick the strongest world.`;
+
+  const performanceBlock = input.performanceIntelligence && input.performanceIntelligence.trim()
+    ? input.performanceIntelligence.trim()
+    : `PERFORMANCE INTELLIGENCE: no real engagement data yet — fall back to Brand Intelligence and the AI review signal until published campaigns report back.`;
 
   const prompt = `
 Design the creative strategy for a single ${input.platform} image creative
@@ -2416,6 +2425,8 @@ Work the brief IN THIS ORDER and let it drive everything (this is the source of 
   4. KEY MESSAGE — the one idea to land
   → CREATIVE STRATEGY → PHOTOGRAPHIC WORLD → the final background.
 
+${performanceBlock}
+
 ${intelligenceBlock}
 
 ${recentBlock}
@@ -2423,12 +2434,14 @@ ${recentBlock}
 ${industryConstraintBlock(input.brand.industry)}
 
 PRIORITY OF INPUTS (highest first): 1) this Campaign Brief, 2) Brand DNA (voice,
-positioning, palette), 3) Brand Intelligence (what consistently works for this brand
-— lean into the best dimensions, avoid the overused worlds, prefer the underused
-ones), 4) Creative Memory (push for variety vs the most recent), 5) Industry
-constraint, 6) art direction. Campaigns ALWAYS override history — Brand Intelligence
-and Creative Memory INFORM and GUIDE, they never override the brief. Keep the brand
-recognizable while maximizing variety.
+positioning, palette), 3) Performance Intelligence (REAL audience behavior — the
+winning patterns; this OUTRANKS internal opinion), 4) Brand Intelligence (what the
+AI review consistently rates highest — best dimensions, avoid overused, prefer
+underused), 5) Creative Memory (push for variety vs the most recent), 6) Industry
+constraint, 7) art direction. Campaigns ALWAYS override history. When Performance
+Intelligence and Brand Intelligence DISAGREE, FOLLOW THE PERFORMANCE — real customer
+behavior matters more than how the image looked to the reviewer. History INFORMS and
+GUIDES, it never overrides the brief. Keep the brand recognizable while maximizing variety.
 
 Now direct ONE specific real PHOTOGRAPH like a cinematographer — the exact environment,
 where the light comes from, the lens and depth of field, foreground/background layers,
