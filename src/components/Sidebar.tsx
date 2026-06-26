@@ -18,6 +18,7 @@ import {
   HelpCircle,
   BarChart3,
   Briefcase,
+  Megaphone,
   Menu,
   X,
 } from "lucide-react";
@@ -30,6 +31,7 @@ const navItems: {
 }[] = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
   { label: "Brands", href: "/brands", icon: Briefcase },
+  { label: "Campaigns", href: "/campaigns", icon: Megaphone },
   { label: "Content Pipeline", href: "/content", icon: FileText },
   { label: "Video Pipeline", href: "/video", icon: Video },
   // Projects isn't built yet (the page is an empty "New Project · Soon" stub) —

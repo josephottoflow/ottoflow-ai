@@ -117,6 +117,11 @@ export const QUEUE_NAMES = {
   // scene_generations, then enqueues `ffmpeg-compose`. Polling lives here
   // (worker) so it never hits the Vercel 300s SSE ceiling.
   sceneGeneration: "scene-generation",
+  // Campaign Execution Engine (Sprint 25). Turns a campaign's strategy + package
+  // plan into real assets: composes a creative brief per asset (cross-asset
+  // aware), inserts an approved content_creative, and enqueues each through the
+  // existing creative-generation pipeline. Payload carries the campaignId only.
+  campaignExecution: "campaign-execution",
 } as const;
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
 
@@ -300,6 +305,15 @@ export interface CreativeGenerationJobData {
 }
 
 /**
+ * Campaign Execution (Sprint 25) — payload carries the campaignId ONLY; the
+ * worker loads the campaign + brand, plans/loads the strategy, then composes a
+ * creative brief per package asset and enqueues each through creative-generation.
+ */
+export interface CampaignExecutionJobData {
+  campaignId: string;
+}
+
+/**
  * Ottoflow Video V1 — scene-generation payload. The frozen VideoStrategy is
  * built in the SSE/API route (Agents 1-3 + strategy) so the worker does the
  * slow per-scene provider polling. Audio URLs are resolved by the route (same
@@ -380,6 +394,7 @@ export interface JobPayloads {
   "drive-sync": DriveSyncJobData;
   "publish": PublishJobData;
   "scene-generation": SceneGenerationJobData;
+  "campaign-execution": CampaignExecutionJobData;
 }
 
 // ─── Queue accessors ──────────────────────────────────────────────────────────
@@ -414,3 +429,4 @@ export const creativeGenerationQueue = () => getQueue(QUEUE_NAMES.creativeGenera
 export const driveSyncQueue = () => getQueue(QUEUE_NAMES.driveSync);
 export const publishQueue = () => getQueue(QUEUE_NAMES.publish);
 export const sceneGenerationQueue = () => getQueue(QUEUE_NAMES.sceneGeneration);
+export const campaignExecutionQueue = () => getQueue(QUEUE_NAMES.campaignExecution);

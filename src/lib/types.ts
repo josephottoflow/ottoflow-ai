@@ -151,6 +151,10 @@ export interface DbContentItem {
     useLogo?: boolean;
     useHeadshot?: boolean;
   } | null;
+  // Campaign Execution Engine (Sprint 25, migration 030). Set when this item is
+  // one asset of a campaign. Optional: rows predate the migration / standalone posts.
+  campaign_id?: string | null;
+  campaign_role?: string | null;
 }
 
 export interface DbRenderJob {
@@ -283,6 +287,36 @@ export interface DbContentCreative {
   generated_at: string | null;
   regen_count: number;
   status_history: StatusHistoryEntry[];
+  created_at: string;
+  updated_at: string;
+  // Campaign Execution Engine (Sprint 25, migration 030). Set when this creative
+  // is one asset of a campaign. Optional: rows predate the migration.
+  campaign_id?: string | null;
+  campaign_role?: string | null;
+}
+
+// ─── Campaigns (Campaign Execution Engine — Sprint 25, migration 030) ───────
+// The PARENT of many creative assets. One request → a full strategically-
+// aligned package. strategy = CampaignStrategy (src/lib/gemini.ts); qa = the
+// Campaign QA snapshot (src/lib/creative/campaign-execution.ts). Assets link
+// back via content_creatives.campaign_id.
+
+export type CampaignStatus = "planning" | "generating" | "review" | "ready" | "failed";
+
+export interface DbCampaign {
+  id: string;
+  user_id: string;
+  brand_id: string;
+  title: string | null;
+  prompt: string;
+  platform: string;
+  status: CampaignStatus;
+  /** CampaignStrategy — kept loose to avoid a client/server type cycle. */
+  strategy: Record<string, unknown> | null;
+  /** CampaignQA snapshot — kept loose for the same reason. */
+  qa: Record<string, unknown> | null;
+  asset_count: number;
+  error: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -556,6 +590,7 @@ export interface Database {
       scene_generations:   TableDef<DbSceneGeneration>;
       user_budgets:        TableDef<DbUserBudget>;
       ai_usage_ledger:     TableDef<DbAIUsageLedgerEntry>;
+      campaigns:           TableDef<DbCampaign>;
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;

@@ -49,6 +49,7 @@ import {
   type DriveSyncJobData,
   type PublishJobData,
   type SceneGenerationJobData,
+  type CampaignExecutionJobData,
   publishQueue,
 } from "@/lib/queue";
 import { createAdminClient } from "@/lib/supabase";
@@ -57,6 +58,7 @@ import { processContentGeneration } from "./processors/content-generation";
 import { processVideoMerge } from "./processors/video-merge";
 import { processFfmpegCompose } from "./processors/ffmpeg-compose";
 import { processCreativeGeneration } from "./processors/creative-generation";
+import { processCampaignExecution } from "./processors/campaign-execution";
 import { processDriveSync } from "./processors/drive-sync";
 import { processPublish } from "./processors/publish";
 import { isPublishingEnabled } from "@/lib/publishing/flags";
@@ -572,6 +574,50 @@ creativeGenerationWorker.on("error", (err) => {
   logError("creative-generation", "worker.error", { error: err.message });
 });
 
+// Campaign Execution Engine (Sprint 25). Plans/loads a campaign strategy, then
+// composes a creative brief per package asset (cross-asset aware) and enqueues
+// each through creative-generation. Mostly Gemini + DB I/O — shares the reduced
+// (half) concurrency budget with the other creative/video queues.
+const campaignExecutionWorker = new Worker<CampaignExecutionJobData>(
+  QUEUE_NAMES.campaignExecution,
+  async (job: Job<CampaignExecutionJobData>) => {
+    log("campaign-execution", "job.start", { jobId: job.id, campaignId: job.data.campaignId });
+    const result = await processCampaignExecution(job.data, (step, progress) => {
+      job.updateProgress(progress).catch(() => {});
+      log("campaign-execution", "step", { jobId: job.id, step, progress });
+    });
+    log("campaign-execution", "job.done", {
+      jobId: job.id,
+      campaignId: job.data.campaignId,
+      assetCount: result.assetCount,
+    });
+    return result;
+  },
+  {
+    connection: getRedis(),
+    ...WORKER_TUNING,
+    concurrency: Math.max(1, Math.floor(workerEnv.WORKER_CONCURRENCY / 2)),
+  },
+);
+
+campaignExecutionWorker.on("failed", (job, err) => {
+  logError("campaign-execution", "job.failed", {
+    jobId: job?.id,
+    campaignId: job?.data?.campaignId,
+    attemptsMade: job?.attemptsMade,
+    error: err?.message,
+  });
+  Sentry.withScope((scope) => {
+    scope.setTag("queue", QUEUE_NAMES.campaignExecution);
+    if (job?.data?.campaignId) scope.setTag("campaign.id", String(job.data.campaignId));
+    Sentry.captureException(err ?? new Error("campaign-execution job.failed with no error"));
+  });
+});
+
+campaignExecutionWorker.on("error", (err) => {
+  logError("campaign-execution", "worker.error", { error: err.message });
+});
+
 // Sixth Worker instance (Phase 3 / P1). Copies a generated artifact into the
 // user's connected Google Drive. Light network I/O (download + upload) — shares
 // the reduced (half) concurrency budget. The OAuth token is fetched + decrypted
@@ -833,6 +879,7 @@ async function shutdown(signal: string): Promise<never> {
     videoMergeWorker.close(),
     ffmpegComposeWorker.close(),
     creativeGenerationWorker.close(),
+    campaignExecutionWorker.close(),
     driveSyncWorker.close(),
     ...(publishWorker ? [publishWorker.close()] : []),
     ...(sceneGenerationWorker ? [sceneGenerationWorker.close()] : []),
@@ -868,6 +915,9 @@ async function shutdown(signal: string): Promise<never> {
       }),
       creativeGenerationWorker.close(true).catch((err) => {
         logError("worker", "shutdown.force_close_failed", { error: err?.message, queue: "creative-generation" });
+      }),
+      campaignExecutionWorker.close(true).catch((err) => {
+        logError("worker", "shutdown.force_close_failed", { error: err?.message, queue: "campaign-execution" });
       }),
       driveSyncWorker.close(true).catch((err) => {
         logError("worker", "shutdown.force_close_failed", { error: err?.message, queue: "drive-sync" });
