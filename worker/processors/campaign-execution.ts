@@ -24,7 +24,7 @@ import { planCampaignStrategy, reviewCampaignStory, type CampaignStrategy } from
 import { loadCampaignNarrativeMemory } from "@/lib/creative/campaign-strategy";
 import { loadCreativeIntelligence } from "@/lib/creative/brand-intelligence";
 import { loadPerformanceIntelligence } from "@/lib/creative/performance-intelligence";
-import { orderPackage, synthesizeAssetContent, specializeForAsset } from "@/lib/creative/campaign-execution";
+import { orderPackage, synthesizeAssetContent, specializeForAsset, validateCampaignBlueprint } from "@/lib/creative/campaign-execution";
 import { creativeGenerationQueue, type CampaignExecutionJobData } from "@/lib/queue";
 import { captureFallback } from "@/lib/observability";
 import type { DbBrand, DbBrandAsset } from "@/lib/types";
@@ -76,7 +76,25 @@ export async function processCampaignExecution(
       .order("created_at", { ascending: false });
     const assets = (assetRows ?? []) as DbBrandAsset[];
 
-    // ── Strategy: reuse the attached plan, else plan it now (with memory) ─────
+    // Brand + Performance Intelligence (once) — feeds the CMO's "what has worked"
+    // reasoning AND every asset's creative brief. Loaded BEFORE planning.
+    const [intelligence, performance] = await Promise.all([
+      loadCreativeIntelligence(admin, campaign.brand_id as string, brand.industry).catch(() => null),
+      loadPerformanceIntelligence(admin, campaign.brand_id as string, brand.industry).catch(() => null),
+    ]);
+    // Compact learning recap (reuses Performance + Brand Intelligence — no new call).
+    const learningBits: string[] = [];
+    if (performance && performance.measured_count > 0 && performance.winning_patterns.length) {
+      learningBits.push(`Winning patterns: ${performance.winning_patterns.slice(0, 3).join("; ")}.`);
+    }
+    if (intelligence && intelligence.sample_size >= 3) {
+      const bw = intelligence.best?.world?.[0];
+      if (bw) learningBits.push(`Best-performing world: ${bw.value} (avg ${bw.avg_score}).`);
+      if (intelligence.overused?.length) learningBits.push(`Avoid overused: ${intelligence.overused.join(", ")}.`);
+    }
+    const learningSummary = learningBits.join(" ");
+
+    // ── Strategy: reuse the attached plan, else plan it now (CMO reasoning) ────
     report("strategy", 12);
     let strategy = campaign.strategy as CampaignStrategy | null;
     if (!strategy || !Array.isArray(strategy.package)) {
@@ -97,8 +115,18 @@ export async function processCampaignExecution(
         },
         topic: null,
         recentCampaigns,
+        learningSummary,
       });
-      strategy = planned;
+      // Deterministic validation = SOURCE OF TRUTH; Gemini CMO review = advisory.
+      strategy = { ...planned, learning_summary: learningSummary };
+      strategy.validation = validateCampaignBlueprint(strategy);
+      report("reviewing", 16);
+      try {
+        const { data: review } = await reviewCampaignStory(strategy, strategy.validation);
+        strategy.story_review = review;
+      } catch (err) {
+        captureFallback("campaign.story_review_failed", err, { campaignId });
+      }
       await admin
         .from("campaigns")
         .update({
@@ -108,13 +136,6 @@ export async function processCampaignExecution(
         })
         .eq("id", campaignId);
     }
-
-    // Brand + Performance Intelligence (once) — every asset inherits the brand's
-    // learned signals on top of the shared campaign strategy.
-    const [intelligence, performance] = await Promise.all([
-      loadCreativeIntelligence(admin, campaign.brand_id as string, brand.industry).catch(() => null),
-      loadPerformanceIntelligence(admin, campaign.brand_id as string, brand.industry).catch(() => null),
-    ]);
 
     // ── Orchestrate the package in dependency order, cross-asset aware ────────
     const ordered = orderPackage(strategy.package);
@@ -209,17 +230,6 @@ export async function processCampaignExecution(
         `${asset.role}: ${brief.creative_direction?.world ?? ""} · "${brief.headline}" · CTA "${brief.cta}"`,
       );
       await admin.from("campaigns").update({ asset_count: created }).eq("id", campaignId);
-    }
-
-    // ── Campaign Review (Sprint 25.1) — review the PLAN as one story (marketer
-    //    verdict), before the pixels. Best-effort; stored on the Brain. ────────
-    report("reviewing", 92);
-    try {
-      const { data: review } = await reviewCampaignStory(strategy);
-      strategy = { ...strategy, story_review: review };
-      await admin.from("campaigns").update({ strategy, updated_at: new Date().toISOString() }).eq("id", campaignId);
-    } catch (err) {
-      captureFallback("campaign.story_review_failed", err, { campaignId });
     }
 
     report("finalizing", 95);

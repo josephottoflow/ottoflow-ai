@@ -2388,6 +2388,12 @@ export interface CampaignStrategy {
     funnel_stage?: string;   // TOFU | MOFU | BOFU
     cta?: string;            // this asset's CTA in the progression (soft → hard)
     emotional_beat?: string; // the feeling this asset should land
+    // Campaign Reasoning (Sprint 26) — every asset must justify its existence.
+    why_exists?: string;        // why this asset is in the campaign at all
+    belief_changed?: string;    // the belief it shifts
+    objection_answered?: string;// the objection it addresses (or "—")
+    emotional_step?: string;    // the step it creates in the emotional journey
+    cta_stage?: string;         // which CTA-progression rung it supports
   }>;
 
   // ── Campaign Brain (Sprint 25.1) — the strategic messaging architecture that
@@ -2407,9 +2413,44 @@ export interface CampaignStrategy {
   emotional_journey?: string[];
   /** CTA rungs from soft to hard (the progression, not one CTA). */
   cta_progression?: string[];
-  /** The Gemini marketer verdict on the campaign as a complete story (Sprint
-   *  25.1) — written by the worker after planning. Internal/advisory. */
+
+  // ── Campaign Reasoning (Sprint 26) — the CMO thinks people → strategy → story
+  //    → structure BEFORE assets. All optional (older Blueprints stay valid). ──
+  /** Why this campaign exists at all + the business outcome it must produce. */
+  business_objective?: { why_exists: string; expected_outcome: string; success_metric: string };
+  /** The audience's CURRENT state, before the campaign touches them. */
+  audience_state?: {
+    beliefs: string; frustrations: string; objections: string;
+    motivations: string; awareness: string; trust_level: string;
+  };
+  /** The shift the campaign must produce in the audience. */
+  desired_transformation?: { believe: string; feel: string; understand: string; want: string; obvious_action: string };
+  /** How the campaign earns the right to ask — proof, evidence, never-claims. */
+  trust_strategy?: {
+    proof_required: string[]; objections_to_answer: string[];
+    credibility: string[]; evidence: string[]; never_claim: string[];
+  };
+  /** First-class campaign ACTS (assets belong to acts, not the reverse). */
+  acts?: Array<{ act: string; intent: string }>;
+  /** Compact recap of what has worked for this brand (from Performance + Brand
+   *  Intelligence) that informed this plan — worker-filled, not model-generated. */
+  learning_summary?: string;
+  /** Deterministic Blueprint validation — the SOURCE OF TRUTH (Sprint 26). */
+  validation?: CampaignValidation;
+  /** The Gemini CMO verdict on the campaign as a complete story (advisory). */
   story_review?: CampaignStoryReview;
+}
+
+/** Deterministic campaign-blueprint validation (Sprint 26) — source of truth. */
+export interface CampaignValidationCheck { name: string; pass: boolean; detail: string }
+export interface CampaignValidation {
+  checks: CampaignValidationCheck[];
+  /** % of checks passed. */
+  score: number;
+  /** Failed checks that should block "ready for review". */
+  blocking_issues: string[];
+  /** True when no blocking issue remains. */
+  complete: boolean;
 }
 
 /** Marketer-level review of the campaign as ONE story (Sprint 25.1). */
@@ -2433,6 +2474,7 @@ const campaignStrategySchema: Schema = {
     "campaign_type", "primary_objective", "secondary_objective", "audience",
     "awareness_stage", "core_message", "desired_emotion", "primary_cta",
     "funnel_position", "distribution_strategy", "reasoning",
+    "business_objective", "audience_state", "desired_transformation", "trust_strategy", "acts",
     "narrative", "primary_story", "supporting_stories", "objection_handling",
     "trust_building", "social_proof", "educational", "emotional_journey",
     "cta_progression", "package",
@@ -2461,7 +2503,59 @@ const campaignStrategySchema: Schema = {
         why_now: { type: Type.STRING },
       },
     },
-    // ── Campaign Brain ──────────────────────────────────────────────────────
+    // ── Campaign Reasoning (Sprint 26 — people → strategy → story → structure) ─
+    business_objective: {
+      type: Type.OBJECT,
+      required: ["why_exists", "expected_outcome", "success_metric"],
+      properties: {
+        why_exists: { type: Type.STRING },
+        expected_outcome: { type: Type.STRING },
+        success_metric: { type: Type.STRING },
+      },
+    },
+    audience_state: {
+      type: Type.OBJECT,
+      required: ["beliefs", "frustrations", "objections", "motivations", "awareness", "trust_level"],
+      properties: {
+        beliefs: { type: Type.STRING },
+        frustrations: { type: Type.STRING },
+        objections: { type: Type.STRING },
+        motivations: { type: Type.STRING },
+        awareness: { type: Type.STRING },
+        trust_level: { type: Type.STRING },
+      },
+    },
+    desired_transformation: {
+      type: Type.OBJECT,
+      required: ["believe", "feel", "understand", "want", "obvious_action"],
+      properties: {
+        believe: { type: Type.STRING },
+        feel: { type: Type.STRING },
+        understand: { type: Type.STRING },
+        want: { type: Type.STRING },
+        obvious_action: { type: Type.STRING },
+      },
+    },
+    trust_strategy: {
+      type: Type.OBJECT,
+      required: ["proof_required", "objections_to_answer", "credibility", "evidence", "never_claim"],
+      properties: {
+        proof_required: STRING_ARRAY,
+        objections_to_answer: STRING_ARRAY,
+        credibility: STRING_ARRAY,
+        evidence: STRING_ARRAY,
+        never_claim: STRING_ARRAY,
+      },
+    },
+    acts: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        required: ["act", "intent"],
+        properties: { act: { type: Type.STRING }, intent: { type: Type.STRING } },
+      },
+    },
+    // ── Campaign Brain (narrative + messaging) ──────────────────────────────
     narrative: { type: Type.STRING },
     primary_story: { type: Type.STRING },
     supporting_stories: STRING_ARRAY,
@@ -2475,7 +2569,10 @@ const campaignStrategySchema: Schema = {
       type: Type.ARRAY,
       items: {
         type: Type.OBJECT,
-        required: ["role", "format", "angle", "phase", "narrative_beat", "funnel_stage", "cta", "emotional_beat"],
+        required: [
+          "role", "format", "angle", "phase", "narrative_beat", "funnel_stage", "cta", "emotional_beat",
+          "why_exists", "belief_changed", "objection_answered", "emotional_step", "cta_stage",
+        ],
         properties: {
           role: { type: Type.STRING },
           format: { type: Type.STRING },
@@ -2485,6 +2582,11 @@ const campaignStrategySchema: Schema = {
           funnel_stage: { type: Type.STRING },
           cta: { type: Type.STRING },
           emotional_beat: { type: Type.STRING },
+          why_exists: { type: Type.STRING },
+          belief_changed: { type: Type.STRING },
+          objection_answered: { type: Type.STRING },
+          emotional_step: { type: Type.STRING },
+          cta_stage: { type: Type.STRING },
         },
       },
     },
@@ -2507,13 +2609,19 @@ export async function planCampaignStrategy(input: {
   content: { title: string; preview: string | null; bodyExcerpt: string; platform: string };
   topic: { title: string; hookAngle: string | null; kind: string | null } | null;
   recentCampaigns: string[];
+  /** Sprint 26 — what has worked for this brand (from Performance + Brand
+   *  Intelligence). Informs the reasoning; not stored from the model output. */
+  learningSummary?: string;
 }): Promise<{ data: CampaignStrategy; meta: GenerationMeta }> {
   const memBlock = input.recentCampaigns.length
     ? `CAMPAIGN MEMORY — recent campaigns for THIS brand. Do NOT repeat their narrative, story, emotional arc, CTA progression, supporting messages or campaign type; the brand's campaigns must EVOLVE:\n${input.recentCampaigns.map((c, i) => `  ${i + 1}. ${c}`).join("\n")}`
     : `CAMPAIGN MEMORY: none yet — clean slate.`;
+  const learnBlock = input.learningSummary && input.learningSummary.trim()
+    ? `WHAT HAS WORKED for this brand (let it inform strategy, never override the reasoning):\n${input.learningSummary.trim()}`
+    : `WHAT HAS WORKED: no campaign performance learned yet.`;
 
-  const prompt = `You are a SENIOR MARKETING STRATEGIST (a Campaign Brain) planning a complete
-campaign for ${input.brand.name}${input.brand.industry ? ` (${input.brand.industry})` : ""} on ${input.content.platform}.
+  const prompt = `You are a SENIOR CMO planning a complete campaign for
+${input.brand.name}${input.brand.industry ? ` (${input.brand.industry})` : ""} on ${input.content.platform}.
 ${input.brand.positioning ? `POSITIONING: ${input.brand.positioning}\n` : ""}VOICE: ${input.brand.voiceTone}
 
 THE REQUEST / SEED:
@@ -2522,41 +2630,27 @@ ${input.content.preview ? `HOOK: ${input.content.preview}\n` : ""}BODY (excerpt)
 ${input.topic ? `SOURCE IDEA: ${input.topic.title}${input.topic.kind ? ` (${input.topic.kind})` : ""}${input.topic.hookAngle ? ` — angle: "${input.topic.hookAngle}"` : ""}` : ""}
 
 ${memBlock}
+${learnBlock}
 
-You are NOT filling asset slots. You are architecting a STORY a marketer would
-approve. Design the campaign as ONE narrative, then make every asset advance it.
+A campaign exists because it solves a BUSINESS PROBLEM — not because a package
+includes assets. REASON IN THIS EXACT ORDER. Do NOT assign any asset until steps
+1-8 are done. Think about PEOPLE first, then strategy, then story, then structure.
 
-STRATEGY:
-- campaign_type: choose EXACTLY ONE of: ${CAMPAIGN_TYPES.join(", ")}.
-- primary_objective + secondary_objective: what the business must achieve.
-- audience: who it's for (be specific). awareness_stage: unaware | problem_aware | solution_aware | product_aware | most_aware.
-- core_message, desired_emotion, primary_cta, funnel_position (TOFU/MOFU/BOFU), distribution_strategy.
-- reasoning: why_campaign, why_audience, why_hook, why_cta, why_sequence, why_world, why_now.
+1. BUSINESS OBJECTIVE (business_objective): why_exists (why this campaign exists), expected_outcome, success_metric (the metric that defines success).
+2. AUDIENCE STATE (audience_state) — their CURRENT state before the campaign: beliefs, frustrations, objections, motivations, awareness, trust_level.
+3. DESIRED TRANSFORMATION (desired_transformation): after the campaign, what should they believe, feel, understand, want, and which action becomes obvious_action.
+4. TRUST STRATEGY (trust_strategy): proof_required, objections_to_answer, credibility (what must be established), evidence (what's needed), never_claim (what must NOT be claimed).
+5. EMOTIONAL JOURNEY (emotional_journey): the ordered emotional progression that gets them from their current state to the decision (e.g. curiosity → recognition → understanding → trust → confidence → decision). It changes per campaign.
+6. CAMPAIGN NARRATIVE: narrative (through-line, one sentence), primary_story, supporting_stories (4-7 pillars), objection_handling, trust_building, social_proof, educational.
+7. CAMPAIGN ACTS (acts): think in ACTS, not assets — e.g. Awareness → Education → Authority → Trust → Decision → Conversion. Each act has an act name + intent. Assets belong to acts; acts never belong to assets.
+8. CTA PROGRESSION (cta_progression): CTAs mature SOFT → HARD (e.g. learn → discover → compare → talk to us → book → apply → buy). Never ask for conversion before enough trust exists.
+9. ASSET ASSIGNMENT (package, 4-8 assets) — ONLY NOW assign assets. Every asset must explicitly justify itself: role, format (platform-native), angle, phase (Launch | Education | Authority | Proof | Conversion | Follow-up | Retargeting), narrative_beat (which story it advances), funnel_stage (TOFU/MOFU/BOFU), cta (its rung), emotional_beat, why_exists (why this asset is in the campaign), belief_changed (the belief it shifts), objection_answered (the objection it answers, or "—"), emotional_step (the step it creates), cta_stage (which CTA rung it supports). NO asset may exist just to fill a slot.
 
-CAMPAIGN BRAIN (the strategic messaging architecture):
-- narrative: the campaign's through-line in one sentence (e.g. "Great engineers deserve better companies.").
-- primary_story: the hero story the whole campaign advances.
-- supporting_stories: 4-7 message pillars beneath the narrative (e.g. engineering culture, remote work, salary, growth, stack, team).
-- objection_handling: the real objections this audience has + how the campaign answers them.
-- trust_building: how the campaign earns trust BEFORE asking for conversion.
-- social_proof: concrete proof opportunities (testimonials, numbers, names) the campaign can use.
-- educational: what the audience must learn for the message to land.
-- emotional_journey: the ordered emotional beats across the campaign (entry → … → conversion).
-- cta_progression: CTA rungs from SOFT to HARD (e.g. "Read the story" → "See open roles" → "Apply") — NOT one CTA repeated.
+Also fill the legacy summary fields consistently: campaign_type (EXACTLY ONE of: ${CAMPAIGN_TYPES.join(", ")}), primary_objective, secondary_objective, audience, awareness_stage (unaware|problem_aware|solution_aware|product_aware|most_aware), core_message, desired_emotion, primary_cta, funnel_position (TOFU/MOFU/BOFU), distribution_strategy, and reasoning (why_campaign/why_audience/why_hook/why_cta/why_sequence/why_world/why_now).
 
-PACKAGE — assign each asset to the narrative (4-8 assets). Every asset must EXIST
-TO ADVANCE THE NARRATIVE, not to fill a slot. For each asset give:
-- role (hero creative, carousel, quote graphic, short video, follow-up post, retargeting creative, …)
-- format (platform-native), angle (how it advances the story)
-- phase: one of Launch, Education, Authority, Proof, Conversion, Follow-up, Retargeting
-- narrative_beat: WHICH supporting story / vision this asset advances (e.g. Hero→Vision, Carousel→Engineering culture, Video→Team, Quote→Leadership, Retargeting→Salary)
-- funnel_stage: TOFU | MOFU | BOFU
-- cta: this asset's CTA — its rung in the progression (soft early, hard late)
-- emotional_beat: the feeling this asset should land
-
-Order the package as a CALENDAR (Launch → Education → Authority → Proof → Conversion →
-Follow-up → Retargeting): build trust and momentum BEFORE the hard conversion ask.
-Make the narrative, emotional arc and CTA progression DISTINCT from recent campaigns.`.trim();
+Order the package as a CALENDAR (Launch → … → Retargeting): build trust and momentum
+BEFORE the conversion ask. Make the narrative, emotional arc and CTA progression
+DISTINCT from recent campaigns.`.trim();
 
   return generateStructuredFull<CampaignStrategy>({
     prompt,
@@ -2592,22 +2686,28 @@ const campaignStoryReviewSchema: Schema = {
  */
 export async function reviewCampaignStory(
   strategy: CampaignStrategy,
+  validation?: CampaignValidation,
 ): Promise<{ data: CampaignStoryReview; meta: GenerationMeta }> {
   const assets = (strategy.package ?? [])
-    .map((a, i) => `  ${i + 1}. [${a.phase ?? "?"}] ${a.role} → ${a.narrative_beat ?? a.angle} | ${a.funnel_stage ?? "?"} | CTA "${a.cta ?? ""}" | ${a.emotional_beat ?? ""}`)
+    .map((a, i) => `  ${i + 1}. [${a.phase ?? "?"}] ${a.role} → ${a.narrative_beat ?? a.angle} | ${a.funnel_stage ?? "?"} | CTA "${a.cta ?? ""}" | why: ${a.why_exists ?? "?"}`)
     .join("\n");
-  const prompt = `You are a SENIOR MARKETING DIRECTOR reviewing a planned campaign as ONE STORY,
+  const valBlock = validation
+    ? `DETERMINISTIC VALIDATION (the SOURCE OF TRUTH — your verdict is advisory and must not contradict a hard failure): score ${validation.score}, ${validation.complete ? "no blocking issues" : `BLOCKING: ${validation.blocking_issues.join("; ")}`}. Checks: ${validation.checks.map((c) => `${c.name}=${c.pass ? "pass" : "FAIL"}`).join(", ")}.`
+    : "";
+  const prompt = `You are an EXPERIENCED CMO reviewing a planned campaign as ONE STORY,
 before any asset is produced. Be honest — would you actually approve this?
 
+BUSINESS OBJECTIVE: ${strategy.business_objective?.why_exists ?? strategy.primary_objective} (success: ${strategy.business_objective?.success_metric ?? "—"})
+AUDIENCE NOW: beliefs ${strategy.audience_state?.beliefs ?? "?"}; objections ${strategy.audience_state?.objections ?? "?"}; trust ${strategy.audience_state?.trust_level ?? "?"}
+TRANSFORMATION: ${strategy.desired_transformation?.believe ?? "?"} → obvious action: ${strategy.desired_transformation?.obvious_action ?? "?"}
 NARRATIVE: ${strategy.narrative ?? strategy.core_message}
-PRIMARY STORY: ${strategy.primary_story ?? "(none)"}
-SUPPORTING STORIES: ${(strategy.supporting_stories ?? []).join("; ") || "(none)"}
 EMOTIONAL JOURNEY: ${(strategy.emotional_journey ?? []).join(" → ") || "(none)"}
 CTA PROGRESSION: ${(strategy.cta_progression ?? []).join(" → ") || strategy.primary_cta}
 OBJECTIONS HANDLED: ${(strategy.objection_handling ?? []).join("; ") || "(none)"}
-TRUST BUILDING: ${(strategy.trust_building ?? []).join("; ") || "(none)"}
+ACTS: ${(strategy.acts ?? []).map((a) => `${a.act} (${a.intent})`).join(" → ") || "(none)"}
 ASSET SEQUENCE:
 ${assets || "(none)"}
+${valBlock}
 
 Score 0-100 and judge:
 - momentum_score: does the sequence BUILD momentum (calendar phases in a sensible order)?

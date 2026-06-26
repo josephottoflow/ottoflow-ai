@@ -8,7 +8,7 @@
  * worker does the DB writes + render enqueues, the API computes QA/progress on
  * read.
  */
-import type { CampaignStrategy } from "@/lib/gemini";
+import type { CampaignStrategy, CampaignValidation, CampaignValidationCheck } from "@/lib/gemini";
 import { clusterKey } from "./brand-intelligence";
 
 export interface PackageAsset {
@@ -121,6 +121,119 @@ export function specializeForAsset(strategy: CampaignStrategy, asset: PackageAss
     primary_cta: asset.cta || strategy.primary_cta,
     funnel_position: asset.funnel_stage || strategy.funnel_position,
   };
+}
+
+// ─── Campaign Blueprint validation (Sprint 26) — the SOURCE OF TRUTH ─────────
+// Deterministic checks over the Brain's reasoning, run BEFORE the Gemini CMO
+// review (which is advisory). Validates the campaign as a coherent story:
+// continuity, emotional progression, trust-before-conversion, objection
+// sequencing, narrative + audience consistency, CTA progression, redundancy and
+// completeness. Pure; tolerant of older Blueprints (missing fields → fail, not throw).
+
+const BLOCKING_CHECKS = new Set(["Trust before conversion", "Campaign completeness", "Story continuity"]);
+
+export function validateCampaignBlueprint(s: CampaignStrategy | null): CampaignValidation {
+  const checks: CampaignValidationCheck[] = [];
+  const add = (name: string, pass: boolean, detail: string) => checks.push({ name, pass, detail });
+
+  if (!s) {
+    add("Story continuity", false, "No blueprint to validate.");
+    return { checks, score: 0, blocking_issues: ["No blueprint to validate."], complete: false };
+  }
+
+  const pkg = s.package ?? [];
+  const stories = s.supporting_stories ?? [];
+  const journey = s.emotional_journey ?? [];
+  const ctas = s.cta_progression ?? [];
+  const key = (x: string) => clusterKey(x || "");
+
+  // 1. Story continuity — a through-line + ≥2 supporting pillars.
+  add(
+    "Story continuity",
+    !!(s.narrative && s.narrative.trim()) && stories.length >= 2,
+    s.narrative ? `Narrative set with ${stories.length} supporting stories.` : "Missing narrative or supporting stories.",
+  );
+
+  // 2. Emotional progression — ≥3 distinct ordered beats.
+  const distinctJourney = new Set(journey.map(key).filter(Boolean)).size;
+  add(
+    "Emotional progression",
+    journey.length >= 3 && distinctJourney >= 3,
+    `${journey.length} beats, ${distinctJourney} distinct.`,
+  );
+
+  // 3. Trust before conversion — a trust/education/authority/proof phase precedes
+  //    the first conversion/decision phase. (BLOCKING)
+  const phases = pkg.map((a) => (a.phase || "").toLowerCase());
+  const firstConv = phases.findIndex((p) => /conversion|decision|retarget/.test(p));
+  const firstTrust = phases.findIndex((p) => /launch|awareness|education|authority|proof|trust/.test(p));
+  const trustBefore = firstConv === -1 || (firstTrust !== -1 && firstTrust < firstConv);
+  add(
+    "Trust before conversion",
+    trustBefore,
+    trustBefore ? "Trust is built before the conversion ask." : "Conversion ask comes before any trust-building phase.",
+  );
+
+  // 4. Objection sequencing — objections identified AND answered by an asset.
+  const objIdentified = (s.objection_handling?.length ?? 0) > 0 || (s.trust_strategy?.objections_to_answer?.length ?? 0) > 0;
+  const objAnswered = pkg.some((a) => a.objection_answered && a.objection_answered.trim() && a.objection_answered.trim() !== "—");
+  add(
+    "Objection sequencing",
+    objIdentified && objAnswered,
+    objIdentified ? (objAnswered ? "Objections identified and answered by assets." : "Objections identified but no asset answers one.") : "No objections identified.",
+  );
+
+  // 5. Narrative consistency — every asset advances a beat AND justifies itself.
+  const assetsJustified = pkg.filter((a) => (a.narrative_beat || "").trim() && (a.why_exists || "").trim()).length;
+  add(
+    "Narrative consistency",
+    pkg.length > 0 && assetsJustified === pkg.length,
+    `${assetsJustified}/${pkg.length} assets carry a beat + why_exists.`,
+  );
+
+  // 6. Audience consistency — audience + reasoned current state present.
+  add(
+    "Audience consistency",
+    !!(s.audience && s.audience.trim()) && !!(s.audience_state?.beliefs && s.audience_state.beliefs.trim()),
+    s.audience_state?.beliefs ? "Audience + current-state reasoning present." : "Missing audience current-state reasoning.",
+  );
+
+  // 7. CTA progression — ≥2 distinct rungs AND assets span >1 CTA stage.
+  const distinctCtas = new Set(ctas.map(key).filter(Boolean)).size;
+  const assetStages = new Set(pkg.map((a) => key(a.cta_stage || a.cta || "")).filter(Boolean)).size;
+  add(
+    "CTA progression",
+    distinctCtas >= 2 && assetStages >= 2,
+    `${distinctCtas} distinct rungs; assets span ${assetStages} stages.`,
+  );
+
+  // 8. Message redundancy — no duplicated pillars or asset beats.
+  const beatKeys = pkg.map((a) => key(a.narrative_beat || "")).filter(Boolean);
+  const dupBeats = beatKeys.length - new Set(beatKeys).size;
+  const dupStories = stories.length - new Set(stories.map(key)).size;
+  add(
+    "Message redundancy",
+    dupBeats === 0 && dupStories === 0,
+    dupBeats + dupStories === 0 ? "No redundant messages." : `${dupBeats} repeated asset beats, ${dupStories} repeated pillars.`,
+  );
+
+  // 9. Campaign completeness — the reasoning + structure are all present. (BLOCKING)
+  const complete =
+    !!s.business_objective?.success_metric &&
+    !!s.desired_transformation?.obvious_action &&
+    (s.trust_strategy?.proof_required?.length ?? 0) > 0 &&
+    (s.acts?.length ?? 0) >= 3 &&
+    pkg.length >= 3;
+  add(
+    "Campaign completeness",
+    complete,
+    complete ? "Objective, transformation, trust, acts and assets all present." : "Missing reasoning (objective/transformation/trust/acts) or too few assets.",
+  );
+
+  const passCount = checks.filter((c) => c.pass).length;
+  const score = Math.round((passCount / checks.length) * 100);
+  const blocking_issues = checks.filter((c) => !c.pass && BLOCKING_CHECKS.has(c.name)).map((c) => `${c.name}: ${c.detail}`);
+  return { checks, score, blocking_issues, complete: blocking_issues.length === 0 };
 }
 
 // ─── Campaign QA — evaluate the campaign as a whole ──────────────────────────

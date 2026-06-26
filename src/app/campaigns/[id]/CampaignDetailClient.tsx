@@ -49,6 +49,17 @@ interface StoryReview {
   issues: string[];
   suggestions: string[];
 }
+interface ValidationCheck {
+  name: string;
+  pass: boolean;
+  detail: string;
+}
+interface Validation {
+  checks: ValidationCheck[];
+  score: number;
+  blocking_issues: string[];
+  complete: boolean;
+}
 interface Strategy {
   campaign_type?: string;
   primary_objective?: string;
@@ -65,6 +76,14 @@ interface Strategy {
   cta_progression?: string[];
   package?: PackagePlanItem[];
   story_review?: StoryReview;
+  // Campaign Reasoning (Sprint 26)
+  business_objective?: { why_exists?: string; expected_outcome?: string; success_metric?: string };
+  audience_state?: { beliefs?: string; frustrations?: string; objections?: string; motivations?: string; awareness?: string; trust_level?: string };
+  desired_transformation?: { believe?: string; feel?: string; understand?: string; want?: string; obvious_action?: string };
+  trust_strategy?: { proof_required?: string[]; objections_to_answer?: string[]; credibility?: string[]; evidence?: string[]; never_claim?: string[] };
+  acts?: Array<{ act?: string; intent?: string }>;
+  learning_summary?: string;
+  validation?: Validation;
 }
 interface CampaignResp {
   campaign: { id: string; title: string | null; prompt: string; platform: string; status: string; strategy: Strategy | null };
@@ -174,6 +193,91 @@ export function CampaignDetailClient({ campaignId }: { campaignId: string }) {
         </div>
       )}
 
+      {/* CMO reasoning — people → strategy → transformation → trust (Sprint 26) */}
+      {(s?.business_objective || s?.audience_state || s?.desired_transformation) && (
+        <div className="glass rounded-2xl p-5 mb-6 space-y-3 text-sm">
+          <p className="text-3xs font-semibold uppercase tracking-widest text-white/35">How the Brain reasoned</p>
+          {s.business_objective?.why_exists && (
+            <div>
+              <p className="text-white/45 text-xs mb-0.5">Why this campaign exists</p>
+              <p className="text-white/75">{s.business_objective.why_exists}</p>
+              {s.business_objective.success_metric && (
+                <p className="text-xs text-white/45 mt-0.5">Success metric: <span className="text-white/70">{s.business_objective.success_metric}</span></p>
+              )}
+            </div>
+          )}
+          {s.audience_state?.beliefs && (
+            <div>
+              <p className="text-white/45 text-xs mb-0.5">Audience right now</p>
+              <p className="text-white/70">Believes: {s.audience_state.beliefs}</p>
+              {s.audience_state.objections && <p className="text-white/70">Objects: {s.audience_state.objections}</p>}
+              {s.audience_state.trust_level && <p className="text-xs text-white/45">Trust level: {s.audience_state.trust_level}</p>}
+            </div>
+          )}
+          {s.desired_transformation?.obvious_action && (
+            <div>
+              <p className="text-white/45 text-xs mb-0.5">Desired transformation</p>
+              {s.desired_transformation.believe && <p className="text-white/70">Should believe: {s.desired_transformation.believe}</p>}
+              <p className="text-white/70">Obvious next action: {s.desired_transformation.obvious_action}</p>
+            </div>
+          )}
+          {s.trust_strategy?.proof_required && s.trust_strategy.proof_required.length > 0 && (
+            <div>
+              <p className="text-white/45 text-xs mb-0.5">Trust strategy</p>
+              <p className="text-white/70">Proof required: {s.trust_strategy.proof_required.join("; ")}</p>
+              {s.trust_strategy.never_claim && s.trust_strategy.never_claim.length > 0 && (
+                <p className="text-xs text-rose-300/80">Never claim: {s.trust_strategy.never_claim.join("; ")}</p>
+              )}
+            </div>
+          )}
+          {s.acts && s.acts.length > 0 && (
+            <div>
+              <p className="text-white/45 text-xs mb-1">Campaign acts</p>
+              <div className="flex flex-wrap gap-1.5">
+                {s.acts.map((a, i) => (
+                  <span key={i} className="text-xs px-2.5 py-1 rounded-full bg-white/[0.05] border border-white/10 text-white/70" title={a.intent}>
+                    {a.act}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Blueprint validation — deterministic SOURCE OF TRUTH (Sprint 26) */}
+      {s?.validation && s.validation.checks.length > 0 && (
+        <div className="glass rounded-2xl p-5 mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-semibold text-white/80">
+              Blueprint validation
+              <span className="ml-2 text-3xs font-normal uppercase tracking-wider text-white/30">source of truth</span>
+            </p>
+            <span className={`text-sm font-bold tabular-nums ${s.validation.complete ? "text-emerald-400" : "text-amber-400"}`}>
+              {s.validation.score}
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5">
+            {s.validation.checks.map((c, i) => (
+              <div key={i} className="flex items-start gap-1.5 text-xs" title={c.detail}>
+                {c.pass ? <CheckCircle2 size={13} className="text-emerald-400 flex-shrink-0 mt-0.5" /> : <AlertTriangle size={13} className="text-amber-400 flex-shrink-0 mt-0.5" />}
+                <span className={c.pass ? "text-white/65" : "text-white/80"}>{c.name}</span>
+              </div>
+            ))}
+          </div>
+          {s.validation.blocking_issues.length > 0 && (
+            <ul className="mt-3 space-y-1">
+              {s.validation.blocking_issues.map((iss, i) => (
+                <li key={i} className="flex gap-1.5 text-xs text-amber-300/90">
+                  <span>•</span>
+                  {iss}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
       {/* Campaign Brain — narrative + messaging hierarchy (Sprint 25.1) */}
       {s?.narrative && (
         <div className="glass rounded-2xl p-5 mb-6 space-y-2">
@@ -235,9 +339,10 @@ export function CampaignDetailClient({ campaignId }: { campaignId: string }) {
         <div className="glass rounded-2xl p-5 mb-6">
           <div className="flex items-center justify-between mb-3">
             <p className="text-sm font-semibold text-white/80">
-              Campaign review
+              CMO review
+              <span className="ml-2 text-3xs font-normal uppercase tracking-wider text-white/30">advisory</span>
               <span className={`ml-2 text-3xs font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-full ${s.story_review.would_approve ? "bg-emerald-500/[0.12] text-emerald-300" : "bg-amber-500/[0.12] text-amber-300"}`}>
-                {s.story_review.would_approve ? "Marketer would approve" : "Needs work"}
+                {s.story_review.would_approve ? "CMO would approve" : "Needs work"}
               </span>
             </p>
             <span className="text-lg font-bold text-white tabular-nums">{s.story_review.overall_score}</span>
