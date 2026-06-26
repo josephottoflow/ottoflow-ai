@@ -97,15 +97,19 @@ interface Props {
 export function ContentItemDetailClient({ item, brandName, videoDisabledReason }: Props) {
   const [copied, setCopied] = useState(false);
 
-  // Quick Start → /video/start sends users here with #generate-video. SSR
-  // content is already present, but scroll after paint so the section is
-  // reliably focused (native anchor scroll can fire before layout settles).
+  // Sprint 11 — /video/start (every "Generate Video" CTA) sends users here with
+  // #generate-video. Open the AI Creative Studio in one click. This effect (a
+  // top-level mount) reliably sees the initial-load hash; the AiFirstVideoButton's
+  // own listener is already registered (React runs child effects before parent
+  // effects), so dispatching the open event opens the Studio immediately. We also
+  // scroll so the page sits behind the modal. Gating is respected inside the button.
   useEffect(() => {
     if (typeof window !== "undefined" && window.location.hash === "#generate-video") {
       requestAnimationFrame(() => {
         document
           .getElementById("generate-video")
           ?.scrollIntoView({ behavior: "smooth", block: "center" });
+        window.dispatchEvent(new Event(OPEN_VIDEO_STUDIO_EVENT));
       });
     }
   }, []);
