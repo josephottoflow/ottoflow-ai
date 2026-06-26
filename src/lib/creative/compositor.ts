@@ -408,9 +408,15 @@ export async function compositeCreative(input: CompositeInput): Promise<Buffer> 
       // the upper third.
       pos = { x: pos.x, y: Math.round(H * 0.5) };
     }
+    // Sprint 18 — soft feathered light halo behind the logo (contrast without a
+    // hard white box). Bright at the center where the logo sits, fading at the edges.
     const chip = Buffer.from(
       `<svg width="${chipW}" height="${chipH}" xmlns="http://www.w3.org/2000/svg">` +
-        `<rect width="${chipW}" height="${chipH}" rx="${Math.round(pad * 0.9)}" fill="rgba(255,255,255,0.94)"/></svg>`,
+        `<defs><radialGradient id="logohalo" gradientUnits="userSpaceOnUse" cx="${chipW / 2}" cy="${chipH / 2}" r="${(Math.max(chipW, chipH) * 0.62).toFixed(1)}">` +
+        `<stop offset="0%" stop-color="#ffffff" stop-opacity="0.92"/>` +
+        `<stop offset="70%" stop-color="#ffffff" stop-opacity="0.8"/>` +
+        `<stop offset="100%" stop-color="#ffffff" stop-opacity="0"/></radialGradient></defs>` +
+        `<rect width="${chipW}" height="${chipH}" fill="url(#logohalo)"/></svg>`,
     );
     layers.push({ input: chip, top: pos.y, left: pos.x });
     layers.push({ input: logoImg, top: pos.y + pad, left: pos.x + pad });

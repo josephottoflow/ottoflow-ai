@@ -131,19 +131,19 @@ function safeFallbackBackgroundPrompt(
   const colors = [palette.primary, palette.secondary, palette.accent].filter(Boolean);
   const colorClause = colors.length ? ` in ${colors.join(", ")}` : "";
   const moodClause = industry ? `, mood suited to the ${industry} industry` : "";
+  // Sprint 18 — cinematic, photographic, atmosphere-driven language. NO geometric
+  // shapes/bars/blocks: brand colour is expressed through light, not decoration.
+  const cinematic =
+    `cinematic premium commercial photography, soft volumetric lighting and atmospheric depth, ` +
+    `natural reflections and realistic textures, editorial composition with generous negative space ` +
+    `in the center, shallow depth of field, no geometric shapes, no bars, no rectangles, no graphic overlays`;
   if (metaphor && metaphor.trim() && !findForbiddenBackgroundToken(metaphor)) {
-    return (
-      `Abstract composition${colorClause}: ${metaphor.trim()}. ` +
-      `Soft studio lighting, subtle depth, generous negative space in the center` +
-      moodClause +
-      `, minimal, high-end, clean composition`
-    );
+    return `Atmospheric scene${colorClause}: ${metaphor.trim()}. ${cinematic}${moodClause}`;
   }
   return (
-    `Abstract premium gradient background${colorClause}, ` +
-    `soft studio lighting, subtle geometric depth, generous negative space in the center` +
-    moodClause +
-    `, minimal, high-end, clean composition`
+    `Premium editorial background where ${colors.length ? `the colours ${colors.join(", ")} appear only as ambient light, glow and gradient atmosphere` : "brand colour appears only as ambient light"}, ` +
+    cinematic +
+    moodClause
   );
 }
 

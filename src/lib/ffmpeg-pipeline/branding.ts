@@ -134,10 +134,15 @@ export async function renderCtaCard(input: CtaCardInput): Promise<Buffer> {
       <stop offset="0%" stop-color="${top}"/>
       <stop offset="100%" stop-color="${bottom}"/>
     </linearGradient>
+    <linearGradient id="ul" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="${accent}" stop-opacity="0"/>
+      <stop offset="50%" stop-color="${accent}" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="${accent}" stop-opacity="0"/>
+    </linearGradient>
   </defs>
   <rect width="${width}" height="${height}" fill="url(#bg)"/>
   ${ctaLines}
-  <rect x="${cx - width * 0.12}" y="${underlineY}" width="${width * 0.24}" height="${underlineH}" rx="3" fill="${accent}"/>
+  <rect x="${cx - width * 0.2}" y="${underlineY}" width="${width * 0.4}" height="${underlineH}" fill="url(#ul)"/>
   ${brand ? `<text x="${cx}" y="${brandBaseline}" font-family="Arial, Helvetica, sans-serif" font-size="${brandFont}" font-weight="500" fill="#e2e8f0" text-anchor="middle" opacity="0.85">${brand}</text>` : ""}
 </svg>`;
 

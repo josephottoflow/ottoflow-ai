@@ -247,9 +247,14 @@ export type CreativeStatus =
  * contain logos, brand marks, readable text, or synthesized faces — if the
  * model's prompt asks for any of those, the brief fails validation and is
  * recomposed (compose-time) or refused (worker re-validation, Phase C).
+ *
+ * Sprint 18 (de-templating): also forbid GEOMETRIC/template language so the
+ * generated background reads as cinematic photography, not a Canva template.
+ * An AI prompt requesting bars/rectangles/grids/blocks/stripes is caught and
+ * replaced by the clean cinematic fallback.
  */
 const FORBIDDEN_BACKGROUND_TOKENS =
-  /\b(logos?|wordmarks?|brand\s*marks?|watermarks?|text|typograph\w*|letter(s|ing)?|words?|caption\w*|sign(age)?|slogan\w*|faces?|portraits?|person|people|human\w*|man|woman|founder)\b/i;
+  /\b(logos?|wordmarks?|brand\s*marks?|watermarks?|text|typograph\w*|letter(s|ing)?|words?|caption\w*|sign(age)?|slogan\w*|faces?|portraits?|person|people|human\w*|man|woman|founder|geometric|rectangles?|rectangular|bars?|grids?|blocks?|stripes?|polygons?|hexagons?|chevrons?|diagonal)\b/i;
 
 export function findForbiddenBackgroundToken(prompt: string): string | null {
   const m = prompt.match(FORBIDDEN_BACKGROUND_TOKENS);
