@@ -46,12 +46,51 @@ const MODE_DETAIL: Record<string, { engine: string; bestFor: string }> = {
   founder_video: { engine: "Human-first Story", bestFor: "Founder & thought leadership" },
   social_ad: { engine: "Human-first Story", bestFor: "Short social ads" },
 };
-const SOURCE_OPTIONS = [
-  { value: "auto", label: "Auto", desc: "OttoFlow picks the best approach by quality, speed & cost.", enabled: true },
-  { value: "ai", label: "AI Generated", desc: "Original AI-generated cinematic scenes. Best for commercials & brand stories.", enabled: true },
-  { value: "stock", label: "Premium Stock", desc: "Licensed cinematic footage with AI editing. Fastest, lowest cost.", enabled: false },
-  { value: "hybrid", label: "Hybrid", desc: "AI hero scenes + premium footage. Highest production quality.", enabled: false },
+// Visual sources (Sprint 14). `available:true` = wired & selectable today (only AI
+// Generated — the route auto-runs AI-first; no user-selectable source backend exists).
+// Everything else is honestly "Coming soon". Data-driven so new engines slot in (P6).
+type SourceId = "ai" | "premium_stock" | "free_stock" | "hybrid" | "brand_footage" | "customer_uploads" | "motion_templates";
+interface VisualSource {
+  id: SourceId; name: string; available: boolean; recommended?: boolean; future?: boolean;
+  desc: string; bestFor?: string; pros?: string[]; cons?: string[]; note?: string;
+  example: "abstract" | "photo" | "mix";
+}
+const VISUAL_SOURCES: VisualSource[] = [
+  { id: "ai", name: "AI Generated", available: true, recommended: true, example: "abstract",
+    desc: "Completely original visuals, created by AI.",
+    bestFor: "SaaS · Technology · Corporate · Abstract concepts",
+    pros: ["Unique", "Brand-aligned", "Unlimited creativity"],
+    cons: ["Highest render cost", "Slightly longer to generate"] },
+  { id: "premium_stock", name: "Premium Stock", available: false, example: "photo",
+    desc: "Licensed premium stock footage & photography.",
+    bestFor: "Real people · Lifestyle · Travel · Food · Fashion",
+    pros: ["Very realistic", "Fast", "Lower AI cost"], cons: ["Limited to available footage"] },
+  { id: "free_stock", name: "Free Stock", available: false, example: "photo",
+    desc: "Royalty-free footage only.",
+    bestFor: "MVP · Testing · Budget projects",
+    pros: ["Lowest cost", "Fastest"], cons: ["Less unique", "Limited library"],
+    note: "Today this runs only as an automatic fallback when AI is unavailable — not yet a direct choice." },
+  { id: "hybrid", name: "Hybrid", available: false, example: "mix",
+    desc: "AI-generated hero scenes combined with stock footage.",
+    bestFor: "Highest production quality",
+    pros: ["Best of both"], cons: ["Highest cost"] },
 ];
+// Future-proof slots — render naturally as Coming-soon chips (P6).
+const FUTURE_SOURCES: { id: SourceId; name: string }[] = [
+  { id: "brand_footage", name: "Brand Footage" },
+  { id: "customer_uploads", name: "Customer Uploads" },
+  { id: "motion_templates", name: "Motion Templates" },
+];
+// Industry → ideal source (P3). Returns the recommended id + the human reason.
+function recommendSource(industry?: string | null): { id: SourceId; why: string } {
+  const i = (industry ?? "").toLowerCase();
+  if (/restaurant|food|travel|hospitality|fashion|retail|lifestyle|fitness|beauty/.test(i))
+    return { id: "premium_stock", why: "real people & places land best with licensed footage" };
+  if (/construction|real estate|manufactur|industrial|architecture/.test(i))
+    return { id: "hybrid", why: "real sites plus AI hero shots give the strongest result" };
+  // SaaS / tech / corporate / education / finance / abstract → AI Generated.
+  return { id: "ai", why: "original, on-brand visuals suit software, abstract & corporate concepts" };
+}
 const PLATFORM_ORDER: Platform[] = [
   "linkedin", "tiktok", "instagram_reels", "instagram_feed",
   "facebook_reels", "facebook_feed", "youtube_shorts", "youtube_standard", "x",
@@ -159,6 +198,22 @@ const Soon = () => (
   <span className="text-3xs text-white/40 inline-flex items-center gap-0.5"><Lock size={9} /> Coming soon</span>
 );
 
+/** A small representative "example style" swatch for a visual source (P4).
+ * Decorative only — clearly an example, never the user's actual asset. */
+function ExampleChip({ kind }: { kind: "abstract" | "photo" | "mix" }) {
+  const bg = kind === "abstract"
+    ? "radial-gradient(circle at 30% 25%, rgba(34,211,238,0.7), transparent 60%), linear-gradient(135deg, rgba(129,140,248,0.55), rgba(34,211,238,0.3))"
+    : kind === "photo"
+      ? "linear-gradient(135deg, #3a4a5a, #6b7a88)"
+      : "linear-gradient(135deg, rgba(34,211,238,0.5) 0 50%, #5a6a78 50% 100%)";
+  return (
+    <span className="w-11 h-11 rounded-lg shrink-0 relative overflow-hidden" style={{ background: bg, border: "1px solid rgba(255,255,255,0.1)" }}
+      title="Example style — not your asset" aria-label="Example style">
+      <span className="absolute bottom-0 inset-x-0 text-center text-white/75 leading-none py-0.5" style={{ fontSize: 7, background: "rgba(0,0,0,0.35)" }}>example</span>
+    </span>
+  );
+}
+
 /** Smoothly count a number toward `target` (premium cost micro-interaction). */
 function useCountUp(target: number, active: boolean): number {
   const [v, setV] = useState(target);
@@ -185,18 +240,21 @@ interface VideoConfigModalProps {
    * picks it in Step 3). Does not change the generate payload behaviour; the user
    * can still change it inside the Studio. */
   initialPlatform?: Platform;
+  /** Presentation only — the brand's industry (from the wizard) used to recommend a
+   * visual source (P3). Optional: entry from a content item won't pass it. */
+  brandIndustry?: string | null;
   onClose: () => void;
 }
 
 export function VideoConfigModal({
-  open, brandId, contentItemId, contentTitle, contentBody, contentHashtags, initialPlatform, onClose,
+  open, brandId, contentItemId, contentTitle, contentBody, contentHashtags, initialPlatform, brandIndustry, onClose,
 }: VideoConfigModalProps) {
   const router = useRouter();
   const [platform, setPlatform] = useState<Platform>(initialPlatform ?? "linkedin");
   const [aspect, setAspect] = useState<AspectRatio>(PLATFORM_PROFILES[initialPlatform ?? "linkedin"].video.aspect);
   const [resolution, setResolution] = useState<Resolution>("720p");
   const [duration, setDuration] = useState<DurationChoice>("auto");
-  const [source, setSource] = useState<string>("auto");
+  const [source, setSource] = useState<SourceId>("ai");
   const [mode, setMode] = useState<string>("commercial_story");
   const [quality, setQuality] = useState<Quality>("best");
   const [openSec, setOpenSec] = useState<Record<string, boolean>>({});
@@ -361,6 +419,9 @@ export function VideoConfigModal({
   ];
   const platformRationale = `Tuned for ${profile.label}: ${aspect} · ${cap(st.pacing)} pace · hook by ${st.hookBySec}s · ${profile.video.captionDensity}-density captions.`;
   const recommendation = `${art.name} suits ${branding?.brandName ?? "your brand"} on ${profile.label} — ${art.feeling}, delivered with ${art.emotion.toLowerCase()} energy.`;
+  // Visual-source recommendation (P3) — industry-aware when the wizard passed it.
+  const rec = recommendSource(brandIndustry);
+  const recSource = VISUAL_SOURCES.find((s) => s.id === rec.id);
 
   // Brand palette → atmosphere (colour becomes light & gradient, never a flat block).
   const pal = [branding?.palette?.primary, branding?.palette?.secondary, branding?.palette?.accent].filter(Boolean) as string[];
@@ -621,23 +682,58 @@ export function VideoConfigModal({
               </div>
             </Section>
 
-            {/* ── Production controls (collapsibles) ── */}
-            <Section open={!!openSec["visual"]} onToggle={() => toggle("visual")} title="Visual source" hint="how it's made">
-              <div className="grid grid-cols-2 gap-2">
-                {SOURCE_OPTIONS.map((o) => {
-                  const active = source === o.value;
+            {/* ── Visual source (Sprint 14) — explicit, future-proof, honest ── */}
+            <Section open={!!openSec["visual"]} onToggle={() => toggle("visual")} title="How should AI create your visuals?" icon={<Wand2 size={11} className="text-cyan-400" />} hint={VISUAL_SOURCES.find((s) => s.id === source)?.name ?? "AI Generated"}>
+              {/* Recommendation (P3) */}
+              <div className="rounded-lg px-2.5 py-2 mb-2.5 flex items-start gap-2" style={{ background: "rgba(34,211,238,0.06)", border: "1px solid rgba(34,211,238,0.18)" }}>
+                <Sparkles size={11} className="text-cyan-300 mt-0.5 shrink-0" />
+                <p className="text-3xs text-white/70 leading-snug">
+                  {rec.id === "ai" || recSource?.available
+                    ? <>Recommended{brandIndustry ? <> for <span className="text-white/85">{brandIndustry}</span></> : null}: <span className="text-white/85">{recSource?.name ?? "AI Generated"}</span> — {rec.why}.</>
+                    : <>For{brandIndustry ? <> <span className="text-white/85">{brandIndustry}</span></> : null}, <span className="text-white/85">{recSource?.name}</span> would be ideal — {rec.why} — but it&rsquo;s coming soon. For now, <span className="text-white/85">AI Generated</span> creates original, on-brand visuals.</>}
+                </p>
+              </div>
+
+              {/* Source options (P1 explicit choice · P2 cost · P4 example styles) */}
+              <div className="space-y-2">
+                {VISUAL_SOURCES.map((s) => {
+                  const active = source === s.id;
                   return (
-                    <button key={o.value} type="button" disabled={!o.enabled} onClick={() => o.enabled && setSource(o.value)} title={o.desc}
-                      className="text-left rounded-lg p-2.5 transition disabled:cursor-not-allowed"
-                      style={{ background: active ? "rgba(34,211,238,0.08)" : "rgba(255,255,255,0.03)", border: `1px solid ${active ? "rgba(34,211,238,0.4)" : "rgba(255,255,255,0.06)"}`, opacity: o.enabled ? 1 : 0.5 }}>
-                      <div className="flex items-center gap-1.5 mb-0.5"><span className="text-2xs font-semibold text-white/85">{o.label}</span>
-                        {o.value === "auto" && <span className="text-3xs text-cyan-300">Recommended</span>}
-                        {!o.enabled && <span className="text-3xs text-white/40 flex items-center gap-0.5"><Lock size={9} /> Soon</span>}</div>
-                      <p className="text-3xs text-white/50 leading-snug">{o.desc}</p>
+                    <button key={s.id} type="button" disabled={!s.available} onClick={() => s.available && setSource(s.id)}
+                      className="w-full text-left rounded-xl p-2.5 transition disabled:cursor-not-allowed"
+                      style={{ background: active ? "rgba(34,211,238,0.08)" : "rgba(255,255,255,0.03)", border: `1px solid ${active ? "rgba(34,211,238,0.4)" : "rgba(255,255,255,0.06)"}`, opacity: s.available ? 1 : 0.6 }}>
+                      <div className="flex items-start gap-2.5">
+                        <ExampleChip kind={s.example} />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-2xs font-semibold text-white/90">{s.name}</span>
+                            {s.recommended && <span className="text-3xs px-1.5 py-0.5 rounded bg-amber-400/15 text-amber-300">⭐ Recommended</span>}
+                            {s.available
+                              ? <span className="text-3xs text-cyan-300 ml-auto">{estimating ? "…" : money(estimate?.estimatedCostUsd)}</span>
+                              : <span className="text-3xs text-white/40 flex items-center gap-0.5 ml-auto"><Lock size={9} /> Coming soon</span>}
+                          </div>
+                          <p className="text-3xs text-white/55 leading-snug mt-0.5">{s.desc}</p>
+                          {s.bestFor && <p className="text-3xs text-white/40 mt-1">Best for: {s.bestFor}</p>}
+                          <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
+                            {s.pros?.map((p) => <span key={p} className="text-3xs text-emerald-300/70">✓ {p}</span>)}
+                            {s.cons?.map((c) => <span key={c} className="text-3xs text-white/35">• {c}</span>)}
+                          </div>
+                          {!s.available && <p className="text-3xs text-white/30 mt-1">Estimated pricing coming soon.{s.note ? ` ${s.note}` : ""}</p>}
+                        </div>
+                      </div>
                     </button>
                   );
                 })}
               </div>
+
+              {/* Future-proof slots (P6) + example-asset disclaimer (P4) */}
+              <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
+                <span className="text-3xs text-white/30">On the roadmap:</span>
+                {FUTURE_SOURCES.map((f) => (
+                  <span key={f.id} className="text-3xs px-2 py-0.5 rounded-full flex items-center gap-1" style={card}><Lock size={8} className="text-white/35" />{f.name}</span>
+                ))}
+              </div>
+              <p className="text-3xs text-white/25 mt-1.5">Previews show example styles — not your generated assets.</p>
             </Section>
 
             <Section open={!!openSec["brand"]} onToggle={() => toggle("brand")} title="Brand" hint={`match ${estimating ? "…" : `${brand100}%`}`}>

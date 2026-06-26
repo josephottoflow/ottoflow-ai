@@ -275,6 +275,7 @@ export function VideoStartWizard({ brands, content, preselectContentId }: Props)
           contentBody={selectedContent.body}
           contentHashtags={selectedContent.hashtags}
           initialPlatform={platform}
+          brandIndustry={brand.industry}
           onClose={() => setStudioOpen(false)}
         />
       )}
