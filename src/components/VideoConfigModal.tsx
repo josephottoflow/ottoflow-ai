@@ -181,15 +181,19 @@ function useCountUp(target: number, active: boolean): number {
 interface VideoConfigModalProps {
   open: boolean; brandId: string; contentItemId: string;
   contentTitle?: string; contentBody?: string | null; contentHashtags?: string[] | null;
+  /** Presentation only — seeds the initial publishing platform (the guided wizard
+   * picks it in Step 3). Does not change the generate payload behaviour; the user
+   * can still change it inside the Studio. */
+  initialPlatform?: Platform;
   onClose: () => void;
 }
 
 export function VideoConfigModal({
-  open, brandId, contentItemId, contentTitle, contentBody, contentHashtags, onClose,
+  open, brandId, contentItemId, contentTitle, contentBody, contentHashtags, initialPlatform, onClose,
 }: VideoConfigModalProps) {
   const router = useRouter();
-  const [platform, setPlatform] = useState<Platform>("linkedin");
-  const [aspect, setAspect] = useState<AspectRatio>(PLATFORM_PROFILES.linkedin.video.aspect);
+  const [platform, setPlatform] = useState<Platform>(initialPlatform ?? "linkedin");
+  const [aspect, setAspect] = useState<AspectRatio>(PLATFORM_PROFILES[initialPlatform ?? "linkedin"].video.aspect);
   const [resolution, setResolution] = useState<Resolution>("720p");
   const [duration, setDuration] = useState<DurationChoice>("auto");
   const [source, setSource] = useState<string>("auto");

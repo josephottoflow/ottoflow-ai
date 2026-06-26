@@ -318,6 +318,29 @@ export function VideoJobClient({ job: initialJob, brand, scenes: initialScenes }
                 <Button variant="outline" size="sm">Back to content</Button>
               </Link>
             </div>
+
+            {/* P7 — honest fallback: keep the workflow moving. Only "wait / try again"
+                exists today; the alternative creation methods are clearly Coming soon
+                (the pipeline is AI-rendering only — nothing here is simulated). */}
+            <div className="pt-3 mt-1 border-t border-white/5">
+              <p className="text-2xs text-white/70 mb-2">Rendering is temporarily unavailable. You can:</p>
+              <ul className="space-y-1.5">
+                <li className="flex items-center gap-2 text-2xs text-white/70">
+                  <RefreshCw size={11} className="text-cyan-300" /> <span className="text-white/85">Try AI rendering again</span> — re-run the same brief (available now).
+                </li>
+                {[
+                  ["Premium stock footage", "Licensed clips edited to your story"],
+                  ["Motion graphics", "Animated, type-driven video"],
+                  ["Animated slideshow", "Your images, paced to a soundtrack"],
+                  ["Watermarked preview", "A fast, low-cost rough cut"],
+                ].map(([label, desc]) => (
+                  <li key={label} className="flex items-center gap-2 text-2xs text-white/40">
+                    <Lock size={10} /> <span className="text-white/55">{label}</span> — {desc}.
+                    <span className="ml-1 text-3xs">Coming soon</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </section>
         )}
 
