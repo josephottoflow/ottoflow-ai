@@ -291,7 +291,7 @@ export function VideoJobClient({ job: initialJob, brand, scenes: initialScenes }
 
         {/* Success experience (ready) — celebration + preview + actions + suggestions */}
         {status.isReady && playUrl && (
-          <SuccessExperience job={job} brand={brand} playUrl={playUrl} producedIn={plausibleProductionTime(job)} />
+          <SuccessExperience job={job} playUrl={playUrl} producedIn={plausibleProductionTime(job)} />
         )}
 
         {/* Failure state + retry (navigation only — no in-place re-enqueue) */}
@@ -338,13 +338,14 @@ export function VideoJobClient({ job: initialJob, brand, scenes: initialScenes }
  * (download, create another version) and honest "Coming soon" affordances for
  * publishing destinations and AI re-direction. Presentation only — no new API. */
 function SuccessExperience({
-  job, brand, playUrl, producedIn,
-}: { job: DbRenderJob; brand: { id: string; name: string } | null; playUrl: string; producedIn: string | null }) {
+  job, playUrl, producedIn,
+}: { job: DbRenderJob; playUrl: string; producedIn: string | null }) {
   const [showPublish, setShowPublish] = useState(false);
 
-  // "Create another version" → the canonical generate entry (real navigation, no
-  // backend). Prefer the brand so the user lands ready to make the next one.
-  const againHref = brand ? `/brands/${brand.id}` : "/video/start";
+  // "Create another version" → the canonical Studio entry (/video/start resolves
+  // the latest eligible content item and opens the AI Creative Studio in one click).
+  // Navigation only.
+  const againHref = "/video/start";
 
   // Publishing destinations are presented but not yet wired for video (content-only
   // pipeline today) — shown as the upcoming experience, clearly "Coming soon".

@@ -17,10 +17,13 @@
  * the exact reason beneath it — never a dead, unexplained button. The route
  * enforces the same requirement server-side, surfaced inline as a backstop.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Clapperboard } from "lucide-react";
 import { VideoConfigModal } from "@/components/VideoConfigModal";
+
+/** Event any in-app control can dispatch to open the Studio in one click. */
+export const OPEN_VIDEO_STUDIO_EVENT = "ottoflow:open-video-studio";
 
 interface AiFirstVideoButtonProps {
   brandId: string;
@@ -48,6 +51,26 @@ export function AiFirstVideoButton({
 }: AiFirstVideoButtonProps) {
   const [open, setOpen] = useState(false);
   const gated = !!disabledReason;
+
+  // Sprint 11 — the AI Creative Studio is the canonical entry point. Every
+  // "Generate Video" CTA routes through /video/start → /content/[id]#generate-video;
+  // arriving with that hash (or an explicit open event from another control on the
+  // page) opens the Studio immediately — one click, no scrolling to a second button.
+  // Navigation/entry only: no change to the generate payload or the Studio itself.
+  useEffect(() => {
+    if (gated) return;
+    const openFromHash = () => {
+      if (typeof window !== "undefined" && window.location.hash === "#generate-video") setOpen(true);
+    };
+    const openFromEvent = () => setOpen(true);
+    openFromHash();
+    window.addEventListener("hashchange", openFromHash);
+    window.addEventListener(OPEN_VIDEO_STUDIO_EVENT, openFromEvent);
+    return () => {
+      window.removeEventListener("hashchange", openFromHash);
+      window.removeEventListener(OPEN_VIDEO_STUDIO_EVENT, openFromEvent);
+    };
+  }, [gated]);
 
   return (
     <div className="flex flex-col gap-1 items-end">

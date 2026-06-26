@@ -21,7 +21,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CreativePanel } from "@/components/CreativePanel";
-import { AiFirstVideoButton } from "@/components/AiFirstVideoButton";
+import { AiFirstVideoButton, OPEN_VIDEO_STUDIO_EVENT } from "@/components/AiFirstVideoButton";
 import type { DbContentItem } from "@/lib/types";
 
 const platformConfig: Record<
@@ -137,13 +137,11 @@ export function ContentItemDetailClient({ item, brandName, videoDisabledReason }
     setTimeout(() => setCopied(false), 1800);
   }
 
-  // Scrolls to the existing (unchanged) Generate Video control. The prominent
-  // top card highlights the action above the fold without moving or duplicating
-  // the workflow.
-  function scrollToVideo() {
-    document
-      .getElementById("generate-video")
-      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  // Sprint 11 — open the AI Creative Studio in one click (no scroll to a second
+  // button). The AiFirstVideoButton below listens for this event and opens the
+  // Studio modal. Navigation/entry only.
+  function openStudio() {
+    window.dispatchEvent(new Event(OPEN_VIDEO_STUDIO_EVENT));
   }
 
   return (
@@ -194,7 +192,7 @@ export function ContentItemDetailClient({ item, brandName, videoDisabledReason }
           {!videoDisabledReason && (
             <button
               type="button"
-              onClick={scrollToVideo}
+              onClick={openStudio}
               className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-2 text-xs font-medium text-emerald-200 hover:bg-emerald-500/15 transition-colors flex-shrink-0"
             >
               <Play size={13} /> Generate Video
