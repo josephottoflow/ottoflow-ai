@@ -26,6 +26,8 @@ import {
   performanceSummary,
   type PerformanceIntelligence,
 } from "./performance-intelligence";
+import { renderCampaignStrategyBlock, campaignSummary } from "./campaign-strategy";
+import type { CampaignStrategy } from "@/lib/gemini";
 import type { DbBrand, DbBrandAsset } from "@/lib/types";
 import {
   rankHierarchies,
@@ -71,6 +73,10 @@ export interface ComposeBriefInput {
    *  measured campaigns. Drives the concept at priority #3 (above Brand
    *  Intelligence) and is recorded compactly on the brief. Optional. */
   performance?: PerformanceIntelligence | null;
+  /** Campaign Strategy (Sprint 24) — the campaign that governs this creative
+   *  (planned BEFORE the image). Frames the concept as the governing input and is
+   *  recorded on the brief. Optional: clean creatives without a planned campaign. */
+  campaign?: CampaignStrategy | null;
   /**
    * Per-creative branding overrides captured on /content/generate. Names
    * override the defaults (company = brand.name, founder = headshot label);
@@ -217,6 +223,7 @@ async function composeConceptValidated(
       recentDirections: input.recentDirections,
       brandIntelligence: input.intelligence ? renderIntelligenceBlock(input.intelligence) : undefined,
       performanceIntelligence: input.performance ? renderPerformanceBlock(input.performance) : undefined,
+      campaignStrategy: input.campaign ? renderCampaignStrategyBlock(input.campaign) : undefined,
     });
     lastConcept = concept;
     if (!findForbiddenBackgroundToken(concept.background_prompt)) {
@@ -350,6 +357,9 @@ export async function composeCreativeBrief(
     performance: input.performance
       ? performanceSummary(input.performance, input.performance.measured_count >= 1)
       : undefined,
+    // Campaign Strategy (Sprint 24) — record the campaign that governed this
+    // creative + the strategist's reasoning + recommended package (internal).
+    campaign: input.campaign ? campaignSummary(input.campaign, true) : undefined,
 
     logo_usage: useLogo
       ? {

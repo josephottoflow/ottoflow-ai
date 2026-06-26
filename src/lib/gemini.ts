@@ -2340,6 +2340,148 @@ Return:
   });
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Campaign Strategy Intelligence (Sprint 24) — OttoFlow thinks like a marketing
+// strategist BEFORE it designs an image. Given the brand + this post, it decides
+// the CAMPAIGN this creative belongs to (objective, audience, awareness stage,
+// message, emotion, CTA, funnel position, distribution), records its internal
+// reasoning, and recommends a multi-asset package that all reinforces the SAME
+// strategy. This frames the creative concept (governing input #1).
+// ─────────────────────────────────────────────────────────────────────────────
+export const CAMPAIGN_TYPES = [
+  "brand_awareness", "lead_generation", "recruitment", "product_launch",
+  "thought_leadership", "event_promotion", "customer_education", "retention",
+  "upsell", "community", "partnership_announcement", "investor_relations",
+] as const;
+export type CampaignType = (typeof CAMPAIGN_TYPES)[number];
+
+export interface CampaignStrategy {
+  campaign_type: string;
+  primary_objective: string;
+  secondary_objective: string;
+  audience: string;
+  awareness_stage: string; // unaware | problem_aware | solution_aware | product_aware | most_aware
+  core_message: string;
+  desired_emotion: string;
+  primary_cta: string;
+  funnel_position: string; // TOFU | MOFU | BOFU
+  distribution_strategy: string;
+  /** Internal-only strategic reasoning (the "why" before any pixel). */
+  reasoning: {
+    why_campaign: string;
+    why_audience: string;
+    why_hook: string;
+    why_cta: string;
+    why_sequence: string;
+    why_world: string;
+    why_now: string;
+  };
+  /** The recommended asset sequence — every asset reinforces ONE strategy. */
+  package: Array<{ role: string; format: string; angle: string }>;
+}
+
+const campaignStrategySchema: Schema = {
+  type: Type.OBJECT,
+  required: [
+    "campaign_type", "primary_objective", "secondary_objective", "audience",
+    "awareness_stage", "core_message", "desired_emotion", "primary_cta",
+    "funnel_position", "distribution_strategy", "reasoning", "package",
+  ],
+  properties: {
+    campaign_type: { type: Type.STRING },
+    primary_objective: { type: Type.STRING },
+    secondary_objective: { type: Type.STRING },
+    audience: { type: Type.STRING },
+    awareness_stage: { type: Type.STRING },
+    core_message: { type: Type.STRING },
+    desired_emotion: { type: Type.STRING },
+    primary_cta: { type: Type.STRING },
+    funnel_position: { type: Type.STRING },
+    distribution_strategy: { type: Type.STRING },
+    reasoning: {
+      type: Type.OBJECT,
+      required: ["why_campaign", "why_audience", "why_hook", "why_cta", "why_sequence", "why_world", "why_now"],
+      properties: {
+        why_campaign: { type: Type.STRING },
+        why_audience: { type: Type.STRING },
+        why_hook: { type: Type.STRING },
+        why_cta: { type: Type.STRING },
+        why_sequence: { type: Type.STRING },
+        why_world: { type: Type.STRING },
+        why_now: { type: Type.STRING },
+      },
+    },
+    package: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        required: ["role", "format", "angle"],
+        properties: {
+          role: { type: Type.STRING },
+          format: { type: Type.STRING },
+          angle: { type: Type.STRING },
+        },
+      },
+    },
+  },
+} as Schema;
+
+/** Normalize a model-returned campaign_type to the allowed vocabulary. */
+export function normalizeCampaignType(raw: string): CampaignType {
+  const k = (raw || "").toLowerCase().replace(/[\s-]+/g, "_");
+  return (CAMPAIGN_TYPES as readonly string[]).includes(k) ? (k as CampaignType) : "brand_awareness";
+}
+
+/**
+ * Plan the CAMPAIGN this creative belongs to — the strategist's brief, decided
+ * before any image. Campaign Memory (recent strategies) steers it AWAY from
+ * repeating messaging / worlds / hooks / CTAs / emotional angles / structures.
+ */
+export async function planCampaignStrategy(input: {
+  brand: { name: string; industry: string | null; positioning: string | null; voiceTone: string };
+  content: { title: string; preview: string | null; bodyExcerpt: string; platform: string };
+  topic: { title: string; hookAngle: string | null; kind: string | null } | null;
+  recentCampaigns: string[];
+}): Promise<{ data: CampaignStrategy; meta: GenerationMeta }> {
+  const memBlock = input.recentCampaigns.length
+    ? `CAMPAIGN MEMORY — recent campaigns for THIS brand. Do NOT repeat their campaign type, core message, hook, CTA or emotional angle; the brand's campaigns must EVOLVE:\n${input.recentCampaigns.map((c, i) => `  ${i + 1}. ${c}`).join("\n")}`
+    : `CAMPAIGN MEMORY: none yet — clean slate.`;
+
+  const prompt = `You are a SENIOR MARKETING STRATEGIST planning a campaign for
+${input.brand.name}${input.brand.industry ? ` (${input.brand.industry})` : ""} on ${input.content.platform}.
+${input.brand.positioning ? `POSITIONING: ${input.brand.positioning}\n` : ""}VOICE: ${input.brand.voiceTone}
+
+THE POST this creative accompanies:
+TITLE: ${input.content.title}
+${input.content.preview ? `HOOK: ${input.content.preview}\n` : ""}BODY (excerpt): ${input.content.bodyExcerpt}
+${input.topic ? `SOURCE IDEA: ${input.topic.title}${input.topic.kind ? ` (${input.topic.kind})` : ""}${input.topic.hookAngle ? ` — angle: "${input.topic.hookAngle}"` : ""}` : ""}
+
+${memBlock}
+
+BEFORE any image is designed, decide the CAMPAIGN this belongs to. Think like a
+marketing strategist, not an image generator. Determine:
+- campaign_type: choose EXACTLY ONE of: ${CAMPAIGN_TYPES.join(", ")}.
+- primary_objective + secondary_objective: what the business must achieve.
+- audience: who it's for (be specific).
+- awareness_stage: one of unaware, problem_aware, solution_aware, product_aware, most_aware.
+- core_message: the single idea the whole campaign lands.
+- desired_emotion: what the audience should feel.
+- primary_cta: the main action.
+- funnel_position: TOFU, MOFU, or BOFU.
+- distribution_strategy: how this campaign reaches the audience on ${input.content.platform} (and beyond).
+- reasoning: answer each honestly and concretely — why_campaign, why_audience, why_hook, why_cta, why_sequence, why_world, why_now.
+- package: the recommended asset sequence (3-8 items) — every asset reinforces the SAME strategy. Typical roles: hero creative, supporting creative, quote graphic, carousel, short video, follow-up post, retargeting creative. For each give role, format (the platform-native format) and angle (how it advances the strategy).
+
+The campaign_type and awareness_stage MUST change everything downstream — pick the one this content genuinely serves, distinct from recent campaigns.`.trim();
+
+  return generateStructuredFull<CampaignStrategy>({
+    prompt,
+    schema: campaignStrategySchema,
+    systemInstruction: "You are a senior marketing strategist. You decide the campaign and its strategy before any creative is designed. Be decisive, specific and honest in your reasoning; make campaigns evolve, never repeat.",
+    label: "planCampaignStrategy",
+  });
+}
+
 export async function generateCreativeConcept(input: {
   brand: {
     name: string;
@@ -2369,6 +2511,11 @@ export async function generateCreativeConcept(input: {
    * platform differences). Priority #3 — OUTRANKS Brand Intelligence and the review
    * score. Empty/undefined when no real engagement data exists yet. */
   performanceIntelligence?: string;
+  /** Campaign Strategy (Sprint 24) — a pre-rendered block describing the CAMPAIGN
+   * this creative belongs to (objective, audience, awareness stage, message,
+   * emotion, CTA, funnel). The GOVERNING FRAME: every creative choice must
+   * reinforce the campaign. Empty/undefined when no strategy was planned. */
+  campaignStrategy?: string;
 }): Promise<{ data: CreativeConcept; meta: GenerationMeta }> {
   const direction = HIERARCHY_DIRECTION[input.hierarchy] ?? HIERARCHY_DIRECTION.brand_led;
   const pal = input.palette;
@@ -2392,10 +2539,15 @@ export async function generateCreativeConcept(input: {
     ? input.performanceIntelligence.trim()
     : `PERFORMANCE INTELLIGENCE: no real engagement data yet — fall back to Brand Intelligence and the AI review signal until published campaigns report back.`;
 
+  const campaignBlock = input.campaignStrategy && input.campaignStrategy.trim()
+    ? input.campaignStrategy.trim()
+    : "";
+
   const prompt = `
 Design the creative strategy for a single ${input.platform} image creative
 (aspect ratio ${input.aspectRatio}) that accompanies the post below.
 
+${campaignBlock ? `${campaignBlock}\n\nThis creative is ONE asset inside that campaign — EVERY choice below (world, lighting, mood, composition, headline, CTA) must reinforce the campaign objective, speak to its audience at its awareness stage, and carry its core message and desired emotion.\n` : ""}
 BRAND: ${input.brand.name}${input.brand.industry ? ` (${input.brand.industry})` : ""}
 ${input.brand.positioning ? `POSITIONING: ${input.brand.positioning}` : ""}
 VOICE: ${input.brand.voiceTone}
@@ -2433,7 +2585,10 @@ ${recentBlock}
 
 ${industryConstraintBlock(input.brand.industry)}
 
-PRIORITY OF INPUTS (highest first): 1) this Campaign Brief, 2) Brand DNA (voice,
+PRIORITY OF INPUTS (highest first): 0) the CAMPAIGN STRATEGY above is the GOVERNING
+FRAME when present — the campaign objective, audience, awareness stage, message and
+funnel position dictate what this asset must accomplish; everything below serves it.
+1) this Campaign Brief, 2) Brand DNA (voice,
 positioning, palette), 3) Performance Intelligence (REAL audience behavior — the
 winning patterns; this OUTRANKS internal opinion), 4) Brand Intelligence (what the
 AI review consistently rates highest — best dimensions, avoid overused, prefer

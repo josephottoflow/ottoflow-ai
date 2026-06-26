@@ -12,6 +12,7 @@ import { auth } from "@clerk/nextjs/server";
 import { createServerSupabaseClient } from "@/lib/supabase-server";
 import { loadCreativeIntelligence } from "@/lib/creative/brand-intelligence";
 import { loadPerformanceIntelligence } from "@/lib/creative/performance-intelligence";
+import { loadCampaignIntelligence } from "@/lib/creative/campaign-strategy";
 import { captureFallback } from "@/lib/observability";
 
 export const runtime = "nodejs";
@@ -38,11 +39,12 @@ export async function GET(
     if (!brand) {
       return NextResponse.json({ error: "Brand not found" }, { status: 404 });
     }
-    const [intelligence, performance] = await Promise.all([
+    const [intelligence, performance, campaign] = await Promise.all([
       loadCreativeIntelligence(sb, brandId, brand.industry ?? null),
       loadPerformanceIntelligence(sb, brandId, brand.industry ?? null),
+      loadCampaignIntelligence(sb, brandId),
     ]);
-    return NextResponse.json({ intelligence, performance });
+    return NextResponse.json({ intelligence, performance, campaign });
   } catch (err) {
     captureFallback("brand.intelligence_failed", err, { brandId });
     return NextResponse.json({ error: "Failed to compute intelligence" }, { status: 500 });

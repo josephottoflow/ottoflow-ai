@@ -310,6 +310,39 @@ export const creativeBriefSchema = z.object({
     })
     .optional(),
 
+  /** Campaign Strategy (Sprint 24) — the campaign that GOVERNED this creative:
+   *  objective / audience / awareness / message / emotion / CTA / funnel +
+   *  internal strategic reasoning + recommended asset package. Internal. jsonb. */
+  campaign: z
+    .object({
+      applied: z.boolean(),
+      campaign_type: z.string(),
+      primary_objective: z.string().default(""),
+      secondary_objective: z.string().default(""),
+      audience: z.string().default(""),
+      awareness_stage: z.string().default(""),
+      core_message: z.string().default(""),
+      desired_emotion: z.string().default(""),
+      primary_cta: z.string().default(""),
+      funnel_position: z.string().default(""),
+      distribution_strategy: z.string().default(""),
+      reasoning: z
+        .object({
+          why_campaign: z.string().default(""),
+          why_audience: z.string().default(""),
+          why_hook: z.string().default(""),
+          why_cta: z.string().default(""),
+          why_sequence: z.string().default(""),
+          why_world: z.string().default(""),
+          why_now: z.string().default(""),
+        })
+        .default({ why_campaign: "", why_audience: "", why_hook: "", why_cta: "", why_sequence: "", why_world: "", why_now: "" }),
+      package: z
+        .array(z.object({ role: z.string(), format: z.string(), angle: z.string() }))
+        .default([]),
+    })
+    .optional(),
+
   // ── Code-computed asset + identity usage (deterministic, trustworthy) ───
   logo_usage: assetUsageSchema,
   headshot_usage: assetUsageSchema,

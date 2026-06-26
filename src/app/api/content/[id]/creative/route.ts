@@ -19,6 +19,8 @@ import { captureFallback } from "@/lib/observability";
 import { composeCreativeBrief, BriefValidationError, type ComposeBriefInput } from "@/lib/creative/brief";
 import { loadCreativeIntelligence } from "@/lib/creative/brand-intelligence";
 import { loadPerformanceIntelligence } from "@/lib/creative/performance-intelligence";
+import { loadCampaignMemory } from "@/lib/creative/campaign-strategy";
+import { planCampaignStrategy, type CampaignStrategy } from "@/lib/gemini";
 import type { DbBrand, DbBrandAsset } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -199,6 +201,38 @@ export async function POST(
     console.error("[creative] performance-intelligence load failed (non-fatal):", err);
   }
 
+  // Campaign Strategy (Sprint 24) — think like a strategist BEFORE the image:
+  // decide the campaign (objective/audience/awareness/message/emotion/CTA/funnel)
+  // this creative belongs to, steered AWAY from recent campaigns (campaign memory).
+  // The strategy becomes the GOVERNING FRAME for the concept. Non-fatal: a planning
+  // failure simply means the creative composes without an explicit campaign frame.
+  let campaign: CampaignStrategy | null = null;
+  try {
+    const p = brand.profile;
+    const recentCampaigns = await loadCampaignMemory(admin, item.brand_id);
+    const { data } = await planCampaignStrategy({
+      brand: {
+        name: brand.name,
+        industry: brand.industry,
+        positioning: p?.positioning_statement ?? null,
+        voiceTone: p?.brand_voice?.tone?.join(", ") || "Professional, clear, modern",
+      },
+      content: {
+        title: item.title as string,
+        preview: (item.preview as string | null) ?? null,
+        bodyExcerpt: (item.body as string).slice(0, 2000),
+        platform: item.platform as string,
+      },
+      topic: topic
+        ? { title: topic.title, hookAngle: topic.hook_angle, kind: topic.opportunity_kind ?? topic.category }
+        : null,
+      recentCampaigns,
+    });
+    campaign = data;
+  } catch (err) {
+    console.error("[creative] campaign-strategy planning failed (non-fatal):", err);
+  }
+
   try {
     const { brief, backgroundPromptReplaced } = await composeCreativeBrief({
       brand,
@@ -214,6 +248,7 @@ export async function POST(
       recentDirections,
       intelligence,
       performance,
+      campaign,
     });
 
     if (backgroundPromptReplaced) {
