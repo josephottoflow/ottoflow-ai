@@ -2376,16 +2376,66 @@ export interface CampaignStrategy {
     why_world: string;
     why_now: string;
   };
-  /** The recommended asset sequence — every asset reinforces ONE strategy. */
-  package: Array<{ role: string; format: string; angle: string }>;
+  /** The recommended asset sequence. Each asset advances the NARRATIVE (Sprint
+   *  25.1) — phase/narrative_beat/funnel_stage/cta/emotional_beat are optional so
+   *  Sprint-24 strategies stay valid; the Brain planner now always fills them. */
+  package: Array<{
+    role: string;
+    format: string;
+    angle: string;
+    phase?: string;          // Launch | Education | Authority | Proof | Conversion | Follow-up | Retargeting
+    narrative_beat?: string; // which story/vision THIS asset advances
+    funnel_stage?: string;   // TOFU | MOFU | BOFU
+    cta?: string;            // this asset's CTA in the progression (soft → hard)
+    emotional_beat?: string; // the feeling this asset should land
+  }>;
+
+  // ── Campaign Brain (Sprint 25.1) — the strategic messaging architecture that
+  //    governs execution. Optional so older strategies remain valid; the evolved
+  //    planner always emits them. Stored in campaigns.strategy jsonb (superset). ──
+  /** The campaign's through-line ("Great engineers deserve better companies."). */
+  narrative?: string;
+  /** The single hero story the whole campaign advances. */
+  primary_story?: string;
+  /** The pillars beneath the narrative (culture, remote, salary, growth, …). */
+  supporting_stories?: string[];
+  objection_handling?: string[];
+  trust_building?: string[];
+  social_proof?: string[];
+  educational?: string[];
+  /** Ordered emotional beats across the campaign. */
+  emotional_journey?: string[];
+  /** CTA rungs from soft to hard (the progression, not one CTA). */
+  cta_progression?: string[];
+  /** The Gemini marketer verdict on the campaign as a complete story (Sprint
+   *  25.1) — written by the worker after planning. Internal/advisory. */
+  story_review?: CampaignStoryReview;
 }
+
+/** Marketer-level review of the campaign as ONE story (Sprint 25.1). */
+export interface CampaignStoryReview {
+  momentum_score: number;
+  purpose_score: number;
+  cta_progression_score: number;
+  objection_score: number;
+  trust_score: number;
+  overall_score: number;
+  would_approve: boolean;
+  issues: string[];
+  suggestions: string[];
+}
+
+const STRING_ARRAY: Schema = { type: Type.ARRAY, items: { type: Type.STRING } } as Schema;
 
 const campaignStrategySchema: Schema = {
   type: Type.OBJECT,
   required: [
     "campaign_type", "primary_objective", "secondary_objective", "audience",
     "awareness_stage", "core_message", "desired_emotion", "primary_cta",
-    "funnel_position", "distribution_strategy", "reasoning", "package",
+    "funnel_position", "distribution_strategy", "reasoning",
+    "narrative", "primary_story", "supporting_stories", "objection_handling",
+    "trust_building", "social_proof", "educational", "emotional_journey",
+    "cta_progression", "package",
   ],
   properties: {
     campaign_type: { type: Type.STRING },
@@ -2411,15 +2461,30 @@ const campaignStrategySchema: Schema = {
         why_now: { type: Type.STRING },
       },
     },
+    // ── Campaign Brain ──────────────────────────────────────────────────────
+    narrative: { type: Type.STRING },
+    primary_story: { type: Type.STRING },
+    supporting_stories: STRING_ARRAY,
+    objection_handling: STRING_ARRAY,
+    trust_building: STRING_ARRAY,
+    social_proof: STRING_ARRAY,
+    educational: STRING_ARRAY,
+    emotional_journey: STRING_ARRAY,
+    cta_progression: STRING_ARRAY,
     package: {
       type: Type.ARRAY,
       items: {
         type: Type.OBJECT,
-        required: ["role", "format", "angle"],
+        required: ["role", "format", "angle", "phase", "narrative_beat", "funnel_stage", "cta", "emotional_beat"],
         properties: {
           role: { type: Type.STRING },
           format: { type: Type.STRING },
           angle: { type: Type.STRING },
+          phase: { type: Type.STRING },
+          narrative_beat: { type: Type.STRING },
+          funnel_stage: { type: Type.STRING },
+          cta: { type: Type.STRING },
+          emotional_beat: { type: Type.STRING },
         },
       },
     },
@@ -2444,41 +2509,121 @@ export async function planCampaignStrategy(input: {
   recentCampaigns: string[];
 }): Promise<{ data: CampaignStrategy; meta: GenerationMeta }> {
   const memBlock = input.recentCampaigns.length
-    ? `CAMPAIGN MEMORY — recent campaigns for THIS brand. Do NOT repeat their campaign type, core message, hook, CTA or emotional angle; the brand's campaigns must EVOLVE:\n${input.recentCampaigns.map((c, i) => `  ${i + 1}. ${c}`).join("\n")}`
+    ? `CAMPAIGN MEMORY — recent campaigns for THIS brand. Do NOT repeat their narrative, story, emotional arc, CTA progression, supporting messages or campaign type; the brand's campaigns must EVOLVE:\n${input.recentCampaigns.map((c, i) => `  ${i + 1}. ${c}`).join("\n")}`
     : `CAMPAIGN MEMORY: none yet — clean slate.`;
 
-  const prompt = `You are a SENIOR MARKETING STRATEGIST planning a campaign for
-${input.brand.name}${input.brand.industry ? ` (${input.brand.industry})` : ""} on ${input.content.platform}.
+  const prompt = `You are a SENIOR MARKETING STRATEGIST (a Campaign Brain) planning a complete
+campaign for ${input.brand.name}${input.brand.industry ? ` (${input.brand.industry})` : ""} on ${input.content.platform}.
 ${input.brand.positioning ? `POSITIONING: ${input.brand.positioning}\n` : ""}VOICE: ${input.brand.voiceTone}
 
-THE POST this creative accompanies:
+THE REQUEST / SEED:
 TITLE: ${input.content.title}
 ${input.content.preview ? `HOOK: ${input.content.preview}\n` : ""}BODY (excerpt): ${input.content.bodyExcerpt}
 ${input.topic ? `SOURCE IDEA: ${input.topic.title}${input.topic.kind ? ` (${input.topic.kind})` : ""}${input.topic.hookAngle ? ` — angle: "${input.topic.hookAngle}"` : ""}` : ""}
 
 ${memBlock}
 
-BEFORE any image is designed, decide the CAMPAIGN this belongs to. Think like a
-marketing strategist, not an image generator. Determine:
+You are NOT filling asset slots. You are architecting a STORY a marketer would
+approve. Design the campaign as ONE narrative, then make every asset advance it.
+
+STRATEGY:
 - campaign_type: choose EXACTLY ONE of: ${CAMPAIGN_TYPES.join(", ")}.
 - primary_objective + secondary_objective: what the business must achieve.
-- audience: who it's for (be specific).
-- awareness_stage: one of unaware, problem_aware, solution_aware, product_aware, most_aware.
-- core_message: the single idea the whole campaign lands.
-- desired_emotion: what the audience should feel.
-- primary_cta: the main action.
-- funnel_position: TOFU, MOFU, or BOFU.
-- distribution_strategy: how this campaign reaches the audience on ${input.content.platform} (and beyond).
-- reasoning: answer each honestly and concretely — why_campaign, why_audience, why_hook, why_cta, why_sequence, why_world, why_now.
-- package: the recommended asset sequence (3-8 items) — every asset reinforces the SAME strategy. Typical roles: hero creative, supporting creative, quote graphic, carousel, short video, follow-up post, retargeting creative. For each give role, format (the platform-native format) and angle (how it advances the strategy).
+- audience: who it's for (be specific). awareness_stage: unaware | problem_aware | solution_aware | product_aware | most_aware.
+- core_message, desired_emotion, primary_cta, funnel_position (TOFU/MOFU/BOFU), distribution_strategy.
+- reasoning: why_campaign, why_audience, why_hook, why_cta, why_sequence, why_world, why_now.
 
-The campaign_type and awareness_stage MUST change everything downstream — pick the one this content genuinely serves, distinct from recent campaigns.`.trim();
+CAMPAIGN BRAIN (the strategic messaging architecture):
+- narrative: the campaign's through-line in one sentence (e.g. "Great engineers deserve better companies.").
+- primary_story: the hero story the whole campaign advances.
+- supporting_stories: 4-7 message pillars beneath the narrative (e.g. engineering culture, remote work, salary, growth, stack, team).
+- objection_handling: the real objections this audience has + how the campaign answers them.
+- trust_building: how the campaign earns trust BEFORE asking for conversion.
+- social_proof: concrete proof opportunities (testimonials, numbers, names) the campaign can use.
+- educational: what the audience must learn for the message to land.
+- emotional_journey: the ordered emotional beats across the campaign (entry → … → conversion).
+- cta_progression: CTA rungs from SOFT to HARD (e.g. "Read the story" → "See open roles" → "Apply") — NOT one CTA repeated.
+
+PACKAGE — assign each asset to the narrative (4-8 assets). Every asset must EXIST
+TO ADVANCE THE NARRATIVE, not to fill a slot. For each asset give:
+- role (hero creative, carousel, quote graphic, short video, follow-up post, retargeting creative, …)
+- format (platform-native), angle (how it advances the story)
+- phase: one of Launch, Education, Authority, Proof, Conversion, Follow-up, Retargeting
+- narrative_beat: WHICH supporting story / vision this asset advances (e.g. Hero→Vision, Carousel→Engineering culture, Video→Team, Quote→Leadership, Retargeting→Salary)
+- funnel_stage: TOFU | MOFU | BOFU
+- cta: this asset's CTA — its rung in the progression (soft early, hard late)
+- emotional_beat: the feeling this asset should land
+
+Order the package as a CALENDAR (Launch → Education → Authority → Proof → Conversion →
+Follow-up → Retargeting): build trust and momentum BEFORE the hard conversion ask.
+Make the narrative, emotional arc and CTA progression DISTINCT from recent campaigns.`.trim();
 
   return generateStructuredFull<CampaignStrategy>({
     prompt,
     schema: campaignStrategySchema,
     systemInstruction: "You are a senior marketing strategist. You decide the campaign and its strategy before any creative is designed. Be decisive, specific and honest in your reasoning; make campaigns evolve, never repeat.",
     label: "planCampaignStrategy",
+  });
+}
+
+const campaignStoryReviewSchema: Schema = {
+  type: Type.OBJECT,
+  required: [
+    "momentum_score", "purpose_score", "cta_progression_score", "objection_score",
+    "trust_score", "overall_score", "would_approve", "issues", "suggestions",
+  ],
+  properties: {
+    momentum_score: { type: Type.NUMBER },
+    purpose_score: { type: Type.NUMBER },
+    cta_progression_score: { type: Type.NUMBER },
+    objection_score: { type: Type.NUMBER },
+    trust_score: { type: Type.NUMBER },
+    overall_score: { type: Type.NUMBER },
+    would_approve: { type: Type.BOOLEAN },
+    issues: { type: Type.ARRAY, items: { type: Type.STRING } },
+    suggestions: { type: Type.ARRAY, items: { type: Type.STRING } },
+  },
+} as Schema;
+
+/**
+ * Review a planned campaign as a COMPLETE STORY (Sprint 25.1) — the marketer's
+ * eye, BEFORE any image renders (the verdict is about the narrative + asset
+ * assignment, not the pixels). Best-effort; advisory.
+ */
+export async function reviewCampaignStory(
+  strategy: CampaignStrategy,
+): Promise<{ data: CampaignStoryReview; meta: GenerationMeta }> {
+  const assets = (strategy.package ?? [])
+    .map((a, i) => `  ${i + 1}. [${a.phase ?? "?"}] ${a.role} → ${a.narrative_beat ?? a.angle} | ${a.funnel_stage ?? "?"} | CTA "${a.cta ?? ""}" | ${a.emotional_beat ?? ""}`)
+    .join("\n");
+  const prompt = `You are a SENIOR MARKETING DIRECTOR reviewing a planned campaign as ONE STORY,
+before any asset is produced. Be honest — would you actually approve this?
+
+NARRATIVE: ${strategy.narrative ?? strategy.core_message}
+PRIMARY STORY: ${strategy.primary_story ?? "(none)"}
+SUPPORTING STORIES: ${(strategy.supporting_stories ?? []).join("; ") || "(none)"}
+EMOTIONAL JOURNEY: ${(strategy.emotional_journey ?? []).join(" → ") || "(none)"}
+CTA PROGRESSION: ${(strategy.cta_progression ?? []).join(" → ") || strategy.primary_cta}
+OBJECTIONS HANDLED: ${(strategy.objection_handling ?? []).join("; ") || "(none)"}
+TRUST BUILDING: ${(strategy.trust_building ?? []).join("; ") || "(none)"}
+ASSET SEQUENCE:
+${assets || "(none)"}
+
+Score 0-100 and judge:
+- momentum_score: does the sequence BUILD momentum (calendar phases in a sensible order)?
+- purpose_score: does EVERY asset have a clear purpose that advances the narrative (none filling a slot)?
+- cta_progression_score: is the CTA progression logical (soft → hard), not one CTA repeated?
+- objection_score: are the audience's real objections answered?
+- trust_score: is trust established BEFORE the conversion ask?
+- overall_score: holistic — would a marketer ship this campaign?
+- would_approve: true only if you'd genuinely approve it.
+- issues: concrete problems. suggestions: specific fixes.`.trim();
+
+  return generateStructuredFull<CampaignStoryReview>({
+    prompt,
+    schema: campaignStoryReviewSchema,
+    systemInstruction: "You are a discerning marketing director. Judge the campaign as a complete story; reward narrative coherence and trust-before-conversion; never approve a bag of disconnected assets.",
+    label: "reviewCampaignStory",
   });
 }
 

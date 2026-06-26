@@ -20,11 +20,11 @@
  */
 import { createAdminClient } from "@/lib/supabase";
 import { composeCreativeBrief } from "@/lib/creative/brief";
-import { planCampaignStrategy, type CampaignStrategy } from "@/lib/gemini";
-import { loadCampaignMemory } from "@/lib/creative/campaign-strategy";
+import { planCampaignStrategy, reviewCampaignStory, type CampaignStrategy } from "@/lib/gemini";
+import { loadCampaignNarrativeMemory } from "@/lib/creative/campaign-strategy";
 import { loadCreativeIntelligence } from "@/lib/creative/brand-intelligence";
 import { loadPerformanceIntelligence } from "@/lib/creative/performance-intelligence";
-import { orderPackage, synthesizeAssetContent } from "@/lib/creative/campaign-execution";
+import { orderPackage, synthesizeAssetContent, specializeForAsset } from "@/lib/creative/campaign-execution";
 import { creativeGenerationQueue, type CampaignExecutionJobData } from "@/lib/queue";
 import { captureFallback } from "@/lib/observability";
 import type { DbBrand, DbBrandAsset } from "@/lib/types";
@@ -80,7 +80,7 @@ export async function processCampaignExecution(
     report("strategy", 12);
     let strategy = campaign.strategy as CampaignStrategy | null;
     if (!strategy || !Array.isArray(strategy.package)) {
-      const recentCampaigns = await loadCampaignMemory(admin, campaign.brand_id as string);
+      const recentCampaigns = await loadCampaignNarrativeMemory(admin, campaign.brand_id as string);
       const p = brand.profile;
       const { data: planned } = await planCampaignStrategy({
         brand: {
@@ -157,7 +157,8 @@ export async function processCampaignExecution(
           recentDirections: siblings,
           intelligence,
           performance,
-          campaign: strategy,
+          // Narrative-specialized frame — this asset advances ITS beat / CTA rung.
+          campaign: specializeForAsset(strategy, asset),
         });
       } catch (err) {
         captureFallback("campaign.compose_failed", err, { campaignId, role: asset.role });
@@ -208,6 +209,17 @@ export async function processCampaignExecution(
         `${asset.role}: ${brief.creative_direction?.world ?? ""} · "${brief.headline}" · CTA "${brief.cta}"`,
       );
       await admin.from("campaigns").update({ asset_count: created }).eq("id", campaignId);
+    }
+
+    // ── Campaign Review (Sprint 25.1) — review the PLAN as one story (marketer
+    //    verdict), before the pixels. Best-effort; stored on the Brain. ────────
+    report("reviewing", 92);
+    try {
+      const { data: review } = await reviewCampaignStory(strategy);
+      strategy = { ...strategy, story_review: review };
+      await admin.from("campaigns").update({ strategy, updated_at: new Date().toISOString() }).eq("id", campaignId);
+    } catch (err) {
+      captureFallback("campaign.story_review_failed", err, { campaignId });
     }
 
     report("finalizing", 95);

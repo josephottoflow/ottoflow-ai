@@ -31,6 +31,24 @@ interface QA {
   overall_score: number;
   issues: string[];
 }
+interface PackagePlanItem {
+  role?: string;
+  phase?: string;
+  narrative_beat?: string;
+  funnel_stage?: string;
+  cta?: string;
+}
+interface StoryReview {
+  momentum_score: number;
+  purpose_score: number;
+  cta_progression_score: number;
+  objection_score: number;
+  trust_score: number;
+  overall_score: number;
+  would_approve: boolean;
+  issues: string[];
+  suggestions: string[];
+}
 interface Strategy {
   campaign_type?: string;
   primary_objective?: string;
@@ -39,6 +57,14 @@ interface Strategy {
   core_message?: string;
   primary_cta?: string;
   funnel_position?: string;
+  // Campaign Brain (Sprint 25.1)
+  narrative?: string;
+  primary_story?: string;
+  supporting_stories?: string[];
+  emotional_journey?: string[];
+  cta_progression?: string[];
+  package?: PackagePlanItem[];
+  story_review?: StoryReview;
 }
 interface CampaignResp {
   campaign: { id: string; title: string | null; prompt: string; platform: string; status: string; strategy: Strategy | null };
@@ -145,6 +171,97 @@ export function CampaignDetailClient({ campaignId }: { campaignId: string }) {
           {s.audience && <p className="text-white/70"><span className="text-white/40">Audience:</span> {s.audience}{s.awareness_stage ? ` · ${fmt(s.awareness_stage)}` : ""}</p>}
           {s.core_message && <p className="text-white/70"><span className="text-white/40">Message:</span> {s.core_message}</p>}
           {s.primary_cta && <p className="text-white/70"><span className="text-white/40">CTA:</span> {s.primary_cta}{s.funnel_position ? ` · ${s.funnel_position}` : ""}</p>}
+        </div>
+      )}
+
+      {/* Campaign Brain — narrative + messaging hierarchy (Sprint 25.1) */}
+      {s?.narrative && (
+        <div className="glass rounded-2xl p-5 mb-6 space-y-2">
+          <p className="text-3xs font-semibold uppercase tracking-widest text-white/35">Campaign narrative</p>
+          <p className="text-base font-semibold text-white/90">“{s.narrative}”</p>
+          {s.primary_story && <p className="text-sm text-white/60">{s.primary_story}</p>}
+          {s.supporting_stories && s.supporting_stories.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {s.supporting_stories.map((st, i) => (
+                <span key={i} className="text-xs px-2.5 py-1 rounded-full bg-violet-600/[0.1] border border-violet-500/20 text-violet-200">
+                  {st}
+                </span>
+              ))}
+            </div>
+          )}
+          {s.cta_progression && s.cta_progression.length > 0 && (
+            <p className="text-xs text-white/50 pt-1">
+              <span className="text-white/35">CTA progression:</span> {s.cta_progression.join("  →  ")}
+            </p>
+          )}
+          {s.emotional_journey && s.emotional_journey.length > 0 && (
+            <p className="text-xs text-white/50">
+              <span className="text-white/35">Emotional arc:</span> {s.emotional_journey.join("  →  ")}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Campaign calendar — assets assigned to narrative beats */}
+      {s?.package && s.package.length > 0 && (
+        <div className="glass rounded-2xl p-5 mb-6">
+          <p className="text-3xs font-semibold uppercase tracking-widest text-white/35 mb-3">Campaign calendar</p>
+          <ol className="space-y-2">
+            {s.package.map((p, i) => (
+              <li key={i} className="flex items-start gap-2.5 text-sm">
+                <span className="flex-shrink-0 mt-0.5 text-3xs font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-cyan-500/[0.12] text-cyan-300 min-w-[68px] text-center">
+                  {p.phase || "—"}
+                </span>
+                <div className="min-w-0">
+                  <p className="text-white/80">
+                    <span className="text-white/55">{p.role}</span>
+                    {p.narrative_beat ? ` → ${p.narrative_beat}` : ""}
+                  </p>
+                  {(p.cta || p.funnel_stage) && (
+                    <p className="text-3xs text-white/35">
+                      {p.funnel_stage ? `${p.funnel_stage}` : ""}
+                      {p.cta ? `${p.funnel_stage ? " · " : ""}CTA: ${p.cta}` : ""}
+                    </p>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {/* Campaign review — the marketer's verdict on the whole story */}
+      {s?.story_review && (
+        <div className="glass rounded-2xl p-5 mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-semibold text-white/80">
+              Campaign review
+              <span className={`ml-2 text-3xs font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-full ${s.story_review.would_approve ? "bg-emerald-500/[0.12] text-emerald-300" : "bg-amber-500/[0.12] text-amber-300"}`}>
+                {s.story_review.would_approve ? "Marketer would approve" : "Needs work"}
+              </span>
+            </p>
+            <span className="text-lg font-bold text-white tabular-nums">{s.story_review.overall_score}</span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+            {([["Momentum", s.story_review.momentum_score], ["Purpose", s.story_review.purpose_score], ["CTA arc", s.story_review.cta_progression_score], ["Objections", s.story_review.objection_score], ["Trust", s.story_review.trust_score]] as const).map(
+              ([label, val]) => (
+                <div key={label} className="rounded-xl bg-white/[0.03] p-2.5">
+                  <p className="text-3xs uppercase tracking-wider text-white/35">{label}</p>
+                  <p className="text-base font-bold text-white/85 tabular-nums">{val}</p>
+                </div>
+              ),
+            )}
+          </div>
+          {s.story_review.issues.length > 0 && (
+            <ul className="mt-3 space-y-1">
+              {s.story_review.issues.map((iss, i) => (
+                <li key={i} className="flex gap-1.5 text-xs text-white/50">
+                  <span className="text-amber-400">•</span>
+                  {iss}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 

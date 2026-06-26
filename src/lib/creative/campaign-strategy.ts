@@ -60,12 +60,15 @@ export function renderCampaignStrategyBlock(s: CampaignStrategy): string {
   const lines = [
     `CAMPAIGN STRATEGY — this creative is ONE asset in this campaign; reinforce it:`,
     `- Campaign type: ${normalizeCampaignType(s.campaign_type)}`,
+    // Campaign Brain (Sprint 25.1): the through-line every asset serves.
+    s.narrative ? `- Campaign narrative: ${s.narrative}` : "",
     `- Primary objective: ${s.primary_objective}${s.secondary_objective ? `; Secondary: ${s.secondary_objective}` : ""}`,
     `- Audience: ${s.audience}; Awareness stage: ${s.awareness_stage}`,
-    `- Core message: ${s.core_message}`,
-    `- Desired emotion: ${s.desired_emotion}; Primary CTA: ${s.primary_cta}`,
+    // For a specialized frame this is THIS asset's narrative beat.
+    `- This asset advances: ${s.core_message}`,
+    `- Desired emotion: ${s.desired_emotion}; CTA (this rung): ${s.primary_cta}`,
     `- Funnel position: ${s.funnel_position}; Distribution: ${s.distribution_strategy}`,
-  ];
+  ].filter(Boolean);
   return lines.join("\n");
 }
 
@@ -115,6 +118,45 @@ export async function loadCampaignMemory(
         `${c.campaign_type} → "${(c.core_message || "").slice(0, 80)}" · CTA "${c.primary_cta}" · ${c.desired_emotion}`,
       );
       if (out.length >= 6) break;
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Campaign Brain narrative memory (Sprint 25.1) — recall PAST CAMPAIGNS' whole
+ * narratives (not per-creative strategies) so the Brain evolves: avoid repeating
+ * the same story / emotional arc / CTA progression / supporting messages. Reads
+ * the campaigns table (best-effort; empty before migration 030 is applied).
+ */
+export async function loadCampaignNarrativeMemory(
+  db: SupabaseClient,
+  brandId: string,
+): Promise<string[]> {
+  try {
+    const { data } = await db
+      .from("campaigns")
+      .select("strategy, created_at")
+      .eq("brand_id", brandId)
+      .order("created_at", { ascending: false })
+      .limit(8);
+    const out: string[] = [];
+    for (const row of data ?? []) {
+      const s = (row.strategy ?? null) as
+        | { narrative?: string; core_message?: string; emotional_journey?: string[]; cta_progression?: string[]; primary_cta?: string; supporting_stories?: string[] }
+        | null;
+      if (!s) continue;
+      const narrative = s.narrative || s.core_message;
+      if (!narrative) continue;
+      const arc = (s.emotional_journey ?? []).join(" → ");
+      const cta = (s.cta_progression ?? []).join(" → ") || s.primary_cta || "";
+      const pillars = (s.supporting_stories ?? []).slice(0, 4).join(", ");
+      out.push(
+        `"${narrative.slice(0, 90)}" · arc: ${arc || "—"} · CTAs: ${cta || "—"}${pillars ? ` · pillars: ${pillars}` : ""}`,
+      );
+      if (out.length >= 5) break;
     }
     return out;
   } catch {
