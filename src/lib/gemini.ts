@@ -2224,6 +2224,122 @@ a real creative director, never flattering:
   return { data: { ...data, recommendation }, meta };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// AI Improvement Planner (Sprint 21) — turns a weak review into a concrete plan:
+// what to change, a revised creative direction, and a NEW background-only prompt
+// the worker regenerates from. Closes the self-improvement loop (generate →
+// review → plan → regenerate) so OttoFlow never just says "this is weak" — it
+// knows WHY and fixes it.
+// ─────────────────────────────────────────────────────────────────────────────
+export interface CreativeImprovementPlan {
+  /** Concrete, human-readable changes targeting the weakest dimensions. */
+  changes: string[];
+  /** The improved art direction (same shape as creative_direction). */
+  new_direction: {
+    world: string;
+    environment: string;
+    lighting: string;
+    lens: string;
+    composition: string;
+    mood: string;
+    color_grade: string;
+    emotional_tone: string;
+  };
+  /** A NEW background-ONLY cinematic photo prompt that bakes in the changes. */
+  revision_prompt: string;
+}
+
+const creativeImprovementSchema: Schema = {
+  type: Type.OBJECT,
+  required: ["changes", "new_direction", "revision_prompt"],
+  properties: {
+    changes: { type: Type.ARRAY, items: { type: Type.STRING } },
+    new_direction: {
+      type: Type.OBJECT,
+      required: ["world", "environment", "lighting", "lens", "composition", "mood", "color_grade", "emotional_tone"],
+      properties: {
+        world: { type: Type.STRING },
+        environment: { type: Type.STRING },
+        lighting: { type: Type.STRING },
+        lens: { type: Type.STRING },
+        composition: { type: Type.STRING },
+        mood: { type: Type.STRING },
+        color_grade: { type: Type.STRING },
+        emotional_tone: { type: Type.STRING },
+      },
+    },
+    revision_prompt: { type: Type.STRING },
+  },
+} as Schema;
+
+/**
+ * Plan an improvement for a creative the review judged below threshold. Reads
+ * the review (which dimensions are weak + why), the campaign context, the
+ * current creative direction and the brand's recent directions (Creative
+ * Memory), and returns concrete changes + a revised direction + a new
+ * background-only prompt to regenerate from.
+ */
+export async function planCreativeImprovement(input: {
+  review: CreativeReview;
+  brand: { name: string; industry: string | null };
+  platform: string;
+  objective: string;
+  headline: string;
+  cta: string;
+  currentDirection: Record<string, string> | null;
+  currentBackgroundPrompt: string;
+  recentDirections: string[];
+}): Promise<{ data: CreativeImprovementPlan; meta: GenerationMeta }> {
+  const r = input.review;
+  // Rank the dimensions so the planner attacks the weakest first.
+  const dims: Array<[string, number]> = [
+    ["composition", r.composition_score],
+    ["branding", r.brand_score],
+    ["originality", r.originality_score],
+    ["readability", r.readability_score],
+    ["commercial quality", r.commercial_score],
+    ["storytelling", r.story_score],
+    ["platform fitness", r.platform_score],
+  ];
+  const weakest = dims.sort((a, b) => a[1] - b[1]).slice(0, 3).map(([n, s]) => `${n} (${s})`).join(", ");
+  const memBlock = input.recentDirections.length
+    ? `AVOID repeating these recent worlds (originality):\n${input.recentDirections.map((d, i) => `  ${i + 1}. ${d}`).join("\n")}`
+    : "No recent creatives to avoid.";
+  const dir = input.currentDirection
+    ? Object.entries(input.currentDirection).filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`).join(" · ")
+    : "(none recorded)";
+
+  const prompt = `You are a SENIOR CREATIVE DIRECTOR giving REVISION NOTES on an ad creative for
+${input.brand.name}${input.brand.industry ? ` (${input.brand.industry})` : ""} on ${input.platform}.
+Campaign focus: ${input.objective}. Headline "${input.headline}", CTA "${input.cta}".
+
+The AI review scored it ${r.overall_score}/100 — BELOW the quality bar. Weakest dimensions: ${weakest}.
+Reviewer issues: ${r.issues.length ? r.issues.map((i) => `"${i}"`).join("; ") : "none stated"}.
+Reviewer suggestions: ${r.suggestions.length ? r.suggestions.map((s) => `"${s}"`).join("; ") : "none stated"}.
+
+CURRENT creative direction: ${dir}
+CURRENT background prompt: "${input.currentBackgroundPrompt}"
+${memBlock}
+
+Produce a concrete revision plan that FIXES the weakest dimensions. Use the right move for each:
+- Weak COMPOSITION -> move the subject to rule-of-thirds, increase negative space, reduce clutter, add foreground depth, use a longer focal length, warmer directional light.
+- Weak BRANDING -> carry brand colour into reflections / practical lights / materials (never as flat graphics), strengthen a clear focal anchor, increase visual consistency.
+- Weak ORIGINALITY -> abandon the overused world (e.g. avoid boardroom / skyline / glass office) and choose a DIFFERENT valid world (e.g. rooftop cafe, industrial warehouse, architectural atrium) that still fits the brand.
+- Weak READABILITY -> quieter / less busy background, more empty space where copy lands, stronger tonal contrast behind the headline.
+
+Return:
+1) "changes": 3-6 specific, actionable revision notes.
+2) "new_direction": a full, improved creative direction (world, environment, lighting, lens, composition, mood, color_grade, emotional_tone) - meaningfully different from the current one where the weakness demands it, still on-brand.
+3) "revision_prompt": a single NEW BACKGROUND-ONLY cinematic photograph prompt that bakes in the changes. It describes ONLY a real photographic scene - NO text, letters, words, logos, watermarks, faces, people, or geometric shapes/bars/grids. Brand colour appears only as light within the scene.`.trim();
+
+  return generateStructuredFull<CreativeImprovementPlan>({
+    prompt,
+    schema: creativeImprovementSchema,
+    systemInstruction: "You are a senior creative director writing revision notes. Be concrete and decisive; target the weakest dimensions; never restate the same world that already failed.",
+    label: "creativeImprovement",
+  });
+}
+
 export async function generateCreativeConcept(input: {
   brand: {
     name: string;

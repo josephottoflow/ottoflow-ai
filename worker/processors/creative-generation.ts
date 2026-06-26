@@ -28,6 +28,8 @@ import {
   generateCreativeBackground,
   validateGeneratedBackground,
   reviewCreativeImage,
+  planCreativeImprovement,
+  type CreativeReview,
 } from "@/lib/gemini";
 import { compositeCreative, renderFallbackBackground } from "@/lib/creative/compositor";
 import {
@@ -70,6 +72,88 @@ async function loadActiveBrandPattern(
 type Reporter = (step: string, progress: number) => void;
 
 const MAX_BACKGROUND_ATTEMPTS = 3;
+
+/** Quality gate (override with CREATIVE_REVIEW_THRESHOLD). */
+function reviewThresholdEnv(): number {
+  const n = Number(process.env.CREATIVE_REVIEW_THRESHOLD);
+  return Number.isFinite(n) && n > 0 && n <= 100 ? n : 85;
+}
+
+/** Max improvement cycles after the first generation (override MAX_REVISIONS).
+ *  0 → behaves like a single generate+review (Sprint 20). Clamped to [0,5]. */
+function maxRevisionsEnv(): number {
+  const n = Number(process.env.MAX_REVISIONS);
+  if (!Number.isFinite(n) || n < 0) return 2;
+  return Math.min(Math.floor(n), 5);
+}
+
+/** Merge a planner's new_direction over the current one — non-empty fields win. */
+function mergeDirection(
+  current: Record<string, string>,
+  incoming: Record<string, string>,
+): Record<string, string> {
+  const out: Record<string, string> = { ...current };
+  for (const [k, v] of Object.entries(incoming)) {
+    if (typeof v === "string" && v.trim()) out[k] = v.trim();
+  }
+  return out;
+}
+
+/** Creative Memory recall — recent directions for this brand (exclude self). */
+async function recallRecentDirections(
+  admin: ReturnType<typeof createAdminClient>,
+  brandId: string,
+  selfId: string,
+): Promise<string[]> {
+  try {
+    const { data: recent } = await admin
+      .from("content_creatives")
+      .select("creative_brief, created_at")
+      .eq("brand_id", brandId)
+      .neq("id", selfId)
+      .order("created_at", { ascending: false })
+      .limit(8);
+    return (recent ?? [])
+      .map((r) => {
+        const cd = (r.creative_brief as { creative_direction?: Record<string, string> } | null)
+          ?.creative_direction;
+        return cd?.world ? [cd.world, cd.environment, cd.lighting, cd.lens].filter(Boolean).join(" · ") : null;
+      })
+      .filter((s): s is string => !!s)
+      .slice(0, 6);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Generate ONE background from a prompt: Imagen with the multimodal safety loop
+ * (up to MAX_BACKGROUND_ATTEMPTS), falling back to the deterministic palette
+ * gradient if Imagen can't produce a clean background. Never throws on safety —
+ * always returns a usable buffer.
+ */
+async function produceBackground(
+  prompt: string,
+  briefForFallback: CreativeBrief,
+  creativeId: string,
+  report: Reporter,
+  baseProgress: number,
+): Promise<{ background: Buffer; backgroundSource: "imagen" | "fallback" }> {
+  let lastReason = "";
+  for (let attempt = 1; attempt <= MAX_BACKGROUND_ATTEMPTS; attempt++) {
+    const png = await generateCreativeBackground({ prompt, aspectRatio: briefForFallback.aspect_ratio });
+    const check = await validateGeneratedBackground(png);
+    if (!check.contains_text && !check.contains_logo && !check.contains_face) {
+      return { background: png, backgroundSource: "imagen" };
+    }
+    lastReason = `text=${check.contains_text} logo=${check.contains_logo} face=${check.contains_face} (${check.description})`;
+    report("background", Math.min(baseProgress + attempt * 2, 84));
+  }
+  console.warn(
+    `[creative-generation] ${creativeId}: Imagen background failed safety validation after ${MAX_BACKGROUND_ATTEMPTS} attempts (${lastReason}); using deterministic fallback background.`,
+  );
+  return { background: await renderFallbackBackground(briefForFallback), backgroundSource: "fallback" };
+}
 
 export async function processCreativeGeneration(
   data: CreativeGenerationJobData,
@@ -134,38 +218,9 @@ export async function processCreativeGeneration(
     .eq("id", creativeId);
 
   try {
-    // ─── Step 2: Imagen background + multimodal validation loop ──────────────
-    report("background", 20);
-    let background: Buffer | null = null;
-    let backgroundSource: "imagen" | "fallback" = "imagen";
-    let lastReason = "";
-    for (let attempt = 1; attempt <= MAX_BACKGROUND_ATTEMPTS; attempt++) {
-      const png = await generateCreativeBackground({
-        prompt: brief.background_prompt,
-        aspectRatio: brief.aspect_ratio,
-      });
-      const check = await validateGeneratedBackground(png);
-      if (!check.contains_text && !check.contains_logo && !check.contains_face) {
-        background = png;
-        break;
-      }
-      lastReason = `text=${check.contains_text} logo=${check.contains_logo} face=${check.contains_face} (${check.description})`;
-      report("background", 20 + attempt * 8);
-    }
-    if (!background) {
-      // Imagen couldn't produce a background that passes safety validation.
-      // Do NOT fail the creative — render a deterministic, guaranteed-clean
-      // palette gradient (sharp only, never Imagen → no text/logo/face/symbols/
-      // objects) and continue. Every approved creative still yields an image.
-      console.warn(
-        `[creative-generation] ${creativeId}: Imagen background failed safety validation after ${MAX_BACKGROUND_ATTEMPTS} attempts (${lastReason}); using deterministic fallback background.`,
-      );
-      background = await renderFallbackBackground(brief);
-      backgroundSource = "fallback";
-    }
-
-    // ─── Step 3: download LOCKED asset bytes (never sent to any AI model) ─────
-    report("assets", 55);
+    // ─── Step 2: shared prep (constant across every attempt) ─────────────────
+    // LOCKED asset bytes (never sent to any AI model), brand identity, pattern.
+    report("assets", 12);
     const logoBuf = brief.logo_usage.use && brief.logo_usage.asset_id
       ? await downloadAssetBytes(admin, brief.logo_usage.asset_id)
       : null;
@@ -173,7 +228,6 @@ export async function processCreativeGeneration(
       ? await downloadAssetBytes(admin, brief.headshot_usage.asset_id)
       : null;
 
-    // Brand name for the wordmark fallback.
     const { data: brand } = await admin
       .from("brands")
       .select("name, industry")
@@ -189,80 +243,172 @@ export async function processCreativeGeneration(
         ? brief.founder_name_usage.name
         : founderNameFromLabel(null);
 
-    // ─── Step 4: deterministic composite (resize/crop/mask/position + type) ──
-    report("compositing", 70);
-    const finalPng = await compositeCreative({
-      brief,
-      background,
-      logo: logoBuf,
-      headshot: headshotBuf,
-      brandName,
-      founderName,
-      pattern: brandPattern?.pattern ?? null,
-    });
+    // Creative Memory — recent directions for the review's originality axis AND
+    // the planner's "avoid these worlds" guidance (exclude self).
+    const recentDirections = await recallRecentDirections(admin, creative.brand_id as string, creativeId);
 
-    // ─── Step 4b: AI Creative Review (Sprint 20) — vision QC on the rendered ──
-    // creative. Best-effort: a review failure must NEVER fail the creative (the
-    // image is already valid). Stored in the brief jsonb; recommendation derived
-    // from CREATIVE_REVIEW_THRESHOLD. Originality compares against this brand's
-    // recent creative directions (Creative Memory).
-    report("reviewing", 80);
-    let review: CreativeBrief["review"] = undefined;
-    try {
-      // Recall recent directions for the originality dimension (exclude self).
-      const { data: recent } = await admin
-        .from("content_creatives")
-        .select("creative_brief, created_at")
-        .eq("brand_id", creative.brand_id)
-        .neq("id", creativeId)
-        .order("created_at", { ascending: false })
-        .limit(8);
-      const recentDirections = (recent ?? [])
-        .map((r) => {
-          const cd = (r.creative_brief as { creative_direction?: Record<string, string> } | null)
-            ?.creative_direction;
-          return cd?.world ? [cd.world, cd.environment, cd.lighting, cd.lens].filter(Boolean).join(" · ") : null;
-        })
-        .filter((s): s is string => !!s)
-        .slice(0, 6);
+    const threshold = reviewThresholdEnv();
+    const maxRevisions = maxRevisionsEnv();
+    const totalAttempts = maxRevisions + 1;
 
-      const { data: verdict } = await reviewCreativeImage({
-        imageBase64: finalPng.toString("base64"),
-        mimeType: "image/png",
-        brand: { name: brandName, industry: brandIndustry },
-        platform: brief.platform,
-        headline: brief.headline,
-        cta: brief.cta,
-        creativeDirection: brief.creative_direction ?? null,
-        recentDirections,
-      });
-      const thr = Number(process.env.CREATIVE_REVIEW_THRESHOLD);
-      review = {
-        ...verdict,
-        threshold: Number.isFinite(thr) && thr > 0 && thr <= 100 ? thr : 85,
-        reviewed_at: new Date().toISOString(),
-      };
-      console.log(
-        `[creative-generation] ${creativeId}: review overall=${verdict.overall_score} → ${verdict.recommendation} (${verdict.issues.length} issues)`,
+    // ─── Step 3: AI Self-Improvement Loop (Sprint 21) ────────────────────────
+    // generate → review → (if weak) plan → regenerate, up to totalAttempts.
+    // We always DELIVER the best-scoring attempt: OttoFlow generates,
+    // criticizes, improves, and only then delivers.
+    type Candidate = {
+      background: Buffer;
+      backgroundSource: "imagen" | "fallback";
+      finalPng: Buffer;
+      review: CreativeReview | null;
+      direction: Record<string, string>;
+      prompt: string;
+    };
+    let currentPrompt = brief.background_prompt;
+    let currentDirection: Record<string, string> = { ...(brief.creative_direction ?? {}) } as Record<string, string>;
+    let pendingChanges: string[] = []; // planner notes that produced the NEXT attempt
+    const revisionHistory: NonNullable<CreativeBrief["revision_history"]> = [];
+    let best: Candidate | null = null;
+
+    for (let attempt = 1; attempt <= totalAttempts; attempt++) {
+      const span = 70 / totalAttempts;
+      const base = 15 + (attempt - 1) * span;
+
+      // (a) background from the current prompt (Imagen safety loop + fallback)
+      report(attempt === 1 ? "background" : "regenerating", Math.round(base));
+      const { background, backgroundSource } = await produceBackground(
+        currentPrompt, brief, creativeId, report, Math.round(base),
       );
-    } catch (err) {
-      captureFallback("creative-generation.review_failed", err, { creativeId });
+
+      // (b) deterministic composite with this attempt's prompt + direction
+      report("compositing", Math.round(base + span * 0.5));
+      const attemptBrief: CreativeBrief = {
+        ...brief,
+        background_prompt: currentPrompt,
+        creative_direction: currentDirection as CreativeBrief["creative_direction"],
+      };
+      const finalPng = await compositeCreative({
+        brief: attemptBrief,
+        background,
+        logo: logoBuf,
+        headshot: headshotBuf,
+        brandName,
+        founderName,
+        pattern: brandPattern?.pattern ?? null,
+      });
+
+      // (c) AI Creative Review (vision QC) — best-effort, never fails the job
+      report("reviewing", Math.round(base + span * 0.8));
+      let verdict: CreativeReview | null = null;
+      try {
+        const { data } = await reviewCreativeImage({
+          imageBase64: finalPng.toString("base64"),
+          mimeType: "image/png",
+          brand: { name: brandName, industry: brandIndustry },
+          platform: brief.platform,
+          headline: brief.headline,
+          cta: brief.cta,
+          creativeDirection: currentDirection,
+          recentDirections,
+        });
+        verdict = data;
+        console.log(
+          `[creative-generation] ${creativeId}: attempt ${attempt}/${totalAttempts} review overall=${data.overall_score} → ${data.recommendation} (${data.issues.length} issues)`,
+        );
+      } catch (err) {
+        captureFallback("creative-generation.review_failed", err, { creativeId, attempt });
+      }
+
+      // (d) record every attempt — future training data
+      revisionHistory.push({
+        attempt,
+        overall_score: verdict?.overall_score ?? null,
+        recommendation: verdict?.recommendation ?? null,
+        scores: verdict
+          ? {
+              brand: verdict.brand_score,
+              commercial: verdict.commercial_score,
+              story: verdict.story_score,
+              composition: verdict.composition_score,
+              readability: verdict.readability_score,
+              originality: verdict.originality_score,
+              platform: verdict.platform_score,
+            }
+          : undefined,
+        issues: verdict?.issues ?? [],
+        applied_changes: pendingChanges,
+        direction: currentDirection,
+        background_source: backgroundSource,
+        reviewed_at: new Date().toISOString(),
+      });
+
+      // (e) keep the strongest candidate so we always deliver the best version
+      const score = verdict?.overall_score ?? -1;
+      if (!best || score > (best.review?.overall_score ?? -1)) {
+        best = { background, backgroundSource, finalPng, review: verdict, direction: currentDirection, prompt: currentPrompt };
+      }
+
+      // (f) stop conditions
+      if (!verdict) break; // can't improve blind — deliver what we have
+      if (verdict.overall_score >= threshold) break; // approved
+      if (attempt === totalAttempts) break; // out of attempts — deliver best
+
+      // (g) plan the next revision (what to change + revised direction + prompt)
+      try {
+        const { data: plan } = await planCreativeImprovement({
+          review: verdict,
+          brand: { name: brandName, industry: brandIndustry },
+          platform: brief.platform,
+          objective: brief.visual_metaphor || brief.visual_concept || brief.topic_title || brief.headline,
+          headline: brief.headline,
+          cta: brief.cta,
+          currentDirection,
+          currentBackgroundPrompt: currentPrompt,
+          recentDirections,
+        });
+        pendingChanges = plan.changes;
+        // The revision prompt becomes the new background prompt ONLY if it's
+        // clean (background-only: no text/logo/face/geometry). Otherwise keep
+        // the prior prompt — the direction shift + Imagen entropy still help.
+        const violation = findForbiddenBackgroundToken(plan.revision_prompt);
+        if (!violation && plan.revision_prompt.trim().length >= 10) {
+          currentPrompt = plan.revision_prompt.trim();
+        } else {
+          captureFallback(
+            "creative-generation.revision_prompt_unsafe",
+            new Error(violation ?? "revision prompt too short"),
+            { creativeId, attempt },
+          );
+        }
+        currentDirection = mergeDirection(currentDirection, plan.new_direction);
+        console.log(
+          `[creative-generation] ${creativeId}: improving after attempt ${attempt} — ${plan.changes.length} change(s)`,
+        );
+      } catch (err) {
+        captureFallback("creative-generation.planner_failed", err, { creativeId, attempt });
+        break; // can't plan — deliver best
+      }
     }
 
-    // ─── Step 5: upload background (provenance) + final composite ────────────
-    report("uploading", 85);
+    // best is non-null (the loop always runs at least once).
+    const delivered = best as Candidate;
+    const deliveredScore = delivered.review?.overall_score ?? null;
+    const needsHumanReview = deliveredScore === null || deliveredScore < threshold;
+    const revisionCount = revisionHistory.length - 1;
+
+    // ─── Step 4: upload the DELIVERED background + composite ──────────────────
+    report("uploading", 88);
     const dir = `${creative.brand_id}/${creativeId}`;
     const bgPath = `${dir}/bg-${randomUUID()}.png`;
     const imgPath = `${dir}/creative-${randomUUID()}.png`;
 
     const { error: bgErr } = await admin.storage
       .from("content-creatives")
-      .upload(bgPath, background, { contentType: "image/png", upsert: false });
+      .upload(bgPath, delivered.background, { contentType: "image/png", upsert: false });
     if (bgErr) throw new Error(`Background upload failed: ${bgErr.message}`);
 
     const { error: imgErr } = await admin.storage
       .from("content-creatives")
-      .upload(imgPath, finalPng, { contentType: "image/png", upsert: false });
+      .upload(imgPath, delivered.finalPng, { contentType: "image/png", upsert: false });
     if (imgErr) throw new Error(`Creative upload failed: ${imgErr.message}`);
 
     const {
@@ -272,32 +418,53 @@ export async function processCreativeGeneration(
       data: { publicUrl: imageUrl },
     } = admin.storage.from("content-creatives").getPublicUrl(imgPath);
 
-    // ─── Step 6: finalize ────────────────────────────────────────────────────
+    // ─── Step 5: finalize ────────────────────────────────────────────────────
+    // Status stays 'ready' — the customer always receives the best version
+    // OttoFlow could create. The brief jsonb carries the delivered review, the
+    // full revision history (training data) and the needs_human_review flag
+    // (operator-only; never exposed to the customer). The delivered direction
+    // is what Creative Memory recalls next time — we vary off what we SHIPPED.
     report("finalizing", 95);
     const doneAt = new Date().toISOString();
     const finalHistory = [...history, { from: "generating", to: "ready", at: doneAt, by: "worker" }];
+    const deliveredReview = delivered.review
+      ? { ...delivered.review, threshold, reviewed_at: doneAt }
+      : undefined;
+    const updatedBrief: CreativeBrief = {
+      ...brief,
+      background_prompt: delivered.prompt,
+      creative_direction: delivered.direction as CreativeBrief["creative_direction"],
+      review: deliveredReview,
+      revision_history: revisionHistory,
+      needs_human_review: needsHumanReview,
+      revision_count: revisionCount,
+    };
     const { error: updErr } = await admin
       .from("content_creatives")
       .update({
         status: "ready",
         background_url: backgroundUrl,
         image_url: imageUrl,
-        background_source: backgroundSource,
+        background_source: delivered.backgroundSource,
         generated_at: doneAt,
         generation_error: null,
         status_history: finalHistory,
-        // Persist the AI Creative Review alongside Creative Memory (jsonb, no
-        // migration). Only rewrite the brief when a review was produced.
-        ...(review ? { creative_brief: { ...brief, review } } : {}),
+        creative_brief: updatedBrief,
       })
       .eq("id", creativeId);
     if (updErr) throw new Error(`Failed to finalize creative: ${updErr.message}`);
 
-    // BRS (P4 Phase 2A) — score the rendered creative + snapshot the pattern
+    if (needsHumanReview) {
+      console.warn(
+        `[creative-generation] ${creativeId}: delivered best version (score=${deliveredScore ?? "n/a"}) after ${revisionCount} revision(s) — flagged needs_human_review.`,
+      );
+    }
+
+    // BRS (P4 Phase 2A) — score the DELIVERED creative + snapshot the pattern
     // version. Best-effort: never fail the creative on a scoring error.
     if (brandPattern) {
       try {
-        const brs = await computeBRS(finalPng, brandPattern.pattern, {
+        const brs = await computeBRS(delivered.finalPng, brandPattern.pattern, {
           primary: brief.palette.primary,
           secondary: brief.palette.secondary,
           accent: brief.palette.accent,

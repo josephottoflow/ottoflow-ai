@@ -238,6 +238,45 @@ export const creativeBriefSchema = z.object({
     })
     .optional(),
 
+  /** AI Self-Improvement Loop (Sprint 21) — every generate→review attempt for this
+   *  creative, in order. The last entry is the DELIVERED version. Future training
+   *  data: which directions consistently produce higher-quality work. jsonb. */
+  revision_history: z
+    .array(
+      z
+        .object({
+          attempt: z.number(),
+          overall_score: z.number().nullable(),
+          recommendation: z.enum(["approve", "improve", "reject"]).nullable(),
+          scores: z
+            .object({
+              brand: z.number(),
+              commercial: z.number(),
+              story: z.number(),
+              composition: z.number(),
+              readability: z.number(),
+              originality: z.number(),
+              platform: z.number(),
+            })
+            .partial()
+            .optional(),
+          issues: z.array(z.string()).default([]),
+          /** The planner notes that produced THIS attempt (empty on attempt 1). */
+          applied_changes: z.array(z.string()).default([]),
+          direction: z.record(z.string()).optional(),
+          background_source: z.string().optional(),
+          reviewed_at: z.string().optional(),
+        })
+        .passthrough(),
+    )
+    .optional(),
+  /** True when the loop exhausted its attempts still below threshold — the best
+   *  version is delivered, but flagged for human review (never exposed to the
+   *  customer). */
+  needs_human_review: z.boolean().optional(),
+  /** Number of improvement cycles performed (0 = approved on first generation). */
+  revision_count: z.number().optional(),
+
   // ── Code-computed asset + identity usage (deterministic, trustworthy) ───
   logo_usage: assetUsageSchema,
   headshot_usage: assetUsageSchema,
