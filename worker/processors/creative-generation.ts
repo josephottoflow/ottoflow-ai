@@ -42,7 +42,16 @@ import {
 import { computeBRS } from "@/lib/creative/brs";
 import { founderNameFromLabel } from "@/lib/creative/brief";
 import { captureFallback } from "@/lib/observability";
+import { recordAIUsage } from "@/lib/ai-usage";
 import type { CreativeGenerationJobData } from "@/lib/queue";
+
+/** Shared attribution for AI-usage telemetry across one creative's render. */
+interface UsageCtx {
+  admin: ReturnType<typeof createAdminClient>;
+  userId: string;
+  creativeId: string;
+  campaignId: string | null;
+}
 
 /**
  * Load a brand's ACTIVE brand pattern (P4 Phase 2A). Defensive: returns null on
@@ -138,11 +147,38 @@ async function produceBackground(
   creativeId: string,
   report: Reporter,
   baseProgress: number,
+  ctx: UsageCtx,
+  revisionAttempt: number,
 ): Promise<{ background: Buffer; backgroundSource: "imagen" | "fallback" }> {
   let lastReason = "";
   for (let attempt = 1; attempt <= MAX_BACKGROUND_ATTEMPTS; attempt++) {
-    const png = await generateCreativeBackground({ prompt, aspectRatio: briefForFallback.aspect_ratio });
+    // Imagen (telemetry: 1 image per call, retryCount = inner safety attempt).
+    const ig0 = Date.now();
+    let png: Buffer;
+    try {
+      png = await generateCreativeBackground({ prompt, aspectRatio: briefForFallback.aspect_ratio });
+      await recordAIUsage(ctx.admin, {
+        userId: ctx.userId, provider: "imagen", operation: "generateCreativeBackground", purpose: "creative",
+        model: "imagen-4.0-fast-generate-001", creativeId: ctx.creativeId, campaignId: ctx.campaignId,
+        startedAt: ig0, completedAt: Date.now(), success: true, images: 1, retryCount: attempt - 1, revisionAttempt,
+      });
+    } catch (err) {
+      await recordAIUsage(ctx.admin, {
+        userId: ctx.userId, provider: "imagen", operation: "generateCreativeBackground", purpose: "creative",
+        model: "imagen-4.0-fast-generate-001", creativeId: ctx.creativeId, campaignId: ctx.campaignId,
+        startedAt: ig0, completedAt: Date.now(), success: false, images: 0, retryCount: attempt - 1, revisionAttempt,
+        failureReason: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    }
+    // Background safety validation (Gemini vision; tokens not surfaced by this call).
+    const vg0 = Date.now();
     const check = await validateGeneratedBackground(png);
+    await recordAIUsage(ctx.admin, {
+      userId: ctx.userId, provider: "gemini", operation: "validateGeneratedBackground", purpose: "review",
+      model: "gemini-vision", creativeId: ctx.creativeId, campaignId: ctx.campaignId,
+      startedAt: vg0, completedAt: Date.now(), success: true, retryCount: attempt - 1, revisionAttempt,
+    });
     if (!check.contains_text && !check.contains_logo && !check.contains_face) {
       return { background: png, backgroundSource: "imagen" };
     }
@@ -175,7 +211,7 @@ export async function processCreativeGeneration(
   report("loading", 5);
   const { data: creative, error: loadErr } = await admin
     .from("content_creatives")
-    .select("id, brand_id, status, creative_brief, status_history, regen_count")
+    .select("id, brand_id, campaign_id, status, creative_brief, status_history, regen_count")
     .eq("id", creativeId)
     .single();
   if (loadErr || !creative) {
@@ -230,11 +266,18 @@ export async function processCreativeGeneration(
 
     const { data: brand } = await admin
       .from("brands")
-      .select("name, industry")
+      .select("name, industry, user_id")
       .eq("id", creative.brand_id)
       .single();
     const brandName = (brand?.name as string | undefined) ?? "";
     const brandIndustry = (brand?.industry as string | null | undefined) ?? null;
+    // AI-usage telemetry attribution (Sprint 29).
+    const usageCtx: UsageCtx = {
+      admin,
+      userId: (brand?.user_id as string | undefined) ?? "unknown",
+      creativeId,
+      campaignId: (creative.campaign_id as string | null) ?? null,
+    };
     // Active Brand Pattern (P4 Phase 2A) — null until migration 023 + an
     // authored pattern exist; null → compositor renders exactly as before.
     const brandPattern = await loadActiveBrandPattern(admin, creative.brand_id as string);
@@ -276,7 +319,7 @@ export async function processCreativeGeneration(
       // (a) background from the current prompt (Imagen safety loop + fallback)
       report(attempt === 1 ? "background" : "regenerating", Math.round(base));
       const { background, backgroundSource } = await produceBackground(
-        currentPrompt, brief, creativeId, report, Math.round(base),
+        currentPrompt, brief, creativeId, report, Math.round(base), usageCtx, attempt - 1,
       );
 
       // (b) deterministic composite with this attempt's prompt + direction
@@ -299,8 +342,9 @@ export async function processCreativeGeneration(
       // (c) AI Creative Review (vision QC) — best-effort, never fails the job
       report("reviewing", Math.round(base + span * 0.8));
       let verdict: CreativeReview | null = null;
+      const rv0 = Date.now();
       try {
-        const { data } = await reviewCreativeImage({
+        const { data, meta } = await reviewCreativeImage({
           imageBase64: finalPng.toString("base64"),
           mimeType: "image/png",
           brand: { name: brandName, industry: brandIndustry },
@@ -311,10 +355,22 @@ export async function processCreativeGeneration(
           recentDirections,
         });
         verdict = data;
+        await recordAIUsage(usageCtx.admin, {
+          userId: usageCtx.userId, provider: "gemini", operation: "reviewCreativeImage", purpose: "review",
+          model: "gemini-vision", creativeId, campaignId: usageCtx.campaignId,
+          startedAt: rv0, completedAt: Date.now(), success: true,
+          tokensInput: meta.tokensInput, tokensOutput: meta.tokensOutput, revisionAttempt: attempt - 1,
+        });
         console.log(
           `[creative-generation] ${creativeId}: attempt ${attempt}/${totalAttempts} review overall=${data.overall_score} → ${data.recommendation} (${data.issues.length} issues)`,
         );
       } catch (err) {
+        await recordAIUsage(usageCtx.admin, {
+          userId: usageCtx.userId, provider: "gemini", operation: "reviewCreativeImage", purpose: "review",
+          model: "gemini-vision", creativeId, campaignId: usageCtx.campaignId,
+          startedAt: rv0, completedAt: Date.now(), success: false, revisionAttempt: attempt - 1,
+          failureReason: err instanceof Error ? err.message : String(err),
+        });
         captureFallback("creative-generation.review_failed", err, { creativeId, attempt });
       }
 
@@ -353,8 +409,9 @@ export async function processCreativeGeneration(
       if (attempt === totalAttempts) break; // out of attempts — deliver best
 
       // (g) plan the next revision (what to change + revised direction + prompt)
+      const im0 = Date.now();
       try {
-        const { data: plan } = await planCreativeImprovement({
+        const { data: plan, meta } = await planCreativeImprovement({
           review: verdict,
           brand: { name: brandName, industry: brandIndustry },
           platform: brief.platform,
@@ -364,6 +421,12 @@ export async function processCreativeGeneration(
           currentDirection,
           currentBackgroundPrompt: currentPrompt,
           recentDirections,
+        });
+        await recordAIUsage(usageCtx.admin, {
+          userId: usageCtx.userId, provider: "gemini", operation: "planCreativeImprovement", purpose: "improvement",
+          model: "gemini", creativeId, campaignId: usageCtx.campaignId,
+          startedAt: im0, completedAt: Date.now(), success: true,
+          tokensInput: meta.tokensInput, tokensOutput: meta.tokensOutput, revisionAttempt: attempt - 1,
         });
         pendingChanges = plan.changes;
         // The revision prompt becomes the new background prompt ONLY if it's

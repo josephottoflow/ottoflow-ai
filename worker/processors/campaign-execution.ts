@@ -27,6 +27,7 @@ import { loadPerformanceIntelligence } from "@/lib/creative/performance-intellig
 import { orderPackage, synthesizeAssetContent, specializeForAsset, validateCampaignBlueprint } from "@/lib/creative/campaign-execution";
 import { creativeGenerationQueue, type CampaignExecutionJobData } from "@/lib/queue";
 import { captureFallback } from "@/lib/observability";
+import { recordAIUsage } from "@/lib/ai-usage";
 import type { DbBrand, DbBrandAsset } from "@/lib/types";
 
 type Reporter = (step: string, progress: number) => void;
@@ -100,7 +101,9 @@ export async function processCampaignExecution(
     if (!strategy || !Array.isArray(strategy.package)) {
       const recentCampaigns = await loadCampaignNarrativeMemory(admin, campaign.brand_id as string);
       const p = brand.profile;
-      const { data: planned } = await planCampaignStrategy({
+      const userId = (campaign.user_id as string | undefined) ?? "unknown";
+      const pl0 = Date.now();
+      const { data: planned, meta: planMeta } = await planCampaignStrategy({
         brand: {
           name: brand.name,
           industry: brand.industry,
@@ -117,13 +120,24 @@ export async function processCampaignExecution(
         recentCampaigns,
         learningSummary,
       });
+      await recordAIUsage(admin, {
+        userId, provider: "gemini", operation: "planCampaignStrategy", purpose: "campaign", model: "gemini",
+        campaignId, startedAt: pl0, completedAt: Date.now(), success: true,
+        tokensInput: planMeta.tokensInput, tokensOutput: planMeta.tokensOutput,
+      });
       // Deterministic validation = SOURCE OF TRUTH; Gemini CMO review = advisory.
       strategy = { ...planned, learning_summary: learningSummary };
       strategy.validation = validateCampaignBlueprint(strategy);
       report("reviewing", 16);
+      const rv0 = Date.now();
       try {
-        const { data: review } = await reviewCampaignStory(strategy, strategy.validation);
+        const { data: review, meta: reviewMeta } = await reviewCampaignStory(strategy, strategy.validation);
         strategy.story_review = review;
+        await recordAIUsage(admin, {
+          userId, provider: "gemini", operation: "reviewCampaignStory", purpose: "campaign", model: "gemini",
+          campaignId, startedAt: rv0, completedAt: Date.now(), success: true,
+          tokensInput: reviewMeta.tokensInput, tokensOutput: reviewMeta.tokensOutput,
+        });
       } catch (err) {
         captureFallback("campaign.story_review_failed", err, { campaignId });
       }
