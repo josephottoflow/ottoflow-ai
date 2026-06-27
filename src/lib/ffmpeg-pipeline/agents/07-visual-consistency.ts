@@ -27,6 +27,34 @@ import type {
 
 const CONSISTENCY_REWARD = 1.5; // max points added for matching the signature
 const QUALITY_FLOOR_DELTA = 0.35; // reject if quality < runningAvg - this
+// Sprint 31 — within-video SEMANTIC variety. Each candidate carries the query
+// that surfaced it; two clips found by overlapping queries are likely the same
+// environment/concept ("office twice", "warehouse twice"). We soft-penalise a
+// candidate by how much of its concept the video has ALREADY shown — reusing the
+// existing `query` metadata, no vision call. Soft so a scene always gets a clip.
+const SEMANTIC_REPEAT_PENALTY = 2.0;
+const QUERY_STOPWORDS = new Set([
+  "a", "an", "the", "of", "in", "on", "with", "and", "or", "to", "for", "at", "by",
+  "from", "into", "video", "footage", "clip", "shot", "scene", "b-roll", "broll",
+]);
+function queryTokens(query: string): string[] {
+  return (query || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((t) => t.length > 2 && !QUERY_STOPWORDS.has(t));
+}
+/** Penalty = SEMANTIC_REPEAT_PENALTY × fraction of this clip's concept tokens
+ *  already shown in earlier scenes of the same video. */
+function semanticRepeatPenalty(query: string, seen: Map<string, number>): number {
+  const toks = queryTokens(query);
+  if (toks.length === 0 || seen.size === 0) return 0;
+  const overlap = toks.filter((t) => seen.has(t)).length;
+  return SEMANTIC_REPEAT_PENALTY * (overlap / toks.length);
+}
+function rememberTokens(seen: Map<string, number>, query: string): void {
+  for (const t of queryTokens(query)) seen.set(t, (seen.get(t) ?? 0) + 1);
+}
 
 interface Signature {
   dominantSource: string;
@@ -86,6 +114,8 @@ export async function runVisualConsistency(
   // leave a scene empty, so the exclusion is dropped if it would empty the pool.
   const usedKeys = new Set<string>();
   const clipKey = (c: { source: string; sourceId: string }) => `${c.source}:${c.sourceId}`;
+  // Concept tokens already shown earlier in THIS video (for semantic variety).
+  const seenTokens = new Map<string, number>();
 
   // perSceneCandidates is ordered by sceneId (scene 1 at index 0), so the
   // sceneId is simply the loop index + 1 — no fragile reverse-lookup needed.
@@ -120,7 +150,9 @@ export async function runVisualConsistency(
     let best: SelectedClip | null = null;
     for (const c of pool) {
       const consistency = consistencyReward(c, sig);
-      const finalScore = baseScore(c) + consistency;
+      // Reward production consistency, but penalise showing the same concept
+      // again so each scene feels intentionally different.
+      const finalScore = baseScore(c) + consistency - semanticRepeatPenalty(c.query, seenTokens);
       const sel: SelectedClip = {
         ...c,
         consistencyScore: sig.count === 0 ? 1 : consistency / CONSISTENCY_REWARD,
@@ -133,6 +165,7 @@ export async function runVisualConsistency(
     selectionsBySceneId[sceneId] = best;
     sig = updateSignature(sig, best);
     usedKeys.add(clipKey(best));
+    rememberTokens(seenTokens, best.query);
   }
 
   ctx.log("agent.visualConsistency.done", {
