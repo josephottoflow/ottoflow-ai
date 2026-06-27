@@ -33,7 +33,6 @@ export interface CampaignSummary {
   primary_cta: string;
   funnel_position: string;
   distribution_strategy: string;
-  reasoning: CampaignStrategy["reasoning"];
   package: CampaignStrategy["package"];
 }
 
@@ -50,7 +49,6 @@ export function campaignSummary(s: CampaignStrategy, applied: boolean): Campaign
     primary_cta: s.primary_cta,
     funnel_position: s.funnel_position,
     distribution_strategy: s.distribution_strategy,
-    reasoning: s.reasoning,
     package: s.package,
   };
 }

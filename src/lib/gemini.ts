@@ -2366,16 +2366,6 @@ export interface CampaignStrategy {
   primary_cta: string;
   funnel_position: string; // TOFU | MOFU | BOFU
   distribution_strategy: string;
-  /** Internal-only strategic reasoning (the "why" before any pixel). */
-  reasoning: {
-    why_campaign: string;
-    why_audience: string;
-    why_hook: string;
-    why_cta: string;
-    why_sequence: string;
-    why_world: string;
-    why_now: string;
-  };
   /** The recommended asset sequence. Each asset advances the NARRATIVE (Sprint
    *  25.1) — phase/narrative_beat/funnel_stage/cta/emotional_beat are optional so
    *  Sprint-24 strategies stay valid; the Brain planner now always fills them. */
@@ -2406,9 +2396,6 @@ export interface CampaignStrategy {
   /** The pillars beneath the narrative (culture, remote, salary, growth, …). */
   supporting_stories?: string[];
   objection_handling?: string[];
-  trust_building?: string[];
-  social_proof?: string[];
-  educational?: string[];
   /** Ordered emotional beats across the campaign. */
   emotional_journey?: string[];
   /** CTA rungs from soft to hard (the progression, not one CTA). */
@@ -2473,11 +2460,10 @@ const campaignStrategySchema: Schema = {
   required: [
     "campaign_type", "primary_objective", "secondary_objective", "audience",
     "awareness_stage", "core_message", "desired_emotion", "primary_cta",
-    "funnel_position", "distribution_strategy", "reasoning",
+    "funnel_position", "distribution_strategy",
     "business_objective", "audience_state", "desired_transformation", "trust_strategy", "acts",
     "narrative", "primary_story", "supporting_stories", "objection_handling",
-    "trust_building", "social_proof", "educational", "emotional_journey",
-    "cta_progression", "package",
+    "emotional_journey", "cta_progression", "package",
   ],
   properties: {
     campaign_type: { type: Type.STRING },
@@ -2490,19 +2476,6 @@ const campaignStrategySchema: Schema = {
     primary_cta: { type: Type.STRING },
     funnel_position: { type: Type.STRING },
     distribution_strategy: { type: Type.STRING },
-    reasoning: {
-      type: Type.OBJECT,
-      required: ["why_campaign", "why_audience", "why_hook", "why_cta", "why_sequence", "why_world", "why_now"],
-      properties: {
-        why_campaign: { type: Type.STRING },
-        why_audience: { type: Type.STRING },
-        why_hook: { type: Type.STRING },
-        why_cta: { type: Type.STRING },
-        why_sequence: { type: Type.STRING },
-        why_world: { type: Type.STRING },
-        why_now: { type: Type.STRING },
-      },
-    },
     // ── Campaign Reasoning (Sprint 26 — people → strategy → story → structure) ─
     business_objective: {
       type: Type.OBJECT,
@@ -2560,9 +2533,6 @@ const campaignStrategySchema: Schema = {
     primary_story: { type: Type.STRING },
     supporting_stories: STRING_ARRAY,
     objection_handling: STRING_ARRAY,
-    trust_building: STRING_ARRAY,
-    social_proof: STRING_ARRAY,
-    educational: STRING_ARRAY,
     emotional_journey: STRING_ARRAY,
     cta_progression: STRING_ARRAY,
     package: {
@@ -2641,12 +2611,12 @@ includes assets. REASON IN THIS EXACT ORDER. Do NOT assign any asset until steps
 3. DESIRED TRANSFORMATION (desired_transformation): after the campaign, what should they believe, feel, understand, want, and which action becomes obvious_action.
 4. TRUST STRATEGY (trust_strategy): proof_required, objections_to_answer, credibility (what must be established), evidence (what's needed), never_claim (what must NOT be claimed).
 5. EMOTIONAL JOURNEY (emotional_journey): the ordered emotional progression that gets them from their current state to the decision (e.g. curiosity → recognition → understanding → trust → confidence → decision). It changes per campaign.
-6. CAMPAIGN NARRATIVE: narrative (through-line, one sentence), primary_story, supporting_stories (4-7 pillars), objection_handling, trust_building, social_proof, educational.
+6. CAMPAIGN NARRATIVE: narrative (through-line, one sentence), primary_story, supporting_stories (4-7 pillars), objection_handling (the real objections + how the campaign answers them).
 7. CAMPAIGN ACTS (acts): think in ACTS, not assets — e.g. Awareness → Education → Authority → Trust → Decision → Conversion. Each act has an act name + intent. Assets belong to acts; acts never belong to assets.
 8. CTA PROGRESSION (cta_progression): CTAs mature SOFT → HARD (e.g. learn → discover → compare → talk to us → book → apply → buy). Never ask for conversion before enough trust exists.
 9. ASSET ASSIGNMENT (package, 4-8 assets) — ONLY NOW assign assets. Every asset must explicitly justify itself: role, format (platform-native), angle, phase (Launch | Education | Authority | Proof | Conversion | Follow-up | Retargeting), narrative_beat (which story it advances), funnel_stage (TOFU/MOFU/BOFU), cta (its rung), emotional_beat, why_exists (why this asset is in the campaign), belief_changed (the belief it shifts), objection_answered (the objection it answers, or "—"), emotional_step (the step it creates), cta_stage (which CTA rung it supports). NO asset may exist just to fill a slot.
 
-Also fill the legacy summary fields consistently: campaign_type (EXACTLY ONE of: ${CAMPAIGN_TYPES.join(", ")}), primary_objective, secondary_objective, audience, awareness_stage (unaware|problem_aware|solution_aware|product_aware|most_aware), core_message, desired_emotion, primary_cta, funnel_position (TOFU/MOFU/BOFU), distribution_strategy, and reasoning (why_campaign/why_audience/why_hook/why_cta/why_sequence/why_world/why_now).
+Also fill the summary fields consistently with your reasoning above: campaign_type (EXACTLY ONE of: ${CAMPAIGN_TYPES.join(", ")}), primary_objective, secondary_objective, audience, awareness_stage (unaware|problem_aware|solution_aware|product_aware|most_aware), core_message, desired_emotion, primary_cta, funnel_position (TOFU/MOFU/BOFU), distribution_strategy.
 
 Order the package as a CALENDAR (Launch → … → Retargeting): build trust and momentum
 BEFORE the conversion ask. Make the narrative, emotional arc and CTA progression

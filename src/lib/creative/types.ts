@@ -326,17 +326,6 @@ export const creativeBriefSchema = z.object({
       primary_cta: z.string().default(""),
       funnel_position: z.string().default(""),
       distribution_strategy: z.string().default(""),
-      reasoning: z
-        .object({
-          why_campaign: z.string().default(""),
-          why_audience: z.string().default(""),
-          why_hook: z.string().default(""),
-          why_cta: z.string().default(""),
-          why_sequence: z.string().default(""),
-          why_world: z.string().default(""),
-          why_now: z.string().default(""),
-        })
-        .default({ why_campaign: "", why_audience: "", why_hook: "", why_cta: "", why_sequence: "", why_world: "", why_now: "" }),
       package: z
         .array(z.object({ role: z.string(), format: z.string(), angle: z.string() }))
         .default([]),
