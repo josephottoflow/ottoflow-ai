@@ -79,6 +79,14 @@ export async function runVisualConsistency(
     count: 0,
   };
 
+  // Intra-video duplicate prevention (Sprint 30 — Visual Selection Engine).
+  // Cross-job freshness is handled by Agent 6 (diversity); this prevents the
+  // SAME clip being chosen for two scenes WITHIN one video. We exclude any
+  // already-selected (source, sourceId) from later scenes' pools — but never
+  // leave a scene empty, so the exclusion is dropped if it would empty the pool.
+  const usedKeys = new Set<string>();
+  const clipKey = (c: { source: string; sourceId: string }) => `${c.source}:${c.sourceId}`;
+
   // perSceneCandidates is ordered by sceneId (scene 1 at index 0), so the
   // sceneId is simply the loop index + 1 — no fragile reverse-lookup needed.
   for (let sceneIdx = 0; sceneIdx < input.perSceneCandidates.length; sceneIdx++) {
@@ -102,7 +110,11 @@ export async function runVisualConsistency(
       }
       return true;
     });
-    const pool = eligible.length > 0 ? eligible : candidates;
+    const qualityPool = eligible.length > 0 ? eligible : candidates;
+    // Drop clips already used in an earlier scene of THIS video; fall back to
+    // the full pool only if dedup would leave the scene with nothing.
+    const fresh = qualityPool.filter((c) => !usedKeys.has(clipKey(c)));
+    const pool = fresh.length > 0 ? fresh : qualityPool;
 
     // Rank by base + consistency reward.
     let best: SelectedClip | null = null;
@@ -120,6 +132,7 @@ export async function runVisualConsistency(
 
     selectionsBySceneId[sceneId] = best;
     sig = updateSignature(sig, best);
+    usedKeys.add(clipKey(best));
   }
 
   ctx.log("agent.visualConsistency.done", {
