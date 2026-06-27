@@ -174,9 +174,19 @@ export class BriefValidationError extends Error {
   }
 }
 
+/** Sprint 29.1 — one generateCreativeConcept call's telemetry (tokens + measured latency). */
+export interface ConceptUsage {
+  tokensInput: number;
+  tokensOutput: number;
+  latencyMs: number;
+}
+
 interface ConceptAttempt {
   concept: CreativeConcept;
   backgroundPromptReplaced: boolean;
+  /** Token usage + latency for EACH generateCreativeConcept call made (1-2 per
+   *  attempt), surfaced so callers record them in the AI usage ledger. */
+  usage: ConceptUsage[];
 }
 
 async function composeConceptValidated(
@@ -209,8 +219,10 @@ async function composeConceptValidated(
 
   // Up to 2 attempts at a safe background prompt, then deterministic fallback.
   let lastConcept: CreativeConcept | null = null;
+  const usage: ConceptUsage[] = [];
   for (let attempt = 0; attempt < 2; attempt++) {
-    const { data: concept } = await generateCreativeConcept({
+    const t0 = Date.now();
+    const { data: concept, meta } = await generateCreativeConcept({
       brand: brandCtx,
       hierarchy: score.hierarchy,
       platform: input.content.platform,
@@ -226,8 +238,9 @@ async function composeConceptValidated(
       campaignStrategy: input.campaign ? renderCampaignStrategyBlock(input.campaign) : undefined,
     });
     lastConcept = concept;
+    usage.push({ tokensInput: meta.tokensInput, tokensOutput: meta.tokensOutput, latencyMs: Date.now() - t0 });
     if (!findForbiddenBackgroundToken(concept.background_prompt)) {
-      return { concept, backgroundPromptReplaced: false };
+      return { concept, backgroundPromptReplaced: false, usage };
     }
   }
   // Model insisted on forbidden content in the prompt — keep its strategy
@@ -242,6 +255,7 @@ async function composeConceptValidated(
       ),
     },
     backgroundPromptReplaced: true,
+    usage,
   };
 }
 
@@ -249,6 +263,10 @@ export interface ComposedBrief {
   brief: CreativeBrief;
   /** Surfaced to logs: model's bg prompt was replaced by the safe fallback. */
   backgroundPromptReplaced: boolean;
+  /** Sprint 29.1 — token usage + latency for every generateCreativeConcept call
+   *  made while composing this brief (incl. a brand_led recompose). Callers record
+   *  these in the AI usage ledger so concept calls are observable like the rest. */
+  usage: ConceptUsage[];
 }
 
 export async function composeCreativeBrief(
@@ -288,6 +306,8 @@ export async function composeCreativeBrief(
   let attempt = await composeConceptValidated(
     input, score, aspectRatio, palette, founderName, assetSummary,
   );
+  // Accumulate concept-call token usage across attempt(s) — incl. recompose.
+  const conceptUsage: ConceptUsage[] = [...attempt.usage];
   let modelConfidence = clamp01(attempt.concept.model_confidence);
   let confidence = blendConfidence(score, modelConfidence);
   let forcedBrandLed = false;
@@ -300,6 +320,7 @@ export async function composeCreativeBrief(
       attempt = await composeConceptValidated(
         input, score, aspectRatio, palette, founderName, assetSummary,
       );
+      conceptUsage.push(...attempt.usage);
       modelConfidence = clamp01(attempt.concept.model_confidence);
       confidence = blendConfidence(score, modelConfidence);
       forcedBrandLed = true;
@@ -453,7 +474,7 @@ export async function composeCreativeBrief(
     );
   }
 
-  return { brief: parsed.data, backgroundPromptReplaced: attempt.backgroundPromptReplaced };
+  return { brief: parsed.data, backgroundPromptReplaced: attempt.backgroundPromptReplaced, usage: conceptUsage };
 }
 
 function clamp01(v: number): number {

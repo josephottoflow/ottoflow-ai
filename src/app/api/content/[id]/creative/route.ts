@@ -21,6 +21,7 @@ import { loadCreativeIntelligence } from "@/lib/creative/brand-intelligence";
 import { loadPerformanceIntelligence } from "@/lib/creative/performance-intelligence";
 import { loadCampaignMemory } from "@/lib/creative/campaign-strategy";
 import { planCampaignStrategy, type CampaignStrategy } from "@/lib/gemini";
+import { recordAIUsage } from "@/lib/ai-usage";
 import type { DbBrand, DbBrandAsset } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -210,7 +211,8 @@ export async function POST(
   try {
     const p = brand.profile;
     const recentCampaigns = await loadCampaignMemory(admin, item.brand_id);
-    const { data } = await planCampaignStrategy({
+    const cs0 = Date.now();
+    const { data, meta } = await planCampaignStrategy({
       brand: {
         name: brand.name,
         industry: brand.industry,
@@ -229,12 +231,17 @@ export async function POST(
       recentCampaigns,
     });
     campaign = data;
+    await recordAIUsage(admin, {
+      userId, provider: "gemini", operation: "planCampaignStrategy", purpose: "campaign", model: "gemini",
+      contentItemId: itemId, startedAt: cs0, completedAt: Date.now(), success: true,
+      tokensInput: meta.tokensInput, tokensOutput: meta.tokensOutput,
+    });
   } catch (err) {
     console.error("[creative] campaign-strategy planning failed (non-fatal):", err);
   }
 
   try {
-    const { brief, backgroundPromptReplaced } = await composeCreativeBrief({
+    const { brief, backgroundPromptReplaced, usage } = await composeCreativeBrief({
       brand,
       assets: (assets ?? []) as DbBrandAsset[],
       content: {
@@ -280,6 +287,18 @@ export async function POST(
     if (insErr || !creative) {
       captureFallback("creative.insert_failed", insErr, { itemId });
       return NextResponse.json({ error: "Failed to save creative brief" }, { status: 500 });
+    }
+
+    // Telemetry (Sprint 29.1) — record the generateCreativeConcept call(s) that
+    // composed this brief, attributed to the new creative + content item.
+    for (const u of usage) {
+      const done = Date.now();
+      await recordAIUsage(admin, {
+        userId, provider: "gemini", operation: "generateCreativeConcept", purpose: "creative", model: "gemini",
+        creativeId: creative.id as string, contentItemId: itemId,
+        startedAt: done - u.latencyMs, completedAt: done, success: true,
+        tokensInput: u.tokensInput, tokensOutput: u.tokensOutput,
+      });
     }
 
     return NextResponse.json({ creative }, { status: 201 });

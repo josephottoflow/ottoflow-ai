@@ -171,13 +171,14 @@ async function produceBackground(
       });
       throw err;
     }
-    // Background safety validation (Gemini vision; tokens not surfaced by this call).
+    // Background safety validation (Gemini vision).
     const vg0 = Date.now();
-    const check = await validateGeneratedBackground(png);
+    const { data: check, meta: vmeta } = await validateGeneratedBackground(png);
     await recordAIUsage(ctx.admin, {
       userId: ctx.userId, provider: "gemini", operation: "validateGeneratedBackground", purpose: "review",
       model: "gemini-vision", creativeId: ctx.creativeId, campaignId: ctx.campaignId,
       startedAt: vg0, completedAt: Date.now(), success: true, retryCount: attempt - 1, revisionAttempt,
+      tokensInput: vmeta.tokensInput, tokensOutput: vmeta.tokensOutput,
     });
     if (!check.contains_text && !check.contains_logo && !check.contains_face) {
       return { background: png, backgroundSource: "imagen" };

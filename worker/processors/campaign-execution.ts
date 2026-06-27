@@ -228,6 +228,19 @@ export async function processCampaignExecution(
         continue;
       }
 
+      // Telemetry (Sprint 29.1) — record the generateCreativeConcept call(s) made
+      // composing this asset's brief, now attributed to the creative + campaign.
+      for (const u of composed.usage) {
+        const done = Date.now();
+        await recordAIUsage(admin, {
+          userId: (campaign.user_id as string | undefined) ?? "unknown",
+          provider: "gemini", operation: "generateCreativeConcept", purpose: "creative", model: "gemini",
+          campaignId, creativeId: creative.id as string, contentItemId: item.id as string,
+          startedAt: done - u.latencyMs, completedAt: done, success: true,
+          tokensInput: u.tokensInput, tokensOutput: u.tokensOutput,
+        });
+      }
+
       // Enqueue through the EXISTING render pipeline (generate→review→improve).
       try {
         await creativeGenerationQueue().add(

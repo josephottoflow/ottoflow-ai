@@ -2940,7 +2940,7 @@ const backgroundValidationSchema: Schema = {
  */
 export async function validateGeneratedBackground(
   png: Buffer,
-): Promise<BackgroundValidation> {
+): Promise<{ data: BackgroundValidation; meta: GenerationMeta }> {
   const resp = await callGemini("validateGeneratedBackground", () =>
     ai().models.generateContent({
       model: MODEL,
@@ -2971,5 +2971,5 @@ export async function validateGeneratedBackground(
   );
   const text = resp.text;
   if (!text) throw new Error("Background validation returned empty response");
-  return JSON.parse(text) as BackgroundValidation;
+  return { data: JSON.parse(text) as BackgroundValidation, meta: extractMeta(resp) };
 }
