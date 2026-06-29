@@ -37,6 +37,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { captureFallback } from "@/lib/observability";
 import { useSupabase } from "@/components/SupabaseProvider";
 import type { DbContentCreative } from "@/lib/types";
+import { toAppMediaUrl } from "@/lib/media-url";
 
 const GEN_STEP_LABEL = "Generating background, compositing assets…";
 
@@ -476,16 +477,16 @@ function BriefPreview({
           <p className="text-3xs uppercase tracking-wider text-white/35 mb-1.5">Creative Image</p>
           <div className="rounded-xl overflow-hidden border border-white/[0.06]">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={creative.image_url} alt="Generated creative" className="w-full" />
+            <img src={toAppMediaUrl(creative.image_url) ?? undefined} alt="Generated creative" className="w-full" />
           </div>
           {/* CTA row */}
           <div className="flex items-center gap-2 mt-2 flex-wrap">
-            <a href={creative.image_url} target="_blank" rel="noreferrer" download>
+            <a href={toAppMediaUrl(creative.image_url) ?? undefined} target="_blank" rel="noreferrer" download>
               <Button size="sm" variant="outline" className="gap-1.5 h-7 text-2xs">
                 <Download size={11} /> Download
               </Button>
             </a>
-            <a href={creative.image_url} target="_blank" rel="noreferrer">
+            <a href={toAppMediaUrl(creative.image_url) ?? undefined} target="_blank" rel="noreferrer">
               <Button size="sm" variant="ghost" className="gap-1.5 h-7 text-2xs">
                 <Maximize2 size={11} /> Open full size
               </Button>
@@ -794,7 +795,7 @@ function PublishingPreview({
               style={{ aspectRatio: dims ? `${dims.w} / ${dims.h}` : "16 / 9" }}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={creative.image_url} alt="" className="w-full h-full object-cover" />
+              <img src={toAppMediaUrl(creative.image_url) ?? undefined} alt="" className="w-full h-full object-cover" />
             </div>
           )}
           <div className="min-w-0 flex-1">

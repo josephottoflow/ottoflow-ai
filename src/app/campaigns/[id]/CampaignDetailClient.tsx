@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { ArrowLeft, Loader2, CheckCircle2, AlertTriangle, Image as ImageIcon } from "lucide-react";
+import { toAppMediaUrl } from "@/lib/media-url";
 
 interface Asset {
   id: string;
@@ -411,7 +412,7 @@ export function CampaignDetailClient({ campaignId }: { campaignId: string }) {
               <div className="aspect-[1200/627] bg-white/[0.03] flex items-center justify-center">
                 {a.image_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={a.image_url} alt={a.role} className="w-full h-full object-cover" />
+                  <img src={toAppMediaUrl(a.image_url) ?? undefined} alt={a.role} className="w-full h-full object-cover" />
                 ) : (
                   <div className="text-white/25 flex flex-col items-center gap-1.5">
                     {a.status === "failed" ? <AlertTriangle size={18} /> : a.status === "ready" ? <ImageIcon size={18} /> : <Loader2 size={18} className="animate-spin" />}

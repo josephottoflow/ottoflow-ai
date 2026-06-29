@@ -20,6 +20,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { VideoConfigModal } from "@/components/VideoConfigModal";
 import { PLATFORM_PROFILES, type Platform } from "@/lib/platform/profiles";
+import { toAppMediaUrl } from "@/lib/media-url";
 
 export interface WizardBrand {
   id: string; name: string; industry: string | null; logoUrl: string | null;
@@ -118,7 +119,7 @@ export function VideoStartWizard({ brands, content, preselectContentId }: Props)
                     <div className="flex items-center gap-3 mb-3">
                       <div className="w-11 h-11 rounded-xl overflow-hidden flex items-center justify-center shrink-0"
                         style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>
-                        {b.logoUrl ? <img src={b.logoUrl} alt="" className="w-full h-full object-cover" />
+                        {b.logoUrl ? <img src={toAppMediaUrl(b.logoUrl) ?? undefined} alt="" className="w-full h-full object-cover" />
                           : <Building2 size={18} className="text-white/40" />}
                       </div>
                       <div className="min-w-0">

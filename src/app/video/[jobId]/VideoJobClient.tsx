@@ -107,7 +107,10 @@ function activeStep(stage: VideoJobStage, scenesDone: number, scenesTotal: numbe
 
 function sceneUrl(s: DbSceneGeneration): string | null {
   // migration 022 added storage_url for ai-first; clip_url is the legacy field.
-  return (s as { storage_url?: string | null }).storage_url ?? s.clip_url ?? null;
+  // App-owned URL so scene previews never expose r2.dev either (P5).
+  return toAppMediaUrl(
+    (s as { storage_url?: string | null }).storage_url ?? s.clip_url ?? null,
+  );
 }
 
 function elapsedSeconds(job: DbRenderJob): number {

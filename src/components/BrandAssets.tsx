@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { captureFallback } from "@/lib/observability";
+import { toAppMediaUrl } from "@/lib/media-url";
 import type { BrandAssetKind, DbBrandAsset } from "@/lib/types";
 
 const KIND_META: Record<
@@ -222,7 +223,7 @@ export function BrandAssets({ brandId }: { brandId: string }) {
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={a.public_url}
+                    src={toAppMediaUrl(a.public_url) ?? undefined}
                     alt={a.label ?? Meta.label}
                     className="max-w-full max-h-full object-contain"
                     loading="lazy"
