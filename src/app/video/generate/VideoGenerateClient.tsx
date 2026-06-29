@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { captureFallback } from "@/lib/observability";
+import { toAppMediaUrl } from "@/lib/media-url";
 import { useSupabase } from "@/components/SupabaseProvider";
 import type {
   SSEEvent,
@@ -514,9 +515,15 @@ export function VideoGenerateClient({
     setStatusLabel("Stopped");
   };
 
+  // App-owned playback/download URL — never expose r2.dev to the customer.
+  const playUrl = toAppMediaUrl(mergedVideoUrl ?? videoUrl);
+
   const handleCopyLink = () => {
-    const url = mergedVideoUrl ?? videoUrl;
-    if (url) navigator.clipboard.writeText(url);
+    if (playUrl) {
+      // Copy an absolute link so it's shareable outside the SPA.
+      const abs = playUrl.startsWith("/") ? `${window.location.origin}${playUrl}` : playUrl;
+      navigator.clipboard.writeText(abs);
+    }
   };
 
   return (
@@ -1093,8 +1100,8 @@ export function VideoGenerateClient({
                 <video
                   // Swap source to the final rendered MP4 once the worker
                   // finishes; until then we show the first source clip.
-                  src={mergedVideoUrl ?? videoUrl}
-                  key={mergedVideoUrl ?? videoUrl}
+                  src={playUrl ?? undefined}
+                  key={playUrl ?? undefined}
                   controls
                   autoPlay
                   muted
@@ -1234,7 +1241,7 @@ export function VideoGenerateClient({
                 </div>
               )}
               <div className="p-4 flex gap-2">
-                <a href={mergedVideoUrl ?? videoUrl} download>
+                <a href={playUrl ?? undefined} download>
                   <Button variant="gradient-cyan" size="sm" className="gap-1.5">
                     <Download size={13} />
                     {mergedVideoUrl ? "Download MP4" : "Download preview clip"}

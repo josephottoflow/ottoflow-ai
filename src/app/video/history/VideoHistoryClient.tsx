@@ -31,6 +31,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { captureFallback } from "@/lib/observability";
 import type { DbRenderJob } from "@/lib/types";
+import { toAppMediaUrl } from "@/lib/media-url";
 
 interface Props {
   jobs: DbRenderJob[];
@@ -208,7 +209,7 @@ function VideoCard({
 
   const script = job.script_json as { hook?: string } | null;
   const seo = job.seo_json as { title?: string } | null;
-  const downloadUrl = job.merged_video_url ?? job.output_url ?? null;
+  const downloadUrl = toAppMediaUrl(job.merged_video_url ?? job.output_url ?? null);
   const phase = phaseOf(job);
   const ready = phase === "ready";
   const headline = seo?.title?.trim() || script?.hook?.trim() || job.name?.trim() || "Untitled video";

@@ -15,6 +15,11 @@ const isPublic = createRouteMatcher([
   "/sign-in(.*)",
   "/sign-up(.*)",
   "/api/webhooks(.*)",
+  // App-owned media proxy: streams R2 objects from our own domain so customers
+  // never see r2.dev. Keys are unguessable UUID paths (same security model as
+  // the public bucket); the native <video> element can't send auth headers, and
+  // shared links must resolve without a session — so this stays public.
+  "/api/media(.*)",
   "/monitoring(.*)",
   "/favicon.ico",
   "/favicon.png",

@@ -21,6 +21,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { DbRenderJob, DbSceneGeneration } from "@/lib/types";
+import { toAppMediaUrl } from "@/lib/media-url";
 
 interface Props {
   job: DbRenderJob;
@@ -82,7 +83,9 @@ export function VideoDetailClient({ job, brand, scenes }: Props) {
     | null;
 
   const videoReady = !!job.merged_video_url;
-  const playUrl = job.merged_video_url ?? job.output_url ?? null;
+  // App-owned URL so the customer never hits r2.dev (rate-limited / DNS-blocked
+  // on some networks). Transforms legacy r2.dev rows at read-time too.
+  const playUrl = toAppMediaUrl(job.merged_video_url ?? job.output_url ?? null);
   const totalGenMs = scenes.reduce(
     (acc, s) => acc + (s.generation_time_ms ?? 0),
     0,

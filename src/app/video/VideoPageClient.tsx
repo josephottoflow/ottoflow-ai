@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { KPICard } from "@/components/KPICard";
 import { RenderQueue } from "@/components/RenderQueue";
 import { formatNumber } from "@/lib/utils";
+import { toAppMediaUrl } from "@/lib/media-url";
 import type { DbRenderJob, KPISummary } from "@/lib/types";
 import {
   Video,
@@ -310,7 +311,7 @@ export function VideoPageClient({ renderJobs, kpis }: Props) {
                       </div>
                     </div>
                     {v.output_url && (
-                      <a href={v.output_url} download target="_blank" rel="noopener noreferrer">
+                      <a href={toAppMediaUrl(v.output_url) ?? v.output_url} download target="_blank" rel="noopener noreferrer">
                         <Button variant="ghost" size="icon" className="w-7 h-7 flex-shrink-0" aria-label="Download video">
                           <Download size={13} className="text-white/40" />
                         </Button>

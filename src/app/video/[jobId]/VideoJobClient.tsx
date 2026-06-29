@@ -42,6 +42,7 @@ import { Button } from "@/components/ui/button";
 import { useSupabase } from "@/components/SupabaseProvider";
 import { deriveVideoJobStatus, type VideoJobStage } from "@/lib/video/status";
 import type { DbRenderJob, DbSceneGeneration } from "@/lib/types";
+import { toAppMediaUrl } from "@/lib/media-url";
 
 interface Props {
   job: DbRenderJob;
@@ -191,7 +192,7 @@ export function VideoJobClient({ job: initialJob, brand, scenes: initialScenes }
   }
 
   const step = activeStep(status.stage, status.scenesDone, status.scenesTotal);
-  const playUrl = job.merged_video_url ?? null;
+  const playUrl = toAppMediaUrl(job.merged_video_url ?? null);
   const showRefresh = stopped && !terminal;
   // Sprint 15 — creative source (from render_jobs.scene_provider) drives the badge
   // + the "generating" stage wording (Royalty-Free footage vs AI scenes).
