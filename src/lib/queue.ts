@@ -344,6 +344,22 @@ export interface SceneGenerationJobData {
    *  (Seedance). "pexels" → Royalty-Free Library: footage-only via the Pexels
    *  provider, NO AI scene generation, NO AI cost. */
   source?: "ai" | "pexels";
+  /** Sprint 39.2 — per-scene visual override (Replace Visual), keyed by sceneId.
+   *  When present for a scene, the worker uses THIS clip instead of cache/search
+   *  (still copies it to durable R2 like any provider clip); every OTHER scene
+   *  resumes untouched from cache. Provider-agnostic (Pexels/Pixabay/AI/…). */
+  sceneOverrides?: Record<
+    number,
+    {
+      url: string;
+      provider: string;
+      durationSec: number;
+      width?: number;
+      height?: number;
+      sourceId?: string | number | null;
+      attribution?: string | null;
+    }
+  >;
   strategy: VideoStrategy;
   /** Resolved narration (data: or https URL). Forwarded into the CompositionPlan. */
   narrationUrl?: string | null;

@@ -43,7 +43,7 @@ import { useSupabase } from "@/components/SupabaseProvider";
 import { deriveVideoJobStatus, type VideoJobStage } from "@/lib/video/status";
 import type { DbRenderJob, DbSceneGeneration } from "@/lib/types";
 import { toAppMediaUrl } from "@/lib/media-url";
-import { SceneInspector } from "@/components/SceneInspector";
+import { SceneInspector, type SceneCandidate } from "@/components/SceneInspector";
 
 interface Props {
   job: DbRenderJob;
@@ -197,9 +197,31 @@ export function VideoJobClient({ job: initialJob, brand, scenes: initialScenes }
 
   const step = activeStep(status.stage, status.scenesDone, status.scenesTotal);
   const playUrl = toAppMediaUrl(job.merged_video_url ?? null);
-  // Sprint 39.1 — which scene's "Replace visual" inspector is open (inspect-only;
-  // the candidate endpoint reuses the renderer's Pexels engine).
+  // Sprint 39.1/39.2 — which scene's "Replace visual" inspector is open + the
+  // replace action (re-renders ONLY that scene via the worker's resume).
   const [inspectScene, setInspectScene] = useState<number | null>(null);
+  const [replacing, setReplacing] = useState(false);
+  const [replaceError, setReplaceError] = useState<string | null>(null);
+
+  async function handleReplace(sceneId: number, candidate: SceneCandidate) {
+    setReplacing(true);
+    setReplaceError(null);
+    try {
+      const res = await fetch(`/api/video/jobs/${job.id}/scene/${sceneId}/replace`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ candidate }),
+      });
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(j.error ?? `Replace failed (${res.status})`);
+      setInspectScene(null);
+      await fetchNow(); // job goes back to rendering — polling shows progress
+    } catch (e) {
+      setReplaceError(e instanceof Error ? e.message : "Replace failed");
+    } finally {
+      setReplacing(false);
+    }
+  }
   const showRefresh = stopped && !terminal;
   // Sprint 15 — creative source (from render_jobs.scene_provider) drives the badge
   // + the "generating" stage wording (Royalty-Free footage vs AI scenes).
@@ -310,15 +332,22 @@ export function VideoJobClient({ job: initialJob, brand, scenes: initialScenes }
             })}
           </div>
           {inspectScene !== null && (
-            <SceneInspector
-              jobId={job.id}
-              sceneId={inspectScene}
-              currentClipUrl={(() => {
-                const cur = scenes.find((s) => s.scene_number === inspectScene);
-                return cur ? toAppMediaUrl(sceneUrl(cur)) : null;
-              })()}
-              onClose={() => setInspectScene(null)}
-            />
+            <>
+              {replaceError && (
+                <p className="text-2xs text-amber-400 px-1">{replaceError}</p>
+              )}
+              <SceneInspector
+                jobId={job.id}
+                sceneId={inspectScene}
+                currentClipUrl={(() => {
+                  const cur = scenes.find((s) => s.scene_number === inspectScene);
+                  return cur ? toAppMediaUrl(sceneUrl(cur)) : null;
+                })()}
+                onReplace={(c) => handleReplace(inspectScene, c)}
+                replacing={replacing}
+                onClose={() => setInspectScene(null)}
+              />
+            </>
           )}
         </section>
 

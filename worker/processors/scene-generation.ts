@@ -163,8 +163,11 @@ export async function processSceneGeneration(
     for (let i = 0; i < total; i++) {
       const scene = strategy.scenes[i];
 
+      // Sprint 39.2 — a scene the customer explicitly REPLACED must not reuse its
+      // old cached clip; the override wins. Every other scene still resumes.
+      const override = data.sceneOverrides?.[scene.sceneId];
       // Already generated + stored on a prior attempt → reuse, no provider spend.
-      const cached = resumable.get(scene.sceneId);
+      const cached = override ? undefined : resumable.get(scene.sceneId);
       if (cached?.storage_url) {
         clips.push({
           sceneId: scene.sceneId,
@@ -185,20 +188,34 @@ export async function processSceneGeneration(
 
       // Sprint 15 — Royalty-Free Library forces Pexels ONLY (no AI fallback, no AI
       // cost); the AI path is unchanged (Seedance-preferred with the usual fallbacks).
-      const result = await generateScene(
-        {
-          // Shared style preamble + beat-specific prompt (Task 3).
-          prompt: `${styleBlock} ${scene.prompt}`,
-          durationSec: scene.durationSec,
-          aspectRatio: data.aspectRatio ?? "9:16",
-          seed: sharedSeed,
-          brandIndustry: data.brandIndustry ?? null,
-          topicTitle: data.topic,
-          // Exclude stock clips already used by earlier scenes (P1 de-dup).
-          excludeSourceIds: usedPexelsIds,
-        },
-        isPexels ? { forceProvider: "pexels" } : { preferProvider: "seedance" },
-      );
+      const result = override
+        ? // Customer-chosen clip (Replace Visual): skip search, treat exactly like
+          // a provider result so the copy→upsert→clips path below is unchanged.
+          ({
+            url: override.url,
+            provider: override.provider as SourceName,
+            durationSec: override.durationSec,
+            width: override.width ?? 720,
+            height: override.height ?? 1280,
+            costUsd: 0,
+            attribution: override.attribution ?? null,
+            metadata:
+              override.sourceId != null ? { pexelsId: Number(override.sourceId) } : null,
+          } as Awaited<ReturnType<typeof generateScene>>)
+        : await generateScene(
+            {
+              // Shared style preamble + beat-specific prompt (Task 3).
+              prompt: `${styleBlock} ${scene.prompt}`,
+              durationSec: scene.durationSec,
+              aspectRatio: data.aspectRatio ?? "9:16",
+              seed: sharedSeed,
+              brandIndustry: data.brandIndustry ?? null,
+              topicTitle: data.topic,
+              // Exclude stock clips already used by earlier scenes (P1 de-dup).
+              excludeSourceIds: usedPexelsIds,
+            },
+            isPexels ? { forceProvider: "pexels" } : { preferProvider: "seedance" },
+          );
       // Only the AI path treats a non-Seedance provider as a fall-through; for the
       // Royalty-Free path, Pexels IS the intended source.
       if (!isPexels && result.provider !== "seedance") {

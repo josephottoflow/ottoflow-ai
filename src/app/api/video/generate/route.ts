@@ -410,6 +410,22 @@ export async function POST(req: NextRequest) {
         merge_status: "pending",
         prompt: topic,
         video_strategy: strategy as unknown as Record<string, unknown>,
+        // Sprint 39.2 — persist the COMPLETE render context so one scene can be
+        // re-generated later (Replace Visual) with the same settings. Mirrors the
+        // scene-gen enqueue payload below (minus renderJobId/userId/strategy, which
+        // are recoverable). Provider-agnostic. Requires migration 031.
+        render_context: {
+          topic,
+          brandId,
+          brandIndustry: (brand.industry as string | null) ?? null,
+          aspectRatio: aspect,
+          mode,
+          platform: parsed.data.platform,
+          resolution,
+          quality,
+          source,
+          branding,
+        } as unknown as Record<string, unknown>,
       })
       .select("id")
       .single();
