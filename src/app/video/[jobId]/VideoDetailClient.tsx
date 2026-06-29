@@ -21,7 +21,9 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { DbRenderJob, DbSceneGeneration } from "@/lib/types";
+import { useState } from "react";
 import { toAppMediaUrl } from "@/lib/media-url";
+import { SceneInspector, type SceneCandidate } from "@/components/SceneInspector";
 
 interface Props {
   job: DbRenderJob;
@@ -81,6 +83,31 @@ export function VideoDetailClient({ job, brand, scenes }: Props) {
   const overlay = job.overlay_json as
     | { keywords?: { text: string; start: number; end: number }[] }
     | null;
+
+  // Sprint 40 (launch QA) — Replace Visual is also reachable on the STOCK detail
+  // view (this client), not only ai-first VideoJobClient. Root cause of the gap:
+  // the inspector was mounted only in VideoJobClient, but stock videos render here.
+  const [inspectScene, setInspectScene] = useState<number | null>(null);
+  const [replacing, setReplacing] = useState(false);
+  const [replaceError, setReplaceError] = useState<string | null>(null);
+  async function handleReplace(sceneId: number, candidate: SceneCandidate) {
+    setReplacing(true);
+    setReplaceError(null);
+    try {
+      const res = await fetch(`/api/video/jobs/${job.id}/scene/${sceneId}/replace`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ candidate }),
+      });
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(j.error ?? `Replace failed (${res.status})`);
+      window.location.reload();
+    } catch (e) {
+      setReplaceError(e instanceof Error ? e.message : "Replace failed");
+    } finally {
+      setReplacing(false);
+    }
+  }
 
   const videoReady = !!job.merged_video_url;
   // App-owned URL so the customer never hits r2.dev (rate-limited / DNS-blocked
@@ -249,6 +276,32 @@ export function VideoDetailClient({ job, brand, scenes }: Props) {
                     <p className="text-3xs text-white/35 mt-1">
                       {s.attribution}
                     </p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setInspectScene(inspectScene === s.scene_number ? null : s.scene_number)
+                    }
+                    className="mt-2 text-3xs font-medium text-cyan-400 hover:text-cyan-300"
+                  >
+                    {inspectScene === s.scene_number ? "Close" : "Replace visual"}
+                  </button>
+                  {inspectScene === s.scene_number && (
+                    <div className="mt-2">
+                      {replaceError && (
+                        <p className="text-2xs text-amber-400 mb-1">{replaceError}</p>
+                      )}
+                      <SceneInspector
+                        jobId={job.id}
+                        sceneId={s.scene_number}
+                        currentClipUrl={toAppMediaUrl(
+                          (s as { storage_url?: string | null }).storage_url ?? s.clip_url ?? null,
+                        )}
+                        onReplace={(c) => handleReplace(s.scene_number, c)}
+                        replacing={replacing}
+                        onClose={() => setInspectScene(null)}
+                      />
+                    </div>
                   )}
                 </div>
               ))}
