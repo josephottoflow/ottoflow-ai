@@ -43,6 +43,7 @@ import { useSupabase } from "@/components/SupabaseProvider";
 import { deriveVideoJobStatus, type VideoJobStage } from "@/lib/video/status";
 import type { DbRenderJob, DbSceneGeneration } from "@/lib/types";
 import { toAppMediaUrl } from "@/lib/media-url";
+import { SceneInspector } from "@/components/SceneInspector";
 
 interface Props {
   job: DbRenderJob;
@@ -196,6 +197,9 @@ export function VideoJobClient({ job: initialJob, brand, scenes: initialScenes }
 
   const step = activeStep(status.stage, status.scenesDone, status.scenesTotal);
   const playUrl = toAppMediaUrl(job.merged_video_url ?? null);
+  // Sprint 39.1 — which scene's "Replace visual" inspector is open (inspect-only;
+  // the candidate endpoint reuses the renderer's Pexels engine).
+  const [inspectScene, setInspectScene] = useState<number | null>(null);
   const showRefresh = stopped && !terminal;
   // Sprint 15 — creative source (from render_jobs.scene_provider) drives the badge
   // + the "generating" stage wording (Royalty-Free footage vs AI scenes).
@@ -292,15 +296,30 @@ export function VideoJobClient({ job: initialJob, brand, scenes: initialScenes }
             Scenes ({status.scenesDone}/{status.scenesTotal})
           </p>
           <div className="grid grid-cols-4 gap-2">
-            {Array.from({ length: status.scenesTotal }).map((_, i) => (
-              <SceneTile
-                key={i}
-                index={i}
-                url={scenes[i] ? sceneUrl(scenes[i]) : null}
-                generating={!scenes[i] && status.stage === "generating" && i === status.scenesDone}
-              />
-            ))}
+            {Array.from({ length: status.scenesTotal }).map((_, i) => {
+              const sn = scenes[i]?.scene_number ?? i + 1;
+              return (
+                <SceneTile
+                  key={i}
+                  index={i}
+                  url={scenes[i] ? sceneUrl(scenes[i]) : null}
+                  generating={!scenes[i] && status.stage === "generating" && i === status.scenesDone}
+                  onInspect={scenes[i] ? () => setInspectScene(sn) : undefined}
+                />
+              );
+            })}
           </div>
+          {inspectScene !== null && (
+            <SceneInspector
+              jobId={job.id}
+              sceneId={inspectScene}
+              currentClipUrl={(() => {
+                const cur = scenes.find((s) => s.scene_number === inspectScene);
+                return cur ? toAppMediaUrl(sceneUrl(cur)) : null;
+              })()}
+              onClose={() => setInspectScene(null)}
+            />
+          )}
         </section>
 
         {/* Success experience (ready) — celebration + preview + actions + suggestions */}
@@ -508,11 +527,17 @@ function StrategyCostSummary({ job, scenesTotal }: { job: DbRenderJob; scenesTot
 }
 
 /** A single 9:16 scene tile with loading/error fallback (never a blank player). */
-function SceneTile({ url, index, generating }: { url: string | null; index: number; generating: boolean }) {
+function SceneTile({ url, index, generating, onInspect }: { url: string | null; index: number; generating: boolean; onInspect?: () => void }) {
   const [errored, setErrored] = useState(false);
   return (
-    <div className="aspect-[9/16] rounded-lg overflow-hidden flex items-center justify-center"
+    <div className="group relative aspect-[9/16] rounded-lg overflow-hidden flex items-center justify-center"
       style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+      {url && onInspect && (
+        <button type="button" onClick={onInspect}
+          className="absolute bottom-1 inset-x-1 z-10 text-3xs font-medium py-1 rounded bg-black/65 text-white/85 opacity-0 group-hover:opacity-100 transition-opacity">
+          Replace visual
+        </button>
+      )}
       {url && !errored ? (
         <video src={url} muted loop autoPlay playsInline preload="metadata"
           onError={() => setErrored(true)} className="w-full h-full object-cover" />
