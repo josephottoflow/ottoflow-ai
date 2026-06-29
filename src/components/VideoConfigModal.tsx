@@ -61,12 +61,11 @@ const VISUAL_SOURCES: VisualSource[] = [
     bestFor: "SaaS · Technology · Corporate · Product launches · Abstract concepts",
     pros: ["Unique", "Brand-aligned", "Unlimited creativity"],
     cons: ["Highest render cost", "Slightly longer to generate"] },
-  { id: "pexels", name: "Royalty-Free Library", available: false, beta: true, example: "photo",
+  { id: "pexels", name: "Royalty-Free Library", available: true, beta: true, example: "photo",
     desc: "Professional licensed footage from a royalty-free library.",
     bestFor: "Travel · Lifestyle · Food · Real people · Construction",
     pros: ["Authentic", "Fast", "No AI generation cost"], cons: ["Limited to library footage"],
-    pricing: "No AI generation cost",
-    note: "Backend is shipping now — unlocking once it's verified end-to-end in production." },
+    pricing: "No AI generation cost" },
   { id: "premium_stock", name: "Premium Stock", available: false, example: "photo",
     desc: "Curated premium stock footage & photography.",
     bestFor: "Real people · Lifestyle · Travel · Food · Fashion",
@@ -279,9 +278,12 @@ export function VideoConfigModal({
   const body = useCallback(
     (extra: Record<string, unknown>) => ({
       brandId, contentItemId, platform, aspect, resolution, quality, mode,
+      // Sprint 31.1 — send the chosen visual source so "pexels" routes to the
+      // stock-first pipeline (no AI/Seedance cost). Only ai/pexels are selectable.
+      source: source === "pexels" ? "pexels" : "ai",
       ...(duration !== "auto" ? { durationSec: Number(duration) } : {}), ...extra,
     }),
-    [brandId, contentItemId, platform, aspect, resolution, quality, mode, duration],
+    [brandId, contentItemId, platform, aspect, resolution, quality, mode, duration, source],
   );
 
   useEffect(() => {
