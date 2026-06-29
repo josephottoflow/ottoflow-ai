@@ -313,7 +313,11 @@ export function VideoConfigModal({
   });
 
   async function onGenerate() {
-    if (approving || !validation.ok) return;
+    // Sprint 31.1 — post-copy validation is a PUBLISH concern, not a render one.
+    // The video's on-screen captions are scene narration (burned in), independent
+    // of the social post copy — so a too-long caption must NOT block generation.
+    // It stays visible as advisory; the caption is fixed before publishing.
+    if (approving) return;
     setApproving(true); setError(null);
     try {
       const res = await fetch("/api/video/generate", {
@@ -373,13 +377,14 @@ export function VideoConfigModal({
   const card = { background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" } as const;
   const md = MODE_DETAIL[mode];
 
-  const ready = !error && validation.ok && !!estimate && !estimating;
+  // Post-copy validity is advisory only — it no longer gates render (Sprint 31.1).
+  const ready = !error && !!estimate && !estimating;
   const readiness = error
     ? { tone: "red" as const, icon: AlertCircle, title: "Missing Required Information", lines: [error] }
-    : !validation.ok
-      ? { tone: "amber" as const, icon: AlertTriangle, title: "Needs a quick fix", lines: [`Post copy doesn't meet ${profile.label} limits — ${validation.checks.filter((c) => !c.ok).map((c) => `${c.field} ${c.actual} (needs ${c.rule})`).join("; ")}.`, "Regenerate the post for this platform first."] }
-      : !ready
-        ? { tone: "neutral" as const, icon: Loader2, title: "Designing your video…", lines: ["Composing the story and validating content."] }
+    : !ready
+      ? { tone: "neutral" as const, icon: Loader2, title: "Designing your video…", lines: ["Composing the story and validating content."] }
+      : !validation.ok
+        ? { tone: "amber" as const, icon: AlertTriangle, title: "Heads up: post copy needs trimming", lines: [`The ${profile.label} caption is ${validation.checks.filter((c) => !c.ok).map((c) => `${c.field} ${c.actual} (needs ${c.rule})`).join("; ")} — trim it before publishing. The video will still render now.`] }
         : { tone: "green" as const, icon: CheckCircle2, title: "Ready to Create ✨", lines: ["✨ Your commercial is ready to generate.", `Renders in ~${fmtTimeRange(estimate.estRenderTimeSec)} · ${resolution} MP4`] };
   const readyColors: Record<string, { bg: string; fg: string }> = {
     green: { bg: "rgba(16,185,129,0.10)", fg: "#34d399" }, amber: { bg: "rgba(245,158,11,0.10)", fg: "#fbbf24" },
@@ -803,8 +808,7 @@ export function VideoConfigModal({
             <div className="flex items-center justify-end gap-2">
               <Button type="button" variant="outline" size="sm" onClick={onClose} disabled={approving}>Cancel</Button>
               <Button type="button" variant="gradient-cyan" size="sm" className="gap-1.5 cs-press hover:scale-[1.02] transition-transform" onClick={onGenerate}
-                disabled={approving || estimating || !estimate || !validation.ok}
-                title={!validation.ok ? `Regenerate the post for ${profile.label} first` : undefined}>
+                disabled={approving || estimating || !estimate}>
                 {approving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Clapperboard className="h-4 w-4" />}
                 {approving ? "Starting…" : `Generate Video${estimate ? ` (${money(estimate.estimatedCostUsd)})` : ""}`}
               </Button>
