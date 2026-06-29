@@ -13,23 +13,30 @@
  * rewritten on the way out, so there is no data migration and no broken link
  * (zero-downtime).
  *
- * Two delivery backends, selected by ONE env var (no code change to switch):
+ * SAFE BY DEFAULT — dormant until an operator explicitly enables a backend, so
+ * deploying this code changes NOTHING about current playback (no regression).
+ * Two opt-in backends, selected by env:
  *
  *   1. NEXT_PUBLIC_MEDIA_BASE_URL set (e.g. https://cdn.ottoflow.ai)
- *      → return `${base}/${key}`. This is the PRODUCTION target: an R2 custom
- *        domain, served directly from Cloudflare's edge (cached, no r2.dev
- *        rate limit). Recommended once the operator connects the domain.
+ *      → return `${base}/${key}`. The PRODUCTION target: an R2 custom domain,
+ *        served directly from Cloudflare's edge (cached, no r2.dev rate limit),
+ *        and it needs NO R2 secrets on the web tier. Recommended.
  *
- *   2. unset (default)
- *      → return `/api/media/${key}`, our own same-origin proxy route that
- *        signs a GET to R2 server-side and streams the bytes. Works on every
- *        network (the browser only touches our domain) with zero DNS setup.
+ *   2. NEXT_PUBLIC_MEDIA_PROXY === "1" (and no custom domain)
+ *      → return `/api/media/${key}`, our same-origin proxy that signs a GET to
+ *        R2 server-side and streams the bytes. Works on every network with zero
+ *        DNS setup, BUT requires the four R2_* vars in the WEB tier's env
+ *        (they currently live only on the Railway worker — runtime-confirmed
+ *        503 otherwise). Enable only after adding them to Vercel.
  *
- * Either way the customer link is owned by OttoFlow and the storage provider
- * is replaceable without changing customer-visible URLs.
+ *   3. neither set (current default) → return the stored URL UNCHANGED.
+ *
+ * Either backend makes the customer link app-owned and the storage provider
+ * replaceable without changing customer-visible URLs.
  */
 
 const MEDIA_BASE = (process.env.NEXT_PUBLIC_MEDIA_BASE_URL ?? "").replace(/\/$/, "");
+const PROXY_ENABLED = process.env.NEXT_PUBLIC_MEDIA_PROXY === "1";
 
 /** True for the R2 hosts whose URLs we must re-own before exposing them. */
 function isR2Host(host: string): boolean {
@@ -60,6 +67,10 @@ function objectKeyFromUrl(u: URL): string {
 export function toAppMediaUrl(stored: string | null | undefined): string | null {
   if (!stored) return stored ?? null;
 
+  // Dormant unless an operator opted into a backend — preserves current
+  // behavior on deploy (no regression for users already on working networks).
+  if (!MEDIA_BASE && !PROXY_ENABLED) return stored;
+
   let url: URL;
   try {
     url = new URL(stored);
@@ -77,5 +88,7 @@ export function toAppMediaUrl(stored: string | null | undefined): string | null 
   const key = objectKeyFromUrl(url);
   if (!key) return stored;
 
-  return MEDIA_BASE ? `${MEDIA_BASE}/${key}` : `/api/media/${key}`;
+  if (MEDIA_BASE) return `${MEDIA_BASE}/${key}`;     // custom domain (preferred)
+  if (PROXY_ENABLED) return `/api/media/${key}`;     // same-origin proxy (opt-in)
+  return stored;                                      // unreachable; keep safe
 }
