@@ -150,10 +150,9 @@ export function Sidebar() {
               <Briefcase size={13} />
               Research a Brand
             </Link>
-            {/* Legacy "Generate Video" (Script→Voice→Footage) removed from primary
-                nav. Canonical video path is Content → Creative brief → the gated
-                "Generate Video" button on a content item. The legacy page remains
-                reachable at /video/generate (labeled Legacy) but is de-emphasized. */}
+            {/* Sprint 37: the legacy /video/generate page now permanently
+                redirects to /video/start, so there is ONE video entry point.
+                Canonical path: Content → Creative brief → guided wizard. */}
             <Link
               href="/content/generate"
               className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 mt-1 bg-fuchsia-500/[0.08] border border-fuchsia-500/15 text-fuchsia-400"

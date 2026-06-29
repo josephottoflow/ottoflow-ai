@@ -1,18 +1,17 @@
 /**
- * /video/generate — server entry point for the Video Pipeline.
+ * /video/generate — LEGACY entry point, now permanently redirected.
  *
- * Loads the current user's READY brands so the picker shows immediately
- * without a client-side roundtrip. If ?brandId=X is provided (via deep
- * link from /brands/[id] topic cards), we also pre-fetch that brand's
- * topics so the topic picker shows real options on first paint.
+ * Sprint 37 (Priority 1 — one unified journey): the canonical "Create a video"
+ * flow is the guided wizard at /video/start. Every in-app "Generate Video" CTA
+ * already routes there; this page was an orphaned competing workflow reachable
+ * only by direct URL / old bookmarks. We redirect (preserving brandId/topicId
+ * deep-link params) so there is exactly ONE obvious way through the product.
  *
- * The actual UI + SSE + media playback lives in VideoGenerateClient.
+ * The old SSE client (VideoGenerateClient) and /api/generate route remain in the
+ * tree but are no longer reachable from navigation — a later cleanup can remove
+ * them once nothing depends on the SSE demo path.
  */
-import {
-  listReadyBrandsForUser,
-  listTopicsForBrand,
-} from "@/lib/db-video";
-import { VideoGenerateClient } from "./VideoGenerateClient";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -22,30 +21,9 @@ export default async function VideoGeneratePage({
   searchParams: Promise<{ brandId?: string; topicId?: string }>;
 }) {
   const params = await searchParams;
-  const brands = await listReadyBrandsForUser();
-
-  // Choose the preselected brand: explicit query param > first ready brand.
-  const preselectBrandId =
-    params.brandId && brands.some((b) => b.id === params.brandId)
-      ? params.brandId
-      : null;
-
-  const initialTopics = preselectBrandId
-    ? await listTopicsForBrand(preselectBrandId)
-    : [];
-
-  // Topic preselect only valid if it actually belongs to the picked brand.
-  const preselectTopicId =
-    params.topicId && initialTopics.some((t) => t.id === params.topicId)
-      ? params.topicId
-      : null;
-
-  return (
-    <VideoGenerateClient
-      brands={brands}
-      initialTopics={initialTopics}
-      preselectBrandId={preselectBrandId}
-      preselectTopicId={preselectTopicId}
-    />
-  );
+  const qs = new URLSearchParams();
+  if (params.brandId) qs.set("brandId", params.brandId);
+  if (params.topicId) qs.set("topicId", params.topicId);
+  const query = qs.toString();
+  redirect(`/video/start${query ? `?${query}` : ""}`);
 }
