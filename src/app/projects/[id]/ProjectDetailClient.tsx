@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ActivityFeed } from "@/components/ActivityFeed";
 import { formatRelative, formatNumber } from "@/lib/utils";
+import { toAppMediaUrl } from "@/lib/media-url";
 import type { DbProject, DbContentItem, DbRenderJob, DbActivityItem } from "@/lib/types";
 import {
   ArrowLeft, Video, FileText, MoreHorizontal, Play, Download,
@@ -216,7 +217,7 @@ export function ProjectDetailClient({ project, content, renderJobs, activity }: 
                           <p className="text-3xs text-white/30">{job.template}</p>
                         </div>
                         {job.output_url && (
-                          <a href={job.output_url} download target="_blank" rel="noopener noreferrer">
+                          <a href={toAppMediaUrl(job.output_url) ?? undefined} download target="_blank" rel="noopener noreferrer">
                             <Button variant="ghost" size="icon" className="w-7 h-7 flex-shrink-0" aria-label="Download render">
                               <Download size={12} className="text-white/30" />
                             </Button>
