@@ -27,6 +27,7 @@ import { captureFallback } from "@/lib/observability";
 import { ffmpegComposeQueue, type SceneGenerationJobData } from "@/lib/queue";
 import { generateScene } from "@/lib/video-providers/registry";
 import { uploadToR2, isR2Configured } from "@/lib/ffmpeg-pipeline/r2";
+import { synthesizeNarration } from "@/lib/elevenlabs";
 import { buildAiFirstPlan, type AiFirstClip } from "@/lib/ffmpeg-pipeline/orchestrator";
 import { buildCommercialStyleBlock } from "@/lib/ffmpeg-pipeline/prompt-builder";
 import type { AgentContext, SourceName, VideoStrategy } from "@/lib/ffmpeg-pipeline/types";
@@ -284,12 +285,42 @@ export async function processSceneGeneration(
       report("scene-gen", 10 + Math.round(((i + 1) / total) * 60));
     }
 
+    // ─── P1 fix (Sprint 34) · Narration ──────────────────────────────────────
+    // Root cause of the "silent video" bug: this path (the primary Create-Video
+    // flow, /api/video/generate) never synthesized voice, so the composer muxed
+    // no audio while the UI promised "with audio". Fix = synthesize here, right
+    // before the plan is built, REUSING the same ElevenLabs helper as
+    // /api/generate (no second pipeline). The narration is an ElevenLabs
+    // data: URL, which the composer's downloadTo() already handles (proven path).
+    //
+    // BEST-EFFORT BY DESIGN: agent 11 only muxes when plan.audio.narrationUrl is
+    // non-empty (it skips otherwise), so if ELEVENLABS_API_KEY is missing or
+    // over-quota this degrades to the prior (silent) behavior instead of failing
+    // the render — zero regression. Caption text is the script beat per scene, so
+    // voice and on-screen captions stay aligned.
+    let narrationUrl: string | null = data.narrationUrl ?? null;
+    if (!narrationUrl) {
+      const narrationText =
+        (strategy.scenes.map((s) => s.caption?.trim()).filter(Boolean).join(". ") ||
+          strategy.video_concept).slice(0, 1500);
+      try {
+        const voice = await synthesizeNarration({ text: narrationText });
+        narrationUrl = voice.audioDataUrl;
+        report("narration", 73);
+      } catch (err) {
+        // Unconfigured / over-quota → ship without narration (no regression).
+        captureFallback("scene-gen.narration_failed", err, {
+          renderJobId: data.renderJobId,
+        });
+      }
+    }
+
     // Build the AI-first CompositionPlan and hand off to FFmpeg (ADR-002).
     const plan = buildAiFirstPlan({
       ctx,
       strategy,
       clips,
-      narrationUrl: data.narrationUrl ?? null,
+      narrationUrl,
       musicUrl: data.musicUrl ?? null,
       branding: data.branding,
       aspect: data.aspectRatio ?? "9:16",
