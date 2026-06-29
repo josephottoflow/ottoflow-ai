@@ -25,6 +25,8 @@ import { PLATFORM_PROFILES, type Platform, type AspectRatio } from "@/lib/platfo
 import { validatePlatformContent } from "@/lib/platform/content-validation";
 import type { RenderCostEstimate } from "@/lib/video/cost";
 import type { StrategySummary } from "@/components/CostApprovalModal";
+import { StoryboardEditor } from "@/components/StoryboardEditor";
+import type { VideoStrategyScene } from "@/lib/ffmpeg-pipeline/types";
 
 type Resolution = "720p" | "1080p";
 type Quality = "fast" | "balanced" | "best";
@@ -121,14 +123,6 @@ const PLATFORM_AUDIENCE: Record<Platform, string> = {
 };
 const orientation = (a: AspectRatio) => (a === "9:16" ? "Vertical" : a === "1:1" ? "Square" : "Landscape");
 const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
-const beatLabel = (role?: string) =>
-  ({ hook: "Hook", problem: "Problem", visualized_pain: "Conflict", reveal: "Solution", outcome: "Outcome",
-     proof: "Proof", solution: "Solution", tension: "Conflict", cta: "Call to action" } as Record<string, string>)[role ?? ""]
-  ?? cap((role ?? "Scene").replace(/_/g, " "));
-const beatObjective = (role?: string) =>
-  ({ hook: "Stop the scroll", problem: "Establish the pain", visualized_pain: "Heighten the tension",
-     tension: "Heighten the tension", reveal: "Reveal the solution", solution: "Reveal the solution",
-     outcome: "Show the transformation", proof: "Prove it works", cta: "Drive the action" } as Record<string, string>)[role ?? ""] ?? "Advance the story";
 // Emotional beat the viewer feels — derived from the real scene role.
 const beatEmotion = (role?: string) =>
   ({ hook: "Curiosity", problem: "Tension", visualized_pain: "Frustration", tension: "Frustration",
@@ -270,10 +264,32 @@ export function VideoConfigModal({
   const [estimating, setEstimating] = useState(false);
   const [approving, setApproving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Sprint 38.1 — interactive storyboard. Locked scene ids are a UI freeze
+  // (partial-regen that honors them is Sprint 39). Edits update BOTH `strategy`
+  // (state → live totals/derived UI) and `strategyRef` (what approve submits).
+  const [lockedIds, setLockedIds] = useState<Set<number>>(new Set());
   const strategyRef = useRef<StrategySummary | null>(null);
   const reqId = useRef(0);
 
   function onPlatform(p: Platform) { setPlatform(p); setAspect(PLATFORM_PROFILES[p].video.aspect); setDuration("auto"); }
+
+  // Bridge StrategySummary.scenes ↔ VideoStrategyScene at the boundary (adapter,
+  // not a model rewrite). The runtime objects already carry seed/camera/etc., so
+  // a cast + spread-based edits in StoryboardEditor preserve every field. We mirror
+  // edits into strategyRef so the existing approve:true path renders the edits.
+  function handleScenesChange(edited: VideoStrategyScene[]) {
+    const scenes = edited as unknown as StrategySummary["scenes"];
+    setStrategy((prev) => (prev ? { ...prev, scenes } : prev));
+    if (strategyRef.current) strategyRef.current = { ...strategyRef.current, scenes };
+  }
+  function toggleLock(sceneId: number) {
+    setLockedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(sceneId)) next.delete(sceneId);
+      else next.add(sceneId);
+      return next;
+    });
+  }
 
   const body = useCallback(
     (extra: Record<string, unknown>) => ({
@@ -570,29 +586,14 @@ export function VideoConfigModal({
             {/* ── P2: Premium Scene Cards (always open) ── */}
             <Section open={openSec["story"] ?? true} onToggle={() => toggle("story")} title="Scene-by-scene" icon={<Film size={11} />} hint={scenes.length ? `${scenes.length} scenes · ${totalDur}s` : "designing…"}>
               {scenes.length ? (
-                <div className="space-y-1">
-                  {scenes.map((s, i) => (
-                    <div key={i}>
-                      <div className="rounded-lg p-2.5 cs-fade" style={card}>
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-3xs font-bold text-cyan-300/90 rounded bg-cyan-400/10 px-1.5 py-0.5">{String(i + 1).padStart(2, "0")}</span>
-                          <span className="text-2xs font-semibold text-white/90">{beatLabel(s.role)}</span>
-                          <span className="text-3xs text-white/35">· {beatObjective(s.role)}</span>
-                          <span className="ml-auto text-3xs text-white/40 inline-flex items-center gap-0.5"><Clock size={9} />{s.durationSec ?? 0}s</span>
-                        </div>
-                        {s.caption && <p className="text-3xs text-white/65 italic leading-snug">&ldquo;{s.caption}&rdquo;</p>}
-                        <p className="text-3xs text-emerald-300/50 mt-1 inline-flex items-center gap-1"><Heart size={8} /> {beatEmotion(s.role)}</p>
-                      </div>
-                      {i < scenes.length - 1 && (
-                        <div className="flex items-center justify-center gap-1 py-0.5">
-                          <span className="h-2 w-px bg-white/15" />
-                          <span className="text-3xs text-white/30">{transitionWord}</span>
-                          <span className="h-2 w-px bg-white/15" />
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
+                <StoryboardEditor
+                  scenes={scenes as unknown as VideoStrategyScene[]}
+                  onChange={handleScenesChange}
+                  lockedIds={lockedIds}
+                  onToggleLock={toggleLock}
+                  durationWindowSec={profile.video.targetDurationSec}
+                  disabled={approving}
+                />
               ) : <p className="text-2xs text-white/45 italic">Your scenes appear here once the story is composed.</p>}
             </Section>
 
