@@ -43,6 +43,7 @@ export interface PexelsVideo {
   height: number;
   duration: number;      // seconds
   url: string;           // Pexels page URL (for attribution)
+  image?: string;        // poster frame (Pexels returns this; used as thumbnail)
   user: { name: string; url: string };
   video_files: PexelsVideoFile[];
 }
@@ -551,4 +552,90 @@ export async function findStockVideoByPrompt(
   }
 
   return null;
+}
+
+/** A ranked alternative clip for the Scene Inspector (Sprint 39). Carries only
+ *  HONEST signals the render engine actually computes — no fabricated scores. */
+export interface StockCandidate {
+  id: number;
+  provider: "pexels";
+  /** Direct MP4 — used both as the in-card preview and the chosen clip. */
+  url: string;
+  thumbnailUrl: string | null;
+  durationSec: number;
+  width: number;
+  height: number;
+  orientation: "portrait" | "landscape";
+  photographer: string;
+  pexelsPageUrl: string;
+  /** The query that surfaced it — the honest "why we found this". */
+  query: string;
+  /** The render engine's OWN ranking signal: orientation-fit (+1000) + HD height. */
+  score: number;
+}
+
+/**
+ * Return the RANKED candidate pool the render engine would choose among, for one
+ * scene prompt. Reuses the SAME buildQueries → searchOnce → filterUsable →
+ * pickBestFile path as findStockVideoByPrompt() (which returns only the top
+ * pick), so the candidates a customer sees ARE the pool the renderer selects
+ * from — no second/duplicate search engine. Search-only: no download, no R2,
+ * no render, no enqueue.
+ */
+export async function searchStockVideoCandidates(
+  opts: FindOpts & { limit?: number; preferPortrait?: boolean },
+): Promise<StockCandidate[]> {
+  const apiKey = process.env.PEXELS_API_KEY;
+  if (!apiKey) throw new PexelsNotConfiguredError();
+
+  const limit = opts.limit ?? 8;
+  const preferPortrait = opts.preferPortrait ?? true;
+  const queries = buildQueries(opts.prompt, opts.hook, {
+    brandIndustry: opts.brandIndustry,
+    topicTitle: opts.topicTitle,
+    shotType: opts.shotType,
+  });
+  const exclude = new Set(opts.excludeIds ?? []);
+  const byId = new Map<number, StockCandidate>();
+
+  const orientations: ("portrait" | "landscape")[] = preferPortrait
+    ? ["portrait", "landscape"]
+    : ["landscape", "portrait"];
+
+  for (const query of queries) {
+    if (byId.size >= limit * 3) break; // enough to rank a good top-N
+    for (const orientation of orientations) {
+      let videos: PexelsVideo[];
+      try {
+        videos = await searchOnce(apiKey, query, orientation);
+      } catch {
+        continue; // try next orientation/query on any error
+      }
+      for (const v of filterUsable(videos)) {
+        if (exclude.has(v.id) || byId.has(v.id)) continue;
+        const file = pickBestFile(v, orientation === "portrait");
+        if (!file) continue;
+        const isPortrait = file.height > file.width;
+        const score = (preferPortrait === isPortrait ? 1000 : 0) + Math.min(file.height, 1080);
+        byId.set(v.id, {
+          id: v.id,
+          provider: "pexels",
+          url: file.link,
+          thumbnailUrl: v.image ?? null,
+          durationSec: v.duration,
+          width: file.width,
+          height: file.height,
+          orientation,
+          photographer: v.user?.name ?? "Unknown",
+          pexelsPageUrl: v.url,
+          query,
+          score,
+        });
+      }
+    }
+  }
+
+  return Array.from(byId.values())
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
 }
