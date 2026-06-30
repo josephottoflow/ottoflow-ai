@@ -35,13 +35,6 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ key: string[] }> },
 ) {
-  if (!isR2Configured()) {
-    return new Response(
-      "Media storage not configured (R2 env missing on this deployment).",
-      { status: 503 },
-    );
-  }
-
   const { key } = await params;
   // Re-join the catch-all segments; each segment is already URL-encoded by the
   // router, so decode per-segment to recover the real object key.
@@ -50,16 +43,35 @@ export async function GET(
 
   const range = req.headers.get("range") ?? undefined;
 
-  let signed;
-  try {
-    signed = r2SignedGet(objectKey, { range });
-  } catch {
-    return new Response("Media storage not configured", { status: 503 });
+  // Build the upstream request. Two paths, both server-side (so the customer's
+  // network never touches r2.dev):
+  //   1. Full S3 creds present → signed GET to the S3 endpoint (no r2.dev rate
+  //      limit). Preferred when configured.
+  //   2. Public-bucket fallback → fetch the bucket's PUBLIC base URL directly.
+  //      Needs ONLY R2_PUBLIC_BASE_URL (no account id / secret), and works from
+  //      Vercel even when the *customer's* network DNS-blocks r2.dev. This is
+  //      what unblocks playback/download in production today.
+  let upstreamUrl: string;
+  let upstreamHeaders: Record<string, string> = {};
+  if (isR2Configured()) {
+    const signed = r2SignedGet(objectKey, { range });
+    upstreamUrl = signed.url;
+    upstreamHeaders = signed.headers;
+  } else {
+    const base = (process.env.R2_PUBLIC_BASE_URL ?? "").replace(/\/$/, "");
+    if (!base) {
+      return new Response(
+        "Media storage not configured (no R2_PUBLIC_BASE_URL).",
+        { status: 503 },
+      );
+    }
+    upstreamUrl = `${base}/${objectKey.split("/").map(encodeURIComponent).join("/")}`;
+    if (range) upstreamHeaders["range"] = range;
   }
 
   let upstream: Response;
   try {
-    upstream = await fetch(signed.url, { headers: signed.headers });
+    upstream = await fetch(upstreamUrl, { headers: upstreamHeaders });
   } catch {
     return new Response("Upstream storage unreachable", { status: 502 });
   }
