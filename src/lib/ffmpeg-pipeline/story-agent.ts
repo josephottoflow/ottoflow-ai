@@ -93,6 +93,10 @@ interface RawScene {
   hasScreen: boolean;
   /** Sprint 46 — literal stock-library search phrase for the shot. */
   stockQuery?: string;
+  /** Sprint 47 (Protagonist Continuity) — shot planning fields. */
+  cameraAngle?: string;
+  subjectVisibility?: string;
+  continuityRole?: string;
 }
 interface RawStory {
   protagonist: string;
@@ -126,7 +130,7 @@ const SCHEMA: Schema = {
         required: [
           "role", "shotType", "action", "environment", "emotion",
           "lighting", "cameraMotion", "durationSec", "caption", "hasScreen",
-          "stockQuery",
+          "stockQuery", "cameraAngle", "subjectVisibility", "continuityRole",
         ],
         properties: {
           role: { type: Type.STRING, enum: BEATS as string[] },
@@ -140,6 +144,9 @@ const SCHEMA: Schema = {
           caption: { type: Type.STRING },
           hasScreen: { type: Type.BOOLEAN },
           stockQuery: { type: Type.STRING },
+          cameraAngle: { type: Type.STRING },
+          subjectVisibility: { type: Type.STRING },
+          continuityRole: { type: Type.STRING },
         },
       },
     },
@@ -182,6 +189,47 @@ function deriveStockQuery(
       .slice(0, n);
   const words = [...pick(action, 3), ...pick(environment, 2)];
   return words.length >= 2 ? words.join(" ") : undefined;
+}
+
+// ─── Sprint 47 (Protagonist Continuity): composition-level continuity guard ──
+
+const PERSON_LEAD =
+  /^(woman|man|person|people|businesswoman|businessman|business woman|business man|professional|entrepreneur|freelancer|worker|guy|girl|lady|male|female|adult|designer|manager|student)\b\s*/i;
+
+const VIS_IDIOM: Record<string, string> = {
+  "over-shoulder": "over shoulder",
+  hands: "hands",
+  back: "back view",
+  silhouette: "silhouette",
+  detail: "close up",
+  environment: "",
+};
+
+/** Enforce the one-anchor rule deterministically: the FIRST face/person-led
+ *  scene keeps its person-led query (the anchor); every LATER person-led query
+ *  is rewritten to a subject-neutral phrasing matching its planned visibility,
+ *  so cuts never read as obviously different actors even when the model
+ *  ignores the continuity instructions. Pure + in-place — exported for the
+ *  local validator. */
+export function applyShotContinuity(
+  scenes: { searchQuery?: string; subjectVisibility?: string }[],
+): void {
+  let anchorUsed = false;
+  for (const s of scenes) {
+    const q = s.searchQuery;
+    if (!q) continue;
+    const vis = (s.subjectVisibility ?? "").toLowerCase().trim();
+    const personLed = PERSON_LEAD.test(q);
+    if (vis !== "face" && !personLed) continue; // already subject-neutral
+    if (!anchorUsed) {
+      anchorUsed = true; // the single face-revealing anchor keeps its query
+      continue;
+    }
+    const stripped = q.replace(PERSON_LEAD, "").trim();
+    const idiom = VIS_IDIOM[vis] ?? "over shoulder";
+    const rewritten = `${idiom} ${stripped}`.trim().split(/\s+/).slice(0, 5).join(" ");
+    if (rewritten.split(/\s+/).filter(Boolean).length >= 2) s.searchQuery = rewritten;
+  }
 }
 
 function paletteLine(p?: BrandPalette | null): string {
@@ -241,6 +289,20 @@ function buildPrompt(input: CommercialStoryInput, fixes?: string): string {
     "    in plain generic words a stock library indexes (e.g. 'woman working laptop office', 'hands typing keyboard',",
     "    'man walking city morning'). NO brand names, NO wardrobe/prop details, NO camera or lighting terms,",
     "    NO adjectives like cinematic. Each scene's stockQuery must differ from the others (visual variety).",
+    "- cameraAngle: eye-level | low | high | top-down | over-shoulder",
+    "- subjectVisibility: face | over-shoulder | hands | back | silhouette | detail | environment",
+    "- continuityRole: anchor | continuation | insert | payoff",
+    "",
+    "CINEMATIC CONTINUITY — stock footage CANNOT repeat the same actor across clips, so imply ONE continuous",
+    "protagonist through COMPOSITION, the way commercials cut around casting:",
+    "- EXACTLY ONE scene — the hook — is the `anchor` with subjectVisibility 'face' (establishes the protagonist).",
+    "- EVERY other scene MUST use a subject-neutral subjectVisibility (over-shoulder | hands | back | silhouette |",
+    "    detail | environment) so consecutive shots read as the SAME person, never as obviously different actors.",
+    "- Each stockQuery MUST match its scene's subjectVisibility: neutral scenes describe the shot WITHOUT gendered",
+    "    person words (e.g. 'hands typing keyboard', 'over shoulder laptop screen', 'silhouette office window',",
+    "    'tidy desk workspace morning') — ONLY the anchor scene may name a person (e.g. 'woman working desk').",
+    "- Keep every environment inside ONE coherent visual world (same home/office/commute reality, consistent time",
+    "    of day progression) so the cuts feel like one continuous story, not a montage of strangers.",
     "",
     "PRODUCT DEMONSTRATION — if the brand is software/SaaS/has a UI, dashboard, app or website, AT LEAST the reveal",
     "and one more scene MUST show the protagonist REALISTICALLY using the product on a real device (hands on keyboard/",
@@ -339,6 +401,19 @@ async function buildValidatedStory(input: CommercialStoryInput): Promise<ScoredS
           sanitizeStockQuery(s?.stockQuery) ??
           deriveStockQuery(s?.action, s?.environment),
       } satisfies VideoStrategyScene;
+    });
+
+    // Sprint 47 (Protagonist Continuity) — one face-revealing anchor max; every
+    // other person-led query is demoted to its planned subject-neutral framing
+    // (over-shoulder/hands/back/silhouette/detail) so consecutive stock clips
+    // read as ONE continuous protagonist.
+    const contViews = assembled.map((sc, i) => ({
+      searchQuery: sc.searchQuery,
+      subjectVisibility: byRole.get(BEATS[i])?.subjectVisibility,
+    }));
+    applyShotContinuity(contViews);
+    contViews.forEach((c, i) => {
+      assembled[i] = { ...assembled[i], searchQuery: c.searchQuery };
     });
 
     if (failures.length === 0) {
