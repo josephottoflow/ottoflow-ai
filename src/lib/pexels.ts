@@ -511,6 +511,38 @@ export async function findStockVideoByPrompt(
 
   const exclude = new Set(opts.excludeIds ?? []);
 
+  // Duplicate-scene fix (verified in prod render 6624cd5a: scene-4.mp4 and
+  // scene-6.mp4 were byte-identical). Previously, when every hit for the FIRST
+  // query was already used in this render, we repeated a used clip immediately
+  // instead of trying the remaining queries — which usually DO hold fresh
+  // footage. Now: exhausted pools are remembered as a true last resort, tried
+  // only after every query/orientation failed to yield an unused clip.
+  let lastResort: {
+    pool: PexelsVideo[];
+    orientation: "portrait" | "landscape";
+    query: string;
+  } | null = null;
+
+  const toClip = (
+    video: PexelsVideo,
+    query: string,
+    orientation: "portrait" | "landscape",
+  ): StockClip | null => {
+    const file = pickBestFile(video, orientation === "portrait");
+    if (!file) return null;
+    return {
+      id: video.id,
+      url: file.link,
+      durationSec: video.duration,
+      width: file.width,
+      height: file.height,
+      photographer: video.user?.name ?? "Unknown",
+      pexelsPageUrl: video.url,
+      query,
+      orientation,
+    };
+  };
+
   // Try portrait first (9:16 TikTok), then landscape for each query.
   for (const query of queries) {
     for (const orientation of ["portrait", "landscape"] as const) {
@@ -519,35 +551,38 @@ export async function findStockVideoByPrompt(
         const usable = filterUsable(videos);
         if (usable.length === 0) continue;
 
-        // De-dup: prefer clips not already used in this render. If every hit
-        // for this query was used, fall back to the full pool (a repeated but
-        // relevant clip beats failing the scene — Pexels is the hard fallback).
+        // De-dup: only clips not already used in this render. If every hit
+        // for this query was used, remember the pool and try the NEXT query —
+        // a different relevant clip beats repeating one ("no duplicated
+        // scenes"). Repeats remain possible only as the absolute last resort.
         const fresh = usable.filter((v) => !exclude.has(v.id));
-        const pool = fresh.length > 0 ? fresh : usable;
+        if (fresh.length === 0) {
+          if (!lastResort) lastResort = { pool: usable, orientation, query };
+          continue;
+        }
 
         // Phase 1B (P1.3) — Pexels orders by relevance, but always taking
         // the first hit meant identical topic → identical clip. Random
         // among the top 3 keeps relevance while breaking determinism.
-        const video = pickTop(pool);
+        const video = pickTop(fresh);
         if (!video) continue;
-        const file = pickBestFile(video, orientation === "portrait");
-        if (!file) continue;
-
-        return {
-          id: video.id,
-          url: file.link,
-          durationSec: video.duration,
-          width: file.width,
-          height: file.height,
-          photographer: video.user?.name ?? "Unknown",
-          pexelsPageUrl: video.url,
-          query,
-          orientation,
-        };
+        const clip = toClip(video, query, orientation);
+        if (clip) return clip;
       } catch {
         // Try next query on any error.
         continue;
       }
+    }
+  }
+
+  // Every query's pool was already fully used in this render (tiny topic
+  // pools). A repeated but relevant clip still beats failing the scene —
+  // Pexels is the hard fallback.
+  if (lastResort) {
+    const video = pickTop(lastResort.pool);
+    if (video) {
+      const clip = toClip(video, lastResort.query, lastResort.orientation);
+      if (clip) return clip;
     }
   }
 
