@@ -232,7 +232,14 @@ function useCountUp(target: number, active: boolean): number {
 }
 
 interface VideoConfigModalProps {
-  open: boolean; brandId: string; contentItemId: string;
+  open: boolean; brandId: string;
+  /** Content-anchored entry (unchanged). Omit for standalone "start from an idea" —
+   * then `topic` is required and the payload sends topic instead of contentItemId. */
+  contentItemId?: string;
+  /** Sprint 43 — standalone freeform topic (8–200 chars). Only sent when no
+   * contentItemId. Standalone runs the commercial_story engine server-side, so the
+   * AI Storytelling preset is hidden from the style options in that mode. */
+  topic?: string;
   contentTitle?: string; contentBody?: string | null; contentHashtags?: string[] | null;
   /** Presentation only — seeds the initial publishing platform (the guided wizard
    * picks it in Step 3). Does not change the generate payload behaviour; the user
@@ -245,9 +252,12 @@ interface VideoConfigModalProps {
 }
 
 export function VideoConfigModal({
-  open, brandId, contentItemId, contentTitle, contentBody, contentHashtags, initialPlatform, brandIndustry, onClose,
+  open, brandId, contentItemId, topic, contentTitle, contentBody, contentHashtags, initialPlatform, brandIndustry, onClose,
 }: VideoConfigModalProps) {
   const router = useRouter();
+  // Standalone (topic-only) runs the commercial_story engine server-side — hide
+  // the one preset that maps to the certified engine so the UI can't promise it.
+  const modeOptions = contentItemId ? MODE_OPTIONS : MODE_OPTIONS.filter((m) => m.value !== "ai_storytelling");
   const [platform, setPlatform] = useState<Platform>(initialPlatform ?? "linkedin");
   const [aspect, setAspect] = useState<AspectRatio>(PLATFORM_PROFILES[initialPlatform ?? "linkedin"].video.aspect);
   const [resolution, setResolution] = useState<Resolution>("720p");
@@ -293,13 +303,16 @@ export function VideoConfigModal({
 
   const body = useCallback(
     (extra: Record<string, unknown>) => ({
-      brandId, contentItemId, platform, aspect, resolution, quality, mode,
+      brandId, platform, aspect, resolution, quality, mode,
+      // Sprint 43 — content-anchored sends contentItemId (unchanged payload);
+      // standalone sends the freeform topic instead.
+      ...(contentItemId ? { contentItemId } : { topic }),
       // Sprint 31.1 — send the chosen visual source so "pexels" routes to the
       // stock-first pipeline (no AI/Seedance cost). Only ai/pexels are selectable.
       source: source === "pexels" ? "pexels" : "ai",
       ...(duration !== "auto" ? { durationSec: Number(duration) } : {}), ...extra,
     }),
-    [brandId, contentItemId, platform, aspect, resolution, quality, mode, duration, source],
+    [brandId, contentItemId, topic, platform, aspect, resolution, quality, mode, duration, source],
   );
 
   useEffect(() => {
@@ -324,9 +337,13 @@ export function VideoConfigModal({
     return () => clearTimeout(t);
   }, [open, body]);
 
-  const validation = validatePlatformContent(platform, {
-    caption: contentBody ?? null, hashtags: contentHashtags ?? null, title: contentTitle ?? null, description: contentBody ?? null,
-  });
+  // Post-copy check only applies content-anchored — standalone has no post copy
+  // yet (it's written at publish time), so the advisory would always "fail".
+  const validation = contentItemId
+    ? validatePlatformContent(platform, {
+        caption: contentBody ?? null, hashtags: contentHashtags ?? null, title: contentTitle ?? null, description: contentBody ?? null,
+      })
+    : null;
 
   async function onGenerate() {
     // Sprint 31.1 — post-copy validation is a PUBLISH concern, not a render one.
@@ -377,7 +394,7 @@ export function VideoConfigModal({
   const cameraStyles = Array.from(new Set(scenes.map((s) => s.camera).filter(Boolean))) as string[];
   const journeyRaw = scenes.map((s) => beatEmotion(s.role));
   const journey = journeyRaw.filter((w, i) => i === 0 || w !== journeyRaw[i - 1]);
-  const primaryMessage = (strategy?.video_concept ?? "").trim() || (scenes[0]?.caption ?? "").trim() || (contentTitle ?? "").trim();
+  const primaryMessage = (strategy?.video_concept ?? "").trim() || (scenes[0]?.caption ?? "").trim() || (contentTitle ?? topic ?? "").trim();
   const theme = (strategy?.visual_metaphor ?? "").trim() || (strategy?.visual_tension ?? "").trim() || `${cap(mode.replace(/_/g, " "))} for ${branding?.brandName ?? "your brand"}`;
   const visualStyleStr = `${cap(st.sceneComplexity)} · ${MODE_OPTIONS.find((m) => m.value === mode)?.label ?? cap(mode)}`;
   const expectedReaction = st.conversionStyle === "authority"
@@ -399,7 +416,7 @@ export function VideoConfigModal({
     ? { tone: "red" as const, icon: AlertCircle, title: "Missing Required Information", lines: [error] }
     : !ready
       ? { tone: "neutral" as const, icon: Loader2, title: "Designing your video…", lines: ["Composing the story and validating content."] }
-      : !validation.ok
+      : validation && !validation.ok
         ? { tone: "amber" as const, icon: AlertTriangle, title: "Heads up: post copy needs trimming", lines: [`The ${profile.label} caption is ${validation.checks.filter((c) => !c.ok).map((c) => `${c.field} ${c.actual} (needs ${c.rule})`).join("; ")} — trim it before publishing. The video will still render now.`] }
         : { tone: "green" as const, icon: CheckCircle2, title: "Ready to Create ✨", lines: ["✨ Your commercial is ready to generate.", `Renders in ~${fmtTimeRange(estimate.estRenderTimeSec)} · ${resolution} MP4`] };
   const readyColors: Record<string, { bg: string; fg: string }> = {
@@ -496,7 +513,7 @@ export function VideoConfigModal({
           </div>
           <button type="button" onClick={onClose} disabled={approving} className="text-white/40 hover:text-white disabled:opacity-40" aria-label="Close"><X size={16} /></button>
         </div>
-        <p className="text-3xs text-white/40 mb-3 line-clamp-1">{contentTitle ?? contentItemId}</p>
+        <p className="text-3xs text-white/40 mb-3 line-clamp-1">{contentTitle ?? topic ?? contentItemId}</p>
 
         {firstLoad ? (
           /* AI thinking reveal */
@@ -541,7 +558,7 @@ export function VideoConfigModal({
                   <option value="auto">Auto · {plo}–{phi}s</option><option value="15">15s</option><option value="20">20s</option><option value="30">30s</option><option value="45">45s</option><option value="60">60s</option></select></div>
               <div><label className="text-3xs text-white/45">Video style</label>
                 <select className={`${selCls} mt-0.5`} value={mode} onChange={(e) => setMode(e.target.value)}>
-                  {MODE_OPTIONS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}</select></div>
+                  {modeOptions.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}</select></div>
             </div>
             <p className="text-3xs text-white/40 mb-3">Style engine: <span className="text-white/65">{md.engine}</span> · Best for {md.bestFor}</p>
 
@@ -550,8 +567,8 @@ export function VideoConfigModal({
               <span className={`${labelCls} flex items-center gap-1 mb-2`}><Wand2 size={11} className="text-cyan-400" /> How your content becomes a video</span>
               <div className="flex items-stretch gap-1.5">
                 <div className="flex-1 rounded-lg p-2" style={card}>
-                  <p className="text-3xs text-white/40 font-semibold mb-0.5">Your content</p>
-                  <p className="text-3xs text-white/75 line-clamp-3 leading-snug">{contentTitle ?? "—"}</p>
+                  <p className="text-3xs text-white/40 font-semibold mb-0.5">{contentItemId ? "Your content" : "Your idea"}</p>
+                  <p className="text-3xs text-white/75 line-clamp-3 leading-snug">{contentTitle ?? topic ?? "—"}</p>
                 </div>
                 <div className="flex items-center"><ChevronRight size={14} className="text-cyan-400/60" /></div>
                 <div className="flex-1 rounded-lg p-2" style={{ background: "rgba(34,211,238,0.06)", border: "1px solid rgba(34,211,238,0.18)" }}>
@@ -762,11 +779,13 @@ export function VideoConfigModal({
               <p className="text-3xs text-white/45">{branding?.logoAssetId ? "Logo" : "Wordmark"} + CTA applied · colours guide lighting &amp; accents, not flat blocks.</p>
             </Section>
 
-            <Section open={!!openSec["check"]} onToggle={() => toggle("check")} title={`Content check · ${profile.label}`} hint={validation.ok ? "all good" : "needs fix"}>
-              <div className="space-y-0.5">{validation.checks.map((c) => (
-                <div key={c.field} className="flex items-center justify-between text-3xs"><span className="capitalize text-white/55">{c.field}</span>
-                  <span className={c.ok ? "text-white/60" : "text-red-400"}>{c.ok ? "✓" : "✗"} {c.actual} · needs {c.rule}</span></div>))}</div>
-            </Section>
+            {validation && (
+              <Section open={!!openSec["check"]} onToggle={() => toggle("check")} title={`Content check · ${profile.label}`} hint={validation.ok ? "all good" : "needs fix"}>
+                <div className="space-y-0.5">{validation.checks.map((c) => (
+                  <div key={c.field} className="flex items-center justify-between text-3xs"><span className="capitalize text-white/55">{c.field}</span>
+                    <span className={c.ok ? "text-white/60" : "text-red-400"}>{c.ok ? "✓" : "✗"} {c.actual} · needs {c.rule}</span></div>))}</div>
+              </Section>
+            )}
 
             <Section open={!!openSec["advanced"]} onToggle={() => toggle("advanced")} title="Advanced Settings" hint="resolution · quality">
               <div className="grid grid-cols-2 gap-3">

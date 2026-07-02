@@ -1,6 +1,12 @@
 /**
  * POST /api/video/generate — Ottoflow Video V1 (AI-first, Seedance → FFmpeg).
  *
+ * Two entry shapes (Sprint 43):
+ *   content-anchored — contentItemId: reuses the item's creative brief
+ *     (tension/metaphor/palette/logo), unchanged behaviour;
+ *   standalone — topic: "start from an idea", no content item / brief needed;
+ *     always the commercial_story engine (certified requires a brief).
+ *
  * Turns an existing content item's creative brief into a brand-aligned video:
  *   read brief (visual_tension/visual_metaphor/cta/palette/logo) →
  *   buildVideoStrategy (4-beat arc, reuses the SAME tension/metaphor as the
@@ -73,7 +79,16 @@ const StrategySchema = z.object({
 
 const Schema = z.object({
   brandId: z.string().uuid(),
-  contentItemId: z.string().uuid(),
+  /** Sprint 43 — now optional: the content-item anchor. Absent → standalone
+   * "start from an idea" (a freeform `topic` drives the video; no creative
+   * brief needed). Exactly one of contentItemId/topic is required (refine below). */
+  contentItemId: z.string().uuid().optional(),
+  /** Sprint 43 — standalone topic. Only read when contentItemId is absent
+   * (content-anchored keeps deriving the topic from the item title, unchanged).
+   * Standalone always runs the commercial_story engine — the certified 4-beat
+   * engine requires a brief's visual_tension/visual_metaphor, which don't exist
+   * without a content item. */
+  topic: z.string().min(8).max(200).optional(),
   /** Sprint 4 — destination platform (source of truth for aspect/duration
    * defaults). All 9 Platform Agent platforms. Default "linkedin" preserves the
    * legacy caller. */
@@ -130,6 +145,8 @@ const Schema = z.object({
   approve: z.boolean().optional().default(false),
   /** Optional: reuse a dryRun's strategy on approve (prevents preview/cost drift). */
   strategy: StrategySchema.optional(),
+}).refine((v) => !!v.contentItemId || !!v.topic, {
+  message: "Provide either contentItemId (content-anchored) or topic (standalone).",
 });
 
 const RATE_LIMIT = { limit: 20, windowSeconds: 60 * 60 } as const; // 20/hr
@@ -185,8 +202,15 @@ export async function POST(req: NextRequest) {
   const profile = getPlatformProfile(parsed.data.platform);
   // Aspect: explicit override wins, else the platform's profile default.
   const aspect = parsed.data.aspect ?? profile.video.aspect;
+  // Sprint 43 — standalone "start from an idea": no content item → no creative
+  // brief. The certified 4-beat engine REQUIRES the brief's tension/metaphor,
+  // so standalone always runs the commercial_story engine (topic-driven; its
+  // visualTension input is optional subtext).
+  const standalone = !parsed.data.contentItemId;
   // Rendering mode preset → one of the 2 real engines (no fork).
-  const mode = UI_MODE_TO_ENGINE[parsed.data.mode] ?? "certified";
+  const mode = standalone
+    ? "commercial_story"
+    : UI_MODE_TO_ENGINE[parsed.data.mode] ?? "certified";
   // Resolution: HARDENING (Sprint 4.1) — taken ONLY from the explicit selector,
   // never silently overridden by quality (that desynced the UI). 1080p is not
   // yet wired end-to-end (worker renders 720p source regardless) and the UI
@@ -216,33 +240,41 @@ export async function POST(req: NextRequest) {
   }
 
   // ─── Reuse the existing creative brief (tension/metaphor/cta/palette/logo) ─
-  const { data: creative } = await admin
-    .from("content_creatives")
-    .select("creative_brief, created_at")
-    .eq("content_item_id", contentItemId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (!creative?.creative_brief) {
-    return Response.json(
-      { error: "No creative brief for this content item — generate the post creative first." },
-      { status: 400 },
-    );
-  }
-  const brief = creative.creative_brief as CreativeBriefLite;
-  if (!brief.visual_tension || !brief.visual_metaphor) {
-    return Response.json(
-      { error: "Creative brief is missing visual_tension/visual_metaphor." },
-      { status: 400 },
-    );
-  }
+  // Content-anchored only. Standalone has no brief: brief stays null, the topic
+  // comes straight from the request, and commercial_story treats the missing
+  // tension as absent subtext (supported input).
+  let brief: CreativeBriefLite | null = null;
+  let topic = parsed.data.topic?.trim().slice(0, 200) || "Brand video";
+  if (contentItemId) {
+    const { data: creative } = await admin
+      .from("content_creatives")
+      .select("creative_brief, created_at")
+      .eq("content_item_id", contentItemId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!creative?.creative_brief) {
+      return Response.json(
+        { error: "No creative brief for this content item — generate the post creative first." },
+        { status: 400 },
+      );
+    }
+    const b = creative.creative_brief as CreativeBriefLite;
+    if (!b.visual_tension || !b.visual_metaphor) {
+      return Response.json(
+        { error: "Creative brief is missing visual_tension/visual_metaphor." },
+        { status: 400 },
+      );
+    }
+    brief = b;
 
-  const { data: item } = await admin
-    .from("content_items")
-    .select("title")
-    .eq("id", contentItemId)
-    .maybeSingle();
-  const topic = (item?.title as string | undefined)?.slice(0, 200) ?? "Brand video";
+    const { data: item } = await admin
+      .from("content_items")
+      .select("title")
+      .eq("id", contentItemId)
+      .maybeSingle();
+    topic = (item?.title as string | undefined)?.slice(0, 200) ?? "Brand video";
+  }
 
   // ─── Visual World V1 (Brand Finish Layer) ────────────────────────────────
   // The brand's persistent "how it looks": source of grade, logo, CTA, caption
@@ -250,21 +282,23 @@ export async function POST(req: NextRequest) {
   // deterministic derivation from the brief's palette/logo/CTA when the brand
   // has no stored world → behaviour identical to the pre-V1 brief-derived path.
   const world = resolveVisualWorld((brand as { visual_world?: unknown }).visual_world, {
-    palette: brief.palette ?? null,
+    palette: brief?.palette ?? null,
     brandName: (brand.name as string | null) ?? null,
-    logoAssetId: brief.logo_usage?.use ? brief.logo_usage.asset_id ?? null : null,
-    ctaText: brief.cta ?? null,
+    logoAssetId: brief?.logo_usage?.use ? brief.logo_usage.asset_id ?? null : null,
+    ctaText: brief?.cta ?? null,
   });
   // Sprint 6 — platform-aware CTA for the commercial_story end card (mode-gated;
-  // certified keeps the brief/world CTA verbatim → byte-identical).
-  const platformCta = mode === "commercial_story" ? pickCta(parsed.data.platform, contentItemId) : null;
+  // certified keeps the brief/world CTA verbatim → byte-identical). Standalone
+  // seeds the deterministic pick from the topic instead of the content id.
+  const platformCta =
+    mode === "commercial_story" ? pickCta(parsed.data.platform, contentItemId ?? topic) : null;
   const endcardCta = world.endcard.enabled ? platformCta ?? world.endcard.ctaText : null;
   const branding = {
     brandId,
     brandName: (brand.name as string | null) ?? null,
     logoAssetId: world.logo.assetId,
     ctaText: endcardCta,
-    palette: brief.palette ?? null,
+    palette: brief?.palette ?? null,
     grade: {
       contrast: world.grade.contrast,
       saturation: world.grade.saturation,
@@ -285,27 +319,33 @@ export async function POST(req: NextRequest) {
     // can't override the authoritative creative fields. dryRun always generates.
     const strategy: VideoStrategy =
       approve && passedStrategy
-        ? {
-            ...(passedStrategy as unknown as VideoStrategy),
-            visual_tension: brief.visual_tension,
-            visual_metaphor: brief.visual_metaphor,
-          }
+        ? (() => {
+            const s = { ...(passedStrategy as unknown as VideoStrategy) };
+            // Re-pin from the server-side brief when one exists (content-anchored);
+            // standalone has no brief — the previewed strategy's own fields stand.
+            if (brief?.visual_tension) s.visual_tension = brief.visual_tension;
+            if (brief?.visual_metaphor) s.visual_metaphor = brief.visual_metaphor;
+            return s;
+          })()
         : mode === "commercial_story"
           ? await buildCommercialStory({
               topic,
-              visualTension: brief.visual_tension,
+              visualTension: brief?.visual_tension ?? null,
               brandIndustry: (brand.industry as string | null) ?? null,
               brandName: (brand.name as string | null) ?? null,
-              palette: brief.palette ?? null,
+              palette: brief?.palette ?? null,
               targetDurationSec: [Math.max(profLo, Math.round(totalDurationSec * 0.7)), totalDurationSec],
               platform: parsed.data.platform,
             })
           : await buildVideoStrategy({
               topic,
-              visualTension: brief.visual_tension,
-              visualMetaphor: brief.visual_metaphor,
+              // Certified engine — only reachable content-anchored (standalone is
+              // forced onto commercial_story above), so the brief fields exist;
+              // the ?? "" fallbacks are for the type system only.
+              visualTension: brief?.visual_tension ?? "",
+              visualMetaphor: brief?.visual_metaphor ?? "",
               brandIndustry: (brand.industry as string | null) ?? null,
-              palette: brief.palette ?? null,
+              palette: brief?.palette ?? null,
               totalDurationSec,
             });
 

@@ -6,6 +6,11 @@
  * Replaces the silent /video/start redirect with an explicit, guided journey:
  *   Step 1 Choose company → Step 2 Choose content → Step 3 Choose platform → AI Creative Studio.
  *
+ * Sprint 43 — Step 2 also offers "Start from an idea": a freeform topic instead
+ * of an existing post. The Studio then sends `topic` (standalone) rather than
+ * `contentItemId`; /api/video/generate runs the commercial_story engine with no
+ * creative-brief requirement. First-run users with zero content can now make a video.
+ *
  * Everything is fed by data already loaded server-side (brands + content items +
  * which items are video-eligible). No new API, no schema change, no backend touched.
  * The Studio (VideoConfigModal) and the generate payload are unchanged; the wizard
@@ -57,11 +62,19 @@ export function VideoStartWizard({ brands, content, preselectContentId }: Props)
   const [platform, setPlatform] = useState<Platform | null>(null);
   const [studioOpen, setStudioOpen] = useState(false);
 
+  // Sprint 43 — standalone "start from an idea": step 2 offers a second path that
+  // needs NO existing content. The idea becomes the `topic` the Studio sends to
+  // /api/video/generate (commercial_story engine, server-enforced).
+  const [tab, setTab] = useState<"content" | "idea">("content");
+  const [idea, setIdea] = useState("");
+  const [ideaReady, setIdeaReady] = useState(false);
+  const ideaValid = idea.trim().length >= 8 && idea.trim().length <= 200;
+
   const [search, setSearch] = useState("");
   const [platformFilter, setPlatformFilter] = useState<string | null>(null);
 
   // Derived step (never lets the user wonder what's next).
-  const step: 1 | 2 | 3 = !brandId ? 1 : !contentId ? 2 : 3;
+  const step: 1 | 2 | 3 = !brandId ? 1 : !contentId && !ideaReady ? 2 : 3;
 
   const brand = brands.find((b) => b.id === brandId) ?? null;
   const selectedContent = content.find((c) => c.id === contentId) ?? null;
@@ -83,8 +96,9 @@ export function VideoStartWizard({ brands, content, preselectContentId }: Props)
     });
   }, [brandContent, search, platformFilter]);
 
-  function pickBrand(id: string) { setBrandId(id); setContentId(null); setPlatform(null); }
-  function pickContent(id: string) { setContentId(id); setPlatform(null); }
+  function pickBrand(id: string) { setBrandId(id); setContentId(null); setIdeaReady(false); setPlatform(null); }
+  function pickContent(id: string) { setContentId(id); setIdeaReady(false); setPlatform(null); }
+  function confirmIdea() { if (!ideaValid) return; setContentId(null); setIdeaReady(true); setPlatform(null); }
 
   return (
     <div className="min-h-screen text-white">
@@ -148,8 +162,11 @@ export function VideoStartWizard({ brands, content, preselectContentId }: Props)
           <section className="space-y-4">
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <StepIntro
-                n={2} title={`Select the content to transform for ${brand.name}`}
-                hint="Pick the post or story you'd like turned into a video. Our AI builds the storyboard from it." />
+                n={2}
+                title={tab === "idea" ? `What should this video be about?` : `Select the content to transform for ${brand.name}`}
+                hint={tab === "idea"
+                  ? "Describe the idea in a sentence or two — our AI builds the full storyboard from it. No existing post needed."
+                  : "Pick the post or story you'd like turned into a video. Our AI builds the storyboard from it."} />
               {brands.length > 1 && (
                 <button type="button" onClick={() => setBrandId(null)}
                   className="text-2xs text-white/50 hover:text-white flex items-center gap-1">
@@ -158,12 +175,57 @@ export function VideoStartWizard({ brands, content, preselectContentId }: Props)
               )}
             </div>
 
-            {brandContent.length === 0 ? (
-              <EmptyState
-                icon={<Layers size={26} className="text-cyan-300" />}
-                title="No content for this company yet"
-                body="Videos are built from your existing posts. Generate a post first, then come back to turn it into a video."
-                ctaHref="/content/generate" ctaLabel="Generate content" />
+            {/* Path switcher — existing content vs. a fresh idea (Sprint 43) */}
+            <div className="flex items-center gap-1.5">
+              <FilterChip active={tab === "content"} onClick={() => setTab("content")}>
+                From existing content
+              </FilterChip>
+              <FilterChip active={tab === "idea"} onClick={() => setTab("idea")}>
+                ✨ Start from an idea
+              </FilterChip>
+            </div>
+
+            {tab === "idea" ? (
+              <div className="space-y-3">
+                <div className="rounded-2xl p-4" style={card}>
+                  <textarea
+                    value={idea}
+                    onChange={(e) => setIdea(e.target.value.slice(0, 200))}
+                    rows={3}
+                    placeholder={`e.g. "Why ${brand.name} customers stop wasting hours on manual reporting" or "3 signs your team has outgrown spreadsheets"`}
+                    className="w-full rounded-lg bg-white/[0.03] border border-white/10 text-sm text-white/90 px-3 py-2.5 leading-relaxed resize-none focus:outline-none focus:border-cyan-400/50 placeholder:text-white/25"
+                  />
+                  <div className="flex items-center justify-between mt-2">
+                    <p className="text-3xs text-white/35">
+                      {idea.trim().length < 8 ? "At least 8 characters" : `${idea.trim().length}/200`} · brand voice, colors &amp; logo applied automatically
+                    </p>
+                    <Button type="button" variant="gradient-cyan" size="sm" className="gap-1.5"
+                      disabled={!ideaValid} onClick={confirmIdea}>
+                      Continue <ArrowRight size={14} />
+                    </Button>
+                  </div>
+                </div>
+                <div className="rounded-xl p-3 flex items-center gap-2.5" style={card}>
+                  <Sparkles size={15} className="text-cyan-300 shrink-0" />
+                  <p className="text-2xs text-white/60">
+                    Ideas use our <span className="text-white/80">Human-first Story</span> engine — a complete commercial arc built straight from your topic.
+                  </p>
+                </div>
+              </div>
+            ) : brandContent.length === 0 ? (
+              <div className="space-y-3">
+                <EmptyState
+                  icon={<Layers size={26} className="text-cyan-300" />}
+                  title="No content for this company yet"
+                  body="Videos are built from your existing posts — or skip that entirely and start from a fresh idea above."
+                  ctaHref="/content/generate" ctaLabel="Generate content" />
+                <div className="flex justify-center">
+                  <button type="button" onClick={() => setTab("idea")}
+                    className="text-2xs text-cyan-300 hover:text-cyan-200 flex items-center gap-1">
+                    <Sparkles size={12} /> Start from an idea instead
+                  </button>
+                </div>
+              </div>
             ) : (
               <>
                 {/* Search + platform filter */}
@@ -211,15 +273,16 @@ export function VideoStartWizard({ brands, content, preselectContentId }: Props)
         )}
 
         {/* ── STEP 3 — Choose platform ── */}
-        {step === 3 && brand && selectedContent && (
+        {step === 3 && brand && (selectedContent || ideaReady) && (
           <section className="space-y-4">
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <StepIntro
                 n={3} title="Where will you publish this?"
                 hint="The platform sets the format — aspect ratio, length, pacing, captions, and call-to-action are tuned automatically." />
-              <button type="button" onClick={() => setContentId(null)}
+              <button type="button"
+                onClick={() => { if (selectedContent) setContentId(null); else setIdeaReady(false); }}
                 className="text-2xs text-white/50 hover:text-white flex items-center gap-1">
-                <ArrowLeft size={12} /> Change content
+                <ArrowLeft size={12} /> {selectedContent ? "Change content" : "Change idea"}
               </button>
             </div>
 
@@ -251,7 +314,7 @@ export function VideoStartWizard({ brands, content, preselectContentId }: Props)
             <div className="rounded-xl p-3 flex items-center gap-2.5" style={card}>
               <Clapperboard size={15} className="text-cyan-300 shrink-0" />
               <p className="text-2xs text-white/60">
-                Next: our AI builds the storyboard for <span className="text-white/80">{selectedContent.title}</span>
+                Next: our AI builds the storyboard for <span className="text-white/80">{selectedContent?.title ?? idea.trim()}</span>
                 {platform ? <> on <span className="text-white/80">{PLATFORM_PROFILES[platform].label}</span></> : null}. You review everything before anything renders.
               </p>
             </div>
@@ -266,15 +329,17 @@ export function VideoStartWizard({ brands, content, preselectContentId }: Props)
         )}
       </div>
 
-      {/* The Studio — seeded with the wizard's choices. Unchanged generate flow. */}
-      {brand && selectedContent && platform && (
+      {/* The Studio — seeded with the wizard's choices. Content-anchored sends the
+          item (unchanged flow); an idea sends `topic` instead (standalone, Sprint 43). */}
+      {brand && (selectedContent || ideaReady) && platform && (
         <VideoConfigModal
           open={studioOpen}
           brandId={brand.id}
-          contentItemId={selectedContent.id}
-          contentTitle={selectedContent.title}
-          contentBody={selectedContent.body}
-          contentHashtags={selectedContent.hashtags}
+          contentItemId={selectedContent?.id}
+          topic={selectedContent ? undefined : idea.trim()}
+          contentTitle={selectedContent?.title}
+          contentBody={selectedContent?.body ?? null}
+          contentHashtags={selectedContent?.hashtags}
           initialPlatform={platform}
           brandIndustry={brand.industry}
           onClose={() => setStudioOpen(false)}
