@@ -313,6 +313,13 @@ export interface CompositionPlan {
     narrationUrl: string;
     musicUrl: string;
     musicDuckingDb: number;        // legacy static fallback if sidechain unavailable
+    /** Sprint 45 — per-scene narration (Audio Timing). When present, the
+     * composer places each segment at its scene's MEASURED start offset so the
+     * voice tracks the scenes/captions instead of one concatenated read from
+     * t=0 (which left a long silent tail). Optional + additive: absent → the
+     * legacy single-narrationUrl path runs unchanged (in-flight plans and the
+     * /api/generate SSE path keep working byte-identically). */
+    narrationSegments?: { sceneId: number; url: string }[];
   };
   output: {
     // Video V1.1: widened from literal 1080×1920 to support 16:9 (1920×1080)

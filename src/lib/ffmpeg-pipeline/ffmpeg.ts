@@ -199,6 +199,43 @@ export interface FinalizeArgvInput {
   outputPath: string;
 }
 
+// ─── Sprint 45 (Audio Timing): assemble per-scene narration on one timeline ──
+// Cheap audio-only pass (no video decode): each scene's voice line is delayed
+// to its scene's MEASURED start offset, then all lines are mixed into a single
+// narration track. The finalize pass consumes it exactly like the legacy
+// whole-file narration, so the ducking graph is unchanged.
+
+export interface TimedNarrationArgvInput {
+  /** Ordered segments with their absolute placement on the combined timeline. */
+  segments: { path: string; delayMs: number }[];
+  /** WAV output (pcm) — avoids a lossy re-encode before the final AAC mux. */
+  outputPath: string;
+}
+
+export function buildTimedNarrationArgv(i: TimedNarrationArgvInput): string[] {
+  const norm = "aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo";
+  const inputArgs = i.segments.flatMap((s) => ["-i", s.path]);
+  const chains = i.segments
+    .map(
+      (s, k) =>
+        `[${k}:a]${norm},adelay=${Math.max(0, Math.round(s.delayMs))}:all=1[s${k}]`,
+    )
+    .join(";");
+  const labels = i.segments.map((_, k) => `[s${k}]`).join("");
+  // normalize=0: segments occupy disjoint windows, so no summing headroom is
+  // needed — keep each line at full voice level.
+  const filter = `${chains};${labels}amix=inputs=${i.segments.length}:duration=longest:normalize=0[aout]`;
+  return [
+    "-y",
+    ...THREAD_CAP,
+    ...inputArgs,
+    "-filter_complex", filter,
+    "-map", "[aout]",
+    "-c:a", "pcm_s16le",
+    i.outputPath,
+  ];
+}
+
 export function buildFinalizeArgv(i: FinalizeArgvInput): string[] {
   // Input 0 = the concat demuxer: presents all normalized clips as ONE
   // continuous video stream, so only ONE decode runs at a time (vs xfade's
@@ -214,7 +251,9 @@ export function buildFinalizeArgv(i: FinalizeArgvInput): string[] {
     narrIdx = idx++;
   }
   if (i.musicInputPath) {
-    inputArgs.push("-i", i.musicInputPath);
+    // Sprint 45 (Music Mix): loop short tracks so the bed covers the FULL video
+    // (the output is bounded by `-t` below; the fade-out ends it musically).
+    inputArgs.push("-stream_loop", "-1", "-i", i.musicInputPath);
     musIdx = idx++;
   }
   if (i.logoPath) {
@@ -248,21 +287,30 @@ export function buildFinalizeArgv(i: FinalizeArgvInput): string[] {
   // ─── Audio: narration full; music side-chain ducked when both present;
   //     music-only or silent supported for the AI-first path. ───────────────
   const norm = "aresample=44100,aformat=sample_fmts=fltp:channel_layouts=stereo";
+  // Sprint 45 (Music Mix): musical fade-in at the top, fade-out into the end.
+  const fadeOutStart = Math.max(0, i.durationSec - 2).toFixed(3);
+  const musicFades = `afade=t=in:st=0:d=1.0,afade=t=out:st=${fadeOutStart}:d=2.0`;
   let audioFilter: string | null = null;
   let audioOut: string | null = null;
   if (narrIdx >= 0 && musIdx >= 0) {
     const musicLinear = Math.pow(10, i.musicDuckingDb / 20);
+    // apad BEFORE the split: both the mix branch and the ducking key run the
+    // full video length, so the (looped, faded) music keeps playing after the
+    // last narration line instead of the mix ending with the voice — the
+    // output is bounded by `-t`. normalize=0 keeps the voice at full level
+    // (music is already pre-attenuated + side-chain ducked); the limiter
+    // guards the summed peaks against clipping.
     audioFilter =
-      `[${narrIdx}:a]${norm},volume=1.0,asplit=2[narr_main][narr_key];` +
-      `[${musIdx}:a]${norm},volume=${musicLinear.toFixed(3)}[mus];` +
+      `[${narrIdx}:a]${norm},volume=1.0,apad,asplit=2[narr_main][narr_key];` +
+      `[${musIdx}:a]${norm},volume=${musicLinear.toFixed(3)},${musicFades}[mus];` +
       `[mus][narr_key]sidechaincompress=threshold=0.05:ratio=8:attack=20:release=250[ducked];` +
-      `[narr_main][ducked]amix=inputs=2:duration=first:dropout_transition=0[aout]`;
+      `[narr_main][ducked]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95[aout]`;
     audioOut = "[aout]";
   } else if (narrIdx >= 0) {
     audioFilter = `[${narrIdx}:a]${norm},volume=1.0[aout]`;
     audioOut = "[aout]";
   } else if (musIdx >= 0) {
-    audioFilter = `[${musIdx}:a]${norm},volume=1.0[aout]`;
+    audioFilter = `[${musIdx}:a]${norm},volume=1.0,${musicFades}[aout]`;
     audioOut = "[aout]";
   }
   // else: no audio inputs → silent video (no audio map / codec).
@@ -340,6 +388,11 @@ export interface MultiPassInput {
   sceneInputPaths: string[];
   /** Optional: AI-first scenes-only videos may be silent / music-only. */
   narrationInputPath: string | null;
+  /** Sprint 45 (Audio Timing) — per-scene voice lines. When present, they are
+   *  assembled into ONE narration track placed at each scene's MEASURED start
+   *  offset (same measurement the caption clamp uses) and take precedence over
+   *  narrationInputPath. Assembly failure falls back to narrationInputPath. */
+  narrationSegmentPaths?: { sceneId: number; path: string }[] | null;
   musicInputPath: string | null;
   /** Where to WRITE the rendered ASS captions file. */
   assPath: string;
@@ -442,6 +495,43 @@ export async function composeMultiPass(input: MultiPassInput): Promise<void> {
     .map((c) => ({ ...c, endMs: Math.min(c.endMs, scenesEndMs) }));
   await fs.writeFile(input.assPath, renderAss(clampedCaptions, input.captionStyle, { width: W, height: H }), "utf-8");
 
+  // ── Sprint 45 (Audio Timing): scene-timed narration ───────────────────────
+  // Place each scene's voice line at that scene's MEASURED start offset (the
+  // same measurement the caption clamp above uses), assembled into one track
+  // by a cheap audio-only pass. Falls back to the legacy whole-file narration
+  // (or silence) on any failure — never fails the render.
+  let narrationInputPath = input.narrationInputPath;
+  if (input.narrationSegmentPaths?.length) {
+    try {
+      const probeFailed = measured.some((d) => d <= 0);
+      const startMsBySceneId = new Map<number, number>();
+      let cursorMs = 0;
+      for (let k = 0; k < n; k++) {
+        const sceneId = plan.scenes[k].plan.sceneId;
+        // Probe fallback: planned caption start (original timeline) — keeps
+        // voice and captions on the SAME clock either way.
+        startMsBySceneId.set(
+          sceneId,
+          probeFailed ? plan.scenes[k].caption.startMs : Math.round(cursorMs),
+        );
+        cursorMs += measured[k] * 1000;
+      }
+      const segments = input.narrationSegmentPaths
+        .filter((s) => startMsBySceneId.has(s.sceneId))
+        .map((s) => ({ path: s.path, delayMs: startMsBySceneId.get(s.sceneId)! }));
+      if (segments.length > 0) {
+        const timedPath = join("narration-timed.wav");
+        await input.runFfmpeg(
+          buildTimedNarrationArgv({ segments, outputPath: timedPath }),
+          "narration-timing",
+        );
+        narrationInputPath = timedPath;
+      }
+    } catch {
+      // Keep the legacy narrationInputPath fallback (possibly null).
+    }
+  }
+
   // ── Optional: render the CTA end card into a clip appended last. ──────────
   let extraDurationSec = 0;
   if (input.ctaCard) {
@@ -471,7 +561,7 @@ export async function composeMultiPass(input: MultiPassInput): Promise<void> {
     buildFinalizeArgv({
       concatListPath,
       assPath: input.assPath,
-      narrationInputPath: input.narrationInputPath,
+      narrationInputPath,
       musicInputPath: input.musicInputPath,
       musicDuckingDb: plan.audio.musicDuckingDb,
       logoPath: input.logoPath ?? null,

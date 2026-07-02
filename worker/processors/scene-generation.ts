@@ -28,6 +28,7 @@ import { ffmpegComposeQueue, type SceneGenerationJobData } from "@/lib/queue";
 import { generateScene } from "@/lib/video-providers/registry";
 import { uploadToR2, isR2Configured } from "@/lib/ffmpeg-pipeline/r2";
 import { synthesizeNarration } from "@/lib/elevenlabs";
+import { findTrackByVibe } from "@/lib/jamendo";
 import { buildAiFirstPlan, type AiFirstClip } from "@/lib/ffmpeg-pipeline/orchestrator";
 import { buildCommercialStyleBlock } from "@/lib/ffmpeg-pipeline/prompt-builder";
 import type { AgentContext, SourceName, VideoStrategy } from "@/lib/ffmpeg-pipeline/types";
@@ -316,7 +317,38 @@ export async function processSceneGeneration(
     // the render — zero regression. Caption text is the script beat per scene, so
     // voice and on-screen captions stay aligned.
     let narrationUrl: string | null = data.narrationUrl ?? null;
+    // Sprint 45 (Audio Timing) — synthesize PER-SCENE narration segments so the
+    // composer can place each line at its scene's measured start offset (voice
+    // tracks captions; no long silent tail). Falls back to the Sprint 34 single
+    // concatenated read on ANY failure — zero regression when ElevenLabs is
+    // unconfigured/over-quota or a segment call fails mid-way.
+    let narrationSegments: { sceneId: number; url: string }[] | null = null;
     if (!narrationUrl) {
+      const lines = strategy.scenes
+        .map((s) => ({ sceneId: s.sceneId, text: (s.caption ?? "").trim() }))
+        .filter((s) => s.text.length > 0);
+      if (lines.length > 0) {
+        try {
+          const segs: { sceneId: number; url: string }[] = [];
+          let budget = 1500; // same total-character cap as the single-read path
+          for (const line of lines) {
+            const text = line.text.slice(0, Math.max(0, budget));
+            if (!text) break;
+            budget -= text.length;
+            const voice = await synthesizeNarration({ text });
+            segs.push({ sceneId: line.sceneId, url: voice.audioDataUrl });
+          }
+          if (segs.length > 0) narrationSegments = segs;
+          report("narration", 73);
+        } catch (err) {
+          captureFallback("scene-gen.narration_segments_failed", err, {
+            renderJobId: data.renderJobId,
+          });
+          narrationSegments = null;
+        }
+      }
+    }
+    if (!narrationUrl && !narrationSegments) {
       const narrationText =
         (strategy.scenes.map((s) => s.caption?.trim()).filter(Boolean).join(". ") ||
           strategy.video_concept).slice(0, 1500);
@@ -332,13 +364,36 @@ export async function processSceneGeneration(
       }
     }
 
+    // Sprint 45 (Music Mix) — best-effort background music via the SAME Jamendo
+    // helper the /api/generate path uses (no second music system). The composer
+    // already side-chain-ducks music under narration; it now also loops/fades it.
+    // Missing JAMENDO_CLIENT_ID or no match → no music, exactly as before.
+    let musicUrl: string | null = data.musicUrl ?? null;
+    if (!musicUrl) {
+      try {
+        const totalSec = Math.round(
+          strategy.scenes.reduce((a, s) => a + (s.durationSec ?? 0), 0),
+        );
+        const track = await findTrackByVibe({
+          vibe: "inspirational",
+          targetSeconds: totalSec > 0 ? totalSec : 30,
+        });
+        if (track) musicUrl = track.audio;
+      } catch (err) {
+        captureFallback("scene-gen.music_failed", err, {
+          renderJobId: data.renderJobId,
+        });
+      }
+    }
+
     // Build the AI-first CompositionPlan and hand off to FFmpeg (ADR-002).
     const plan = buildAiFirstPlan({
       ctx,
       strategy,
       clips,
       narrationUrl,
-      musicUrl: data.musicUrl ?? null,
+      narrationSegments,
+      musicUrl,
       branding: data.branding,
       aspect: data.aspectRatio ?? "9:16",
     });

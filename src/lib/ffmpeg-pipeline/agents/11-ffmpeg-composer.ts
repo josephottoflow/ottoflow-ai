@@ -131,8 +131,29 @@ export async function runFfmpegComposer(
   ctx.log("agent.ffmpegComposer.scenes_downloaded");
 
   // 2. Narration (OPTIONAL — AI-first scenes-only videos may be silent/music-only)
+  // Sprint 45 (Audio Timing): per-scene segments preferred — composeMultiPass
+  // places each at its scene's MEASURED start offset. Any segment-download
+  // failure falls back to the legacy whole-file narration (or none), so a bad
+  // segment can never fail the render.
   let narrationPath: string | null = null;
-  if (plan.audio.narrationUrl) {
+  let narrationSegmentPaths: { sceneId: number; path: string }[] | null = null;
+  if (plan.audio.narrationSegments?.length) {
+    try {
+      const segs: { sceneId: number; path: string }[] = [];
+      for (const seg of plan.audio.narrationSegments) {
+        const dest = path.join(workDir, `narr-seg-${seg.sceneId}.mp3`);
+        await downloadTo(seg.url, dest);
+        segs.push({ sceneId: seg.sceneId, path: dest });
+      }
+      narrationSegmentPaths = segs;
+    } catch (err) {
+      ctx.log("agent.ffmpegComposer.narration_segments_failed", {
+        reason: err instanceof Error ? err.message : String(err),
+      });
+      narrationSegmentPaths = null;
+    }
+  }
+  if (!narrationSegmentPaths && plan.audio.narrationUrl) {
     narrationPath = path.join(workDir, "narration.mp3");
     await downloadTo(plan.audio.narrationUrl, narrationPath);
   }
@@ -218,6 +239,7 @@ export async function runFfmpegComposer(
     plan,
     sceneInputPaths: scenePaths,
     narrationInputPath: narrationPath,
+    narrationSegmentPaths,
     musicInputPath: musicPath,
     assPath,
     captions: plan.scenes.map((s) => s.caption),

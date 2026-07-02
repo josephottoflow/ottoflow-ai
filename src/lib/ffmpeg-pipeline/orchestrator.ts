@@ -287,6 +287,8 @@ export interface AiFirstPlanInput {
   clips: AiFirstClip[];
   narrationUrl?: string | null;
   musicUrl?: string | null;
+  /** Sprint 45 — per-scene narration segments (Audio Timing). Optional. */
+  narrationSegments?: { sceneId: number; url: string }[] | null;
   /** Optional deterministic branding (logo overlay + CTA end card). */
   branding?: CompositionPlan["branding"];
   /** Output aspect (Video V1.1). Absent → "9:16" = the certified 1080×1920. */
@@ -457,6 +459,9 @@ export function buildAiFirstPlan(input: AiFirstPlanInput): CompositionPlan {
       narrationUrl: input.narrationUrl ?? "",
       musicUrl: input.musicUrl ?? "",
       musicDuckingDb: -12,
+      ...(input.narrationSegments?.length
+        ? { narrationSegments: input.narrationSegments }
+        : {}),
     },
     output: { ...outputDimsForAspect(input.aspect ?? "9:16"), fps: 30, durationMs: totalDurationMs },
     globalGrade: "natural",
