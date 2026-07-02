@@ -246,6 +246,14 @@ function pickTop<T>(arr: readonly T[], topN = 3): T | undefined {
   return arr[Math.floor(Math.random() * Math.min(topN, arr.length))];
 }
 
+/** Test-only alias so scripts/validate-scene-relevance.ts can exercise the
+ *  REAL query construction without a network call. Not for production use. */
+export function __testBuildQueries(
+  ...args: Parameters<typeof buildQueries>
+): string[] {
+  return buildQueries(...args);
+}
+
 function buildQueries(
   prompt: string,
   hook?: string,
@@ -253,9 +261,25 @@ function buildQueries(
     brandIndustry?: string | null;
     topicTitle?: string | null;
     shotType?: string | null;
+    searchQuery?: string | null;
   },
 ): string[] {
   const queries: string[] = [];
+
+  // -1. Sprint 46 (Scene Relevance) — the scene's LITERAL semantic search
+  // phrase (subject + action + setting, from the story agent's structured
+  // fields). When present it leads, and the pollution-prone layers below
+  // (regex domain overrides + raw-prompt keyword extraction) are SKIPPED:
+  // they extract from the flattened cinematic prompt, whose wardrobe/lighting
+  // tokens produced off-topic footage ("reusable coffee cup" → /coffee/
+  // override → coffee-roasting b-roll). Topic/industry stay as fallbacks.
+  const sq = ctx?.searchQuery?.trim().toLowerCase() || null;
+  if (sq) {
+    queries.push(sq);
+    queries.push(`${sq} cinematic`);
+    const sqWords = sq.split(/\s+/);
+    if (sqWords.length > 2) queries.push(sqWords.slice(0, 2).join(" "));
+  }
 
   // 0. Brand/topic-aware queries (v2 P1b). When the caller has structured
   // brand context, these are tried BEFORE the regex overrides — they're
@@ -286,34 +310,39 @@ function buildQueries(
     }
   }
 
-  // 1. Domain overrides (hand-tuned regex hits — middle layer).
-  // Phase 1B (P1.3) — shuffled so the same domain doesn't always lead with
-  // the same query (first-hit selection made every video in a domain open
-  // on the identical stock clip).
-  for (const { pattern, queries: q } of TOPIC_OVERRIDES) {
-    if (pattern.test(prompt)) {
-      queries.push(...shuffled(q));
-      break; // one domain match is enough
+  // 1-3. Prompt-derived layers — SKIPPED when a semantic searchQuery exists
+  // (they mine the flattened cinematic prompt, which is exactly the pollution
+  // source the searchQuery replaces).
+  if (!sq) {
+    // 1. Domain overrides (hand-tuned regex hits — middle layer).
+    // Phase 1B (P1.3) — shuffled so the same domain doesn't always lead with
+    // the same query (first-hit selection made every video in a domain open
+    // on the identical stock clip).
+    for (const { pattern, queries: q } of TOPIC_OVERRIDES) {
+      if (pattern.test(prompt)) {
+        queries.push(...shuffled(q));
+        break; // one domain match is enough
+      }
     }
-  }
 
-  // 2. Keyword-derived queries
-  const kws = extractKeywords(prompt);
-  if (kws.length >= 2) {
-    queries.push(`${kws[0]} ${kws[1]} cinematic`);
-    queries.push(`${kws[0]} closeup product`);
-    queries.push(`${kws[1]} lifestyle modern`);
-  } else if (kws.length === 1) {
-    queries.push(`${kws[0]} cinematic`);
-    queries.push(`${kws[0]} modern lifestyle`);
-  }
+    // 2. Keyword-derived queries
+    const kws = extractKeywords(prompt);
+    if (kws.length >= 2) {
+      queries.push(`${kws[0]} ${kws[1]} cinematic`);
+      queries.push(`${kws[0]} closeup product`);
+      queries.push(`${kws[1]} lifestyle modern`);
+    } else if (kws.length === 1) {
+      queries.push(`${kws[0]} cinematic`);
+      queries.push(`${kws[0]} modern lifestyle`);
+    }
 
-  // 3. Hook-derived fallback if provided (script hooks often contain
-  // visual hints like "still coding hunched over")
-  if (hook) {
-    const hookKws = extractKeywords(hook);
-    if (hookKws.length > 0) {
-      queries.push(hookKws.slice(0, 2).join(" "));
+    // 3. Hook-derived fallback if provided (script hooks often contain
+    // visual hints like "still coding hunched over")
+    if (hook) {
+      const hookKws = extractKeywords(hook);
+      if (hookKws.length > 0) {
+        queries.push(hookKws.slice(0, 2).join(" "));
+      }
     }
   }
 
@@ -483,6 +512,9 @@ interface FindOpts {
   brandIndustry?: string | null;
   topicTitle?: string | null;
   shotType?: string | null;
+  /** Sprint 46 — literal semantic search phrase for the shot (leads the query
+   *  list and disables the pollution-prone prompt-keyword layers). */
+  searchQuery?: string | null;
   /**
    * Pexels video ids used by earlier scenes in this render. Excluded from
    * selection so two scenes never get the identical clip. If exclusion would
@@ -506,6 +538,7 @@ export async function findStockVideoByPrompt(
     brandIndustry: opts.brandIndustry,
     topicTitle: opts.topicTitle,
     shotType: opts.shotType,
+    searchQuery: opts.searchQuery,
   });
   if (queries.length === 0) return null;
 
@@ -629,6 +662,7 @@ export async function searchStockVideoCandidates(
     brandIndustry: opts.brandIndustry,
     topicTitle: opts.topicTitle,
     shotType: opts.shotType,
+    searchQuery: opts.searchQuery,
   });
   const exclude = new Set(opts.excludeIds ?? []);
   const byId = new Map<number, StockCandidate>();

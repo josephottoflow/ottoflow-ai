@@ -52,6 +52,15 @@ export interface SceneRequest {
    * unique clips per call.
    */
   excludeSourceIds?: string[];
+  /**
+   * Sprint 46 (Scene Relevance) — literal stock-footage search phrase for the
+   * shot (subject + action + setting), emitted by the story agent from its
+   * structured scene fields. When present the Pexels provider searches THIS
+   * first and skips keyword-extracting the cinematic prompt (whose wardrobe /
+   * lighting tokens polluted queries — "coffee cup" → coffee-roasting b-roll).
+   * Optional/back-compat: omitted → legacy query construction unchanged.
+   */
+  searchQuery?: string | null;
 }
 
 export interface SceneResult {

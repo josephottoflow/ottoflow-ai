@@ -82,6 +82,10 @@ export async function POST(
       prompt: scene.prompt,
       hook: scene.caption || undefined,
       topicTitle: job.prompt ?? null,
+      // Sprint 46 — the scene's semantic search phrase (persisted on the
+      // strategy) leads here too, so inspector candidates match the render
+      // engine's improved relevance instead of prompt-keyword pollution.
+      searchQuery: scene.searchQuery ?? null,
       excludeIds,
       limit,
       preferPortrait: aspect ? aspect === "9:16" : true,

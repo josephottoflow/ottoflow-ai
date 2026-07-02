@@ -67,6 +67,10 @@ const StrategySchema = z.object({
         caption: z.string().optional().default(""),
         seed: z.number().optional(),
         durationSec: z.number(),
+        // Sprint 46 (Scene Relevance) — zod strips unknown keys, so the
+        // scene's semantic stock-search phrase must be declared to survive
+        // the dryRun → client → approve round-trip.
+        searchQuery: z.string().max(120).optional(),
       }),
     )
     .min(1),

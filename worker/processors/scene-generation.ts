@@ -212,6 +212,9 @@ export async function processSceneGeneration(
               seed: sharedSeed,
               brandIndustry: data.brandIndustry ?? null,
               topicTitle: data.topic,
+              // Sprint 46 — the scene's literal semantic search phrase leads
+              // stock search (replaces prompt-keyword extraction pollution).
+              searchQuery: scene.searchQuery ?? null,
               // Exclude stock clips already used by earlier scenes (P1 de-dup).
               excludeSourceIds: usedPexelsIds,
             },

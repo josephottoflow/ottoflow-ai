@@ -400,6 +400,14 @@ export interface VideoStrategyScene {
   /** Deterministic seed for reproducible regeneration. */
   seed: number;
   durationSec: number;
+  /** Sprint 46 (Scene Relevance) — literal stock-footage search phrase for this
+   * shot (subject + action + setting in plain generic words, e.g. "woman
+   * working laptop office"). Emitted by the story agent from its structured
+   * scene fields, so stock search reflects the scene's SEMANTICS instead of
+   * keyword-extracting the cinematic prompt (whose wardrobe/lighting tokens
+   * polluted queries — e.g. "coffee cup" → coffee-roasting footage). Optional:
+   * absent → the legacy keyword path runs unchanged. */
+  searchQuery?: string;
 }
 
 export interface VideoStrategy {

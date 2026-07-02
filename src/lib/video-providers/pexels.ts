@@ -30,6 +30,8 @@ export class PexelsFallbackProvider implements VideoProvider {
         brandIndustry: request.brandIndustry ?? null,
         topicTitle: request.topicTitle ?? null,
         shotType: request.shotType ?? null,
+        // Sprint 46 — the scene's literal semantic search phrase leads.
+        searchQuery: request.searchQuery ?? null,
         // Cross-scene de-dup: exclude clips earlier scenes already used.
         // Numeric Pexels ids; non-numeric entries are ignored.
         excludeIds: (request.excludeSourceIds ?? [])

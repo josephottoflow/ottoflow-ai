@@ -91,6 +91,8 @@ interface RawScene {
   durationSec: number;
   caption: string;
   hasScreen: boolean;
+  /** Sprint 46 — literal stock-library search phrase for the shot. */
+  stockQuery?: string;
 }
 interface RawStory {
   protagonist: string;
@@ -124,6 +126,7 @@ const SCHEMA: Schema = {
         required: [
           "role", "shotType", "action", "environment", "emotion",
           "lighting", "cameraMotion", "durationSec", "caption", "hasScreen",
+          "stockQuery",
         ],
         properties: {
           role: { type: Type.STRING, enum: BEATS as string[] },
@@ -136,11 +139,50 @@ const SCHEMA: Schema = {
           durationSec: { type: Type.NUMBER },
           caption: { type: Type.STRING },
           hasScreen: { type: Type.BOOLEAN },
+          stockQuery: { type: Type.STRING },
         },
       },
     },
   },
 };
+
+// ─── Sprint 46 (Scene Relevance): stock-search phrase helpers ────────────────
+
+/** Clean the model-emitted stockQuery to a 2-5 word plain phrase, or null. */
+function sanitizeStockQuery(q: string | undefined): string | undefined {
+  if (!q) return undefined;
+  const words = q
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 1)
+    .slice(0, 5);
+  return words.length >= 2 ? words.join(" ") : undefined;
+}
+
+const STOCK_STOPWORDS = new Set([
+  "the", "a", "an", "and", "or", "of", "in", "on", "at", "to", "with", "for",
+  "their", "his", "her", "its", "into", "from", "over", "under", "as", "is",
+  "are", "then", "while", "protagonist", "scene", "camera", "cinematic",
+  "toward", "focal", "point", "slowly", "quickly",
+]);
+
+/** Deterministic fallback: top content words of the structured action +
+ *  environment fields (never the flattened cinematic prompt). */
+function deriveStockQuery(
+  action: string | undefined,
+  environment: string | undefined,
+): string | undefined {
+  const pick = (text: string | undefined, n: number): string[] =>
+    (text ?? "")
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length > 2 && !STOCK_STOPWORDS.has(w))
+      .slice(0, n);
+  const words = [...pick(action, 3), ...pick(environment, 2)];
+  return words.length >= 2 ? words.join(" ") : undefined;
+}
 
 function paletteLine(p?: BrandPalette | null): string {
   if (!p) return "a restrained, premium palette";
@@ -195,6 +237,10 @@ function buildPrompt(input: CommercialStoryInput, fixes?: string): string {
     "- caption: an on-screen line of 6–12 words, punchy and easy to read; FFmpeg burns it high-contrast and never",
     "    over the subject's face. Do NOT put it in any visual field.",
     "- hasScreen: true if this scene shows the product as a real device/dashboard/app the protagonist actively USES",
+    "- stockQuery: a LITERAL 2-5 word stock-footage search phrase for this exact shot — subject + action + setting",
+    "    in plain generic words a stock library indexes (e.g. 'woman working laptop office', 'hands typing keyboard',",
+    "    'man walking city morning'). NO brand names, NO wardrobe/prop details, NO camera or lighting terms,",
+    "    NO adjectives like cinematic. Each scene's stockQuery must differ from the others (visual variety).",
     "",
     "PRODUCT DEMONSTRATION — if the brand is software/SaaS/has a UI, dashboard, app or website, AT LEAST the reveal",
     "and one more scene MUST show the protagonist REALISTICALLY using the product on a real device (hands on keyboard/",
@@ -285,6 +331,13 @@ async function buildValidatedStory(input: CommercialStoryInput): Promise<ScoredS
         caption: (s?.caption ?? "").slice(0, 80),
         seed: sharedSeed,
         durationSec: clampDuration(s?.durationSec ?? 5),
+        // Sprint 46 (Scene Relevance) — the model's literal search phrase for
+        // THIS shot; falls back to a deterministic derivation from the
+        // structured action + environment (never from the cinematic prompt,
+        // whose wardrobe/lighting tokens polluted stock search).
+        searchQuery:
+          sanitizeStockQuery(s?.stockQuery) ??
+          deriveStockQuery(s?.action, s?.environment),
       } satisfies VideoStrategyScene;
     });
 
