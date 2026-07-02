@@ -370,19 +370,29 @@ export async function processSceneGeneration(
     // Missing JAMENDO_CLIENT_ID or no match → no music, exactly as before.
     let musicUrl: string | null = data.musicUrl ?? null;
     if (!musicUrl) {
-      try {
-        const totalSec = Math.round(
-          strategy.scenes.reduce((a, s) => a + (s.durationSec ?? 0), 0),
-        );
-        const track = await findTrackByVibe({
-          vibe: "inspirational",
-          targetSeconds: totalSec > 0 ? totalSec : 30,
-        });
-        if (track) musicUrl = track.audio;
-      } catch (err) {
-        captureFallback("scene-gen.music_failed", err, {
-          renderJobId: data.renderJobId,
-        });
+      const totalSec = Math.round(
+        strategy.scenes.reduce((a, s) => a + (s.durationSec ?? 0), 0),
+      );
+      // Vibe fallback chain: Jamendo ANDs a vibe's tags together, so a narrow
+      // vibe can legitimately match zero tracks — broaden before giving up.
+      // (An unknown vibe maps to the single broad "instrumental" tag.)
+      for (const vibe of ["inspirational", "energetic", "calm", "any"]) {
+        try {
+          const track = await findTrackByVibe({
+            vibe,
+            targetSeconds: totalSec > 0 ? totalSec : 30,
+          });
+          if (track) {
+            musicUrl = track.audio;
+            break;
+          }
+        } catch (err) {
+          // Not configured / API error — no point trying other vibes.
+          captureFallback("scene-gen.music_failed", err, {
+            renderJobId: data.renderJobId,
+          });
+          break;
+        }
       }
     }
 

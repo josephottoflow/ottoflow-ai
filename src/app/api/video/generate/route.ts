@@ -31,6 +31,7 @@ import { buildAiFirstPlan, type AiFirstClip } from "@/lib/ffmpeg-pipeline/orches
 import { resolveVisualWorld } from "@/lib/brand/visual-world";
 import { getPlatformProfile } from "@/lib/platform/profiles";
 import { pickCta } from "@/lib/platform/platform-cta";
+import { findTrackByVibe } from "@/lib/jamendo";
 import type { AgentContext, SourceName, VideoStrategy } from "@/lib/ffmpeg-pipeline/types";
 
 export const runtime = "nodejs";
@@ -395,6 +396,34 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // ─── Music (Sprint 45.1, Music Mix) ──────────────────────────────────────
+    // Resolve the background track HERE, where JAMENDO_CLIENT_ID is verified
+    // present (Vercel env) — runtime evidence from render 19573507 showed the
+    // worker-side fetch produced no music (its env lacks the key). Best-effort:
+    // failure → null and the worker's own fallback fetch still gets a chance.
+    // Persisted in render_context so Replace Visual re-renders keep the music.
+    let musicUrl: string | null = null;
+    const totalSceneSec = Math.round(
+      strategy.scenes.reduce((a, s) => a + (s.durationSec ?? 0), 0),
+    );
+    // Vibe fallback chain — Jamendo ANDs a vibe's tags, so a narrow vibe can
+    // match zero tracks; broaden before giving up ("any" → broad instrumental).
+    for (const vibe of ["inspirational", "energetic", "calm", "any"]) {
+      try {
+        const track = await findTrackByVibe({
+          vibe,
+          targetSeconds: totalSceneSec > 0 ? totalSceneSec : 30,
+        });
+        if (track) {
+          musicUrl = track.audio;
+          break;
+        }
+      } catch (err) {
+        captureFallback("video.generate.music_failed", err, { brandId, userId });
+        break;
+      }
+    }
+
     // ─── render_jobs row ──────────────────────────────────────────────────────
     const { data: job, error: jobErr } = await admin
       .from("render_jobs")
@@ -425,6 +454,7 @@ export async function POST(req: NextRequest) {
           quality,
           source,
           branding,
+          musicUrl,
         } as unknown as Record<string, unknown>,
       })
       .select("id")
@@ -453,6 +483,7 @@ export async function POST(req: NextRequest) {
         source,
         strategy,
         branding,
+        musicUrl,
       },
       { attempts: 1, jobId: job.id as string },
     );
