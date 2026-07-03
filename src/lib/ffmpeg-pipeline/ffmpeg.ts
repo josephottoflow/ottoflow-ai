@@ -251,9 +251,14 @@ export function buildFinalizeArgv(i: FinalizeArgvInput): string[] {
     narrIdx = idx++;
   }
   if (i.musicInputPath) {
-    // Sprint 45 (Music Mix): loop short tracks so the bed covers the FULL video
-    // (the output is bounded by `-t` below; the fade-out ends it musically).
-    inputArgs.push("-stream_loop", "-1", "-i", i.musicInputPath);
+    // Sprint 45 (Music Mix): short tracks are looped so the bed covers the
+    // FULL video. Sprint 50 (Music Continuity): looping moved from
+    // `-stream_loop -1` (demuxer level) to the `aloop` filter AFTER
+    // tail-trimming (MUSIC_LOOP_PREP below) — the trim filters need a FINITE
+    // input (areverse buffers to EOF), and looping an untrimmed track rode
+    // straight through its natural fade-out tail (prod 917794e4 / b452b393:
+    // ~3s of dead air at every loop boundary).
+    inputArgs.push("-i", i.musicInputPath);
     musIdx = idx++;
   }
   if (i.logoPath) {
@@ -290,6 +295,24 @@ export function buildFinalizeArgv(i: FinalizeArgvInput): string[] {
   // Sprint 45 (Music Mix): musical fade-in at the top, fade-out into the end.
   const fadeOutStart = Math.max(0, i.durationSec - 2).toFixed(3);
   const musicFades = `afade=t=in:st=0:d=1.0,afade=t=out:st=${fadeOutStart}:d=2.0`;
+  // Sprint 50 (Music Continuity) — ROOT CAUSE (repro'd locally with prod track
+  // 1522018, 25.42s vs a 30s video): stock tracks end in a natural fade-to-
+  // silence tail (−13→−70dB over the last ~4s) and open with a quiet intro;
+  // looping an untrimmed track produced ~3s of dead air at every loop boundary
+  // (prod gaps: 917794e4 2.89s @23.1s, b452b393 3.04s @24.3s — silence starts
+  // exactly where the attenuated tail crosses −45dB). Fix, proven offline on
+  // the exact failing track (silence 3.11s → NONE at −45dB/1s and −40dB/0.75s):
+  //   1. silenceremove(head)  — strip true leading silence,
+  //   2. areverse + silenceremove(−30dB) + areverse — strip the fade tail
+  //      (−30dB keeps the bed ≥ ~−42dB after the −12dB mix attenuation),
+  //   3. aloop=−1 — loop the TRIMMED bed (INT32_MAX-sample window ≈ 13.5h cap).
+  // Tracks longer than the video and tracks without tails pass through
+  // unchanged; a pathological all-silent track degrades to no bed (same as
+  // the existing music-absent path). Ducking, fades, narration untouched.
+  const MUSIC_LOOP_PREP =
+    "silenceremove=start_periods=1:start_threshold=-45dB," +
+    "areverse,silenceremove=start_periods=1:start_threshold=-30dB,areverse," +
+    "aloop=loop=-1:size=2147483647";
   let audioFilter: string | null = null;
   let audioOut: string | null = null;
   if (narrIdx >= 0 && musIdx >= 0) {
@@ -302,7 +325,7 @@ export function buildFinalizeArgv(i: FinalizeArgvInput): string[] {
     // guards the summed peaks against clipping.
     audioFilter =
       `[${narrIdx}:a]${norm},volume=1.0,apad,asplit=2[narr_main][narr_key];` +
-      `[${musIdx}:a]${norm},volume=${musicLinear.toFixed(3)},${musicFades}[mus];` +
+      `[${musIdx}:a]${norm},${MUSIC_LOOP_PREP},volume=${musicLinear.toFixed(3)},${musicFades}[mus];` +
       `[mus][narr_key]sidechaincompress=threshold=0.05:ratio=8:attack=20:release=250[ducked];` +
       `[narr_main][ducked]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95[aout]`;
     audioOut = "[aout]";
@@ -310,7 +333,7 @@ export function buildFinalizeArgv(i: FinalizeArgvInput): string[] {
     audioFilter = `[${narrIdx}:a]${norm},volume=1.0[aout]`;
     audioOut = "[aout]";
   } else if (musIdx >= 0) {
-    audioFilter = `[${musIdx}:a]${norm},volume=1.0,${musicFades}[aout]`;
+    audioFilter = `[${musIdx}:a]${norm},${MUSIC_LOOP_PREP},volume=1.0,${musicFades}[aout]`;
     audioOut = "[aout]";
   }
   // else: no audio inputs → silent video (no audio map / codec).
