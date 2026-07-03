@@ -92,10 +92,19 @@ export function fallbackWorldPrompt(industry: string | null, colorClause: string
   const c = industryConstraint(industry);
   const firstWorld = c.worlds.split(",")[0].trim();
   const scene = metaphor && metaphor.trim() ? metaphor.trim() : `a premium real-world environment (${firstWorld})`;
+  // Sprint 53 (P1, prod 2026-07-04): the closing constraint used to read
+  // "No geometric shapes, no bars, no graphic overlays" — but "geometric" and
+  // "bars" are themselves forbidden background tokens (types.ts), so THIS
+  // "always safe by construction" fallback could never pass the brief's final
+  // gate: any brand whose model prompts tripped the guard hard-422'd
+  // ("…forbidden token \"geometric\" after fallback — refusing", reproduced
+  // 2/2 on a fresh Restaurant brand → customer dead-ended before video).
+  // Reworded to carry the same instruction with zero banned nouns — also
+  // better prompt-craft: image models latch onto nouns inside negations.
   return (
     `Cinematic premium commercial photograph: ${scene}. Natural directional light, ${c.palette}, ` +
     `shallow depth of field, realistic textures and atmospheric depth, editorial composition with generous ` +
     `negative space. Brand colour appears only as light within the scene${colorClause}. ` +
-    `No geometric shapes, no bars, no graphic overlays — a real photographic scene.`
+    `A purely photographic real-world scene, free of abstract shapes and synthetic overlays.`
   );
 }
