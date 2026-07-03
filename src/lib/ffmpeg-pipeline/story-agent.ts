@@ -205,6 +205,34 @@ const VIS_IDIOM: Record<string, string> = {
   environment: "",
 };
 
+/** Sprint 49 (Subject-Count Consistency) — deterministic derivation of the
+ *  composition fields from the planned subject visibility. The commercial
+ *  story arc is single-protagonist BY CONSTRUCTION, so person-led framings
+ *  imply exactly one subject and environment/detail shots imply none. Pure —
+ *  exported for the local validator. */
+export function deriveSubject(subjectVisibility?: string): {
+  subjectCount: 0 | 1;
+  dominantSubject: string;
+} {
+  const vis = (subjectVisibility ?? "").toLowerCase().trim();
+  switch (vis) {
+    case "hands":
+      return { subjectCount: 1, dominantSubject: "hands" };
+    case "detail":
+      return { subjectCount: 0, dominantSubject: "object" };
+    case "environment":
+      return { subjectCount: 0, dominantSubject: "environment" };
+    case "face":
+    case "over-shoulder":
+    case "back":
+    case "silhouette":
+      return { subjectCount: 1, dominantSubject: "single person" };
+    default:
+      // Unknown/missing plan → human-centered arc default: one person.
+      return { subjectCount: 1, dominantSubject: "single person" };
+  }
+}
+
 /** Enforce the one-anchor rule deterministically: the FIRST face/person-led
  *  scene keeps its person-led query (the anchor); every LATER person-led query
  *  is rewritten to a subject-neutral phrasing matching its planned visibility,
@@ -368,7 +396,7 @@ async function buildValidatedStory(input: CommercialStoryInput): Promise<ScoredS
       failures.push(`protagonist: ${protoV.map((x) => `${x.rule}:${x.detail}`).join("; ")}`);
     }
 
-    const assembled = BEATS.map((role, i) => {
+    const assembled: VideoStrategyScene[] = BEATS.map((role, i) => {
       const s = byRole.get(role);
       const slots = {
         shotType: s?.shotType ?? "medium",
@@ -414,6 +442,24 @@ async function buildValidatedStory(input: CommercialStoryInput): Promise<ScoredS
     applyShotContinuity(contViews);
     contViews.forEach((c, i) => {
       assembled[i] = { ...assembled[i], searchQuery: c.searchQuery };
+    });
+
+    // Sprint 49 (Subject-Count Consistency) — expose the shot plan on each
+    // strategy scene + derive the deterministic composition fields (no extra
+    // AI call). Stock selection uses subjectCount to soft-reject couples/
+    // groups/crowds for this single-protagonist arc.
+    assembled.forEach((sc, i) => {
+      const shot = byRole.get(BEATS[i]);
+      const d = deriveSubject(shot?.subjectVisibility);
+      assembled[i] = {
+        ...sc,
+        subjectCount: d.subjectCount,
+        dominantSubject: d.dominantSubject,
+        shotType: shot?.shotType,
+        cameraAngle: shot?.cameraAngle,
+        subjectVisibility: shot?.subjectVisibility,
+        continuityRole: shot?.continuityRole,
+      };
     });
 
     if (failures.length === 0) {

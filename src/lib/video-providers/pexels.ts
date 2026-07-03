@@ -39,6 +39,8 @@ export class PexelsFallbackProvider implements VideoProvider {
           .filter((n) => Number.isFinite(n)),
         // Sprint 48 — soft-avoid creators earlier scenes used (twin-clip fix).
         excludeCreators: request.excludeCreators ?? [],
+        // Sprint 49 — soft-reject multi-person clips when the scene plans ≤1.
+        subjectCount: request.subjectCount ?? null,
       });
       if (!clip) {
         throw new Error(

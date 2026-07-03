@@ -229,6 +229,9 @@ export async function processSceneGeneration(
               excludeSourceIds: usedPexelsIds,
               // Sprint 48 — soft-avoid creators earlier scenes used (twin-clip fix).
               excludeCreators: usedPexelsCreators,
+              // Sprint 49 — planned people-on-screen for this scene (0/1);
+              // stock selection soft-rejects couples/groups when ≤1.
+              subjectCount: scene.subjectCount ?? null,
             },
             isPexels ? { forceProvider: "pexels" } : { preferProvider: "seedance" },
           );

@@ -62,6 +62,16 @@ export interface SceneRequest {
    */
   excludeCreators?: string[];
   /**
+   * Sprint 49 (Subject-Count Consistency) — how many people the storyboard
+   * plans for this scene (0 or 1 in the single-protagonist commercial arc).
+   * When ≤ 1 the Pexels provider soft-rejects candidates whose page slug
+   * names multiple people (couple/group/team/…) — a couple on screen breaks
+   * a one-protagonist story (prod e009c7fb scene 5). Never a hard block.
+   * Optional/back-compat: omitted → no subject filtering. AI providers
+   * ignore it (their prompts already carry the subject).
+   */
+  subjectCount?: number | null;
+  /**
    * Sprint 46 (Scene Relevance) — literal stock-footage search phrase for the
    * shot (subject + action + setting), emitted by the story agent from its
    * structured scene fields. When present the Pexels provider searches THIS

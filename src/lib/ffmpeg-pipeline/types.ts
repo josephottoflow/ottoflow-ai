@@ -408,6 +408,21 @@ export interface VideoStrategyScene {
    * polluted queries — e.g. "coffee cup" → coffee-roasting footage). Optional:
    * absent → the legacy keyword path runs unchanged. */
   searchQuery?: string;
+  /** Sprint 49 (Subject-Count Consistency) — deterministic composition fields.
+   * The commercial_story arc is written around ONE protagonist, yet stock
+   * search sometimes returned couples/groups (prod e009c7fb scene 5: a couple
+   * walking, in a single-protagonist story) — breaking immersion. Derived
+   * deterministically from the shot plan (no extra AI call): subjectCount 1 =
+   * person-led framings (face/over-shoulder/back/silhouette/hands), 0 =
+   * environment/detail shots. Stock selection soft-rejects candidates whose
+   * page slug names multiple people when subjectCount ≤ 1 and reasonable
+   * alternatives exist. All optional/back-compat. */
+  subjectCount?: 0 | 1;
+  dominantSubject?: string;
+  shotType?: string;
+  cameraAngle?: string;
+  subjectVisibility?: string;
+  continuityRole?: string;
 }
 
 export interface VideoStrategy {

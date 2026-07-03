@@ -534,6 +534,43 @@ interface FindOpts {
    * clip stays the absolute last resort.
    */
   excludeCreators?: string[];
+  /**
+   * Sprint 49 (Subject-Count Consistency) — how many people the scene's
+   * storyboard plans (0 or 1 for the single-protagonist commercial arc).
+   * When ≤ 1, candidates whose Pexels page slug names MULTIPLE people
+   * (couple/group/team/friends/…, verified defect: prod e009c7fb scene 5
+   * returned a couple walking for a single-protagonist story) are
+   * soft-rejected: preferred away whenever a subject-clean alternative
+   * exists, kept as a graceful fallback tier otherwise. null/undefined →
+   * no subject filtering (legacy behavior).
+   */
+  subjectCount?: number | null;
+}
+
+/** Sprint 49 — slug words that deterministically indicate 2+ people on
+ *  screen. Matched as WHOLE hyphen-delimited slug words from the Pexels page
+ *  URL (e.g. …/video/a-couple-walking-in-the-park-8967543/), never as
+ *  substrings — "businessmen" is NOT matched by "men"… it has its own entry.
+ *  Conservative by design: false positives cost a better-ranked clip, false
+ *  negatives cost immersion, and this list only ever demotes, never blocks. */
+const MULTI_SUBJECT_SLUG_WORDS = new Set([
+  "couple", "couples", "group", "groups", "team", "teams", "meeting",
+  "friends", "family", "families", "crowd", "crowds", "colleagues",
+  "coworkers", "people", "men", "women", "boys", "girls", "kids",
+  "children", "students", "partners", "businessmen", "businesswomen",
+  "together", "teamwork",
+]);
+
+/** True when the Pexels page URL's slug names multiple people. */
+function slugNamesMultiplePeople(pageUrl: string | undefined): boolean {
+  if (!pageUrl) return false;
+  const slug = (pageUrl.split("/video/")[1] ?? pageUrl)
+    .toLowerCase()
+    .replace(/\/+$/, "");
+  for (const word of slug.split(/[-/]+/)) {
+    if (MULTI_SUBJECT_SLUG_WORDS.has(word)) return true;
+  }
+  return false;
 }
 
 /**
@@ -580,6 +617,17 @@ export async function findStockVideoByPrompt(
     orientation: "portrait" | "landscape";
     query: string;
   } | null = null;
+  // Sprint 49 (Subject-Count) — tier-3 fallback: a NEW clip whose slug names
+  // multiple people while the scene plans ≤1. A couple/group on screen breaks
+  // the single-protagonist story harder than a creator repeat, so this sits
+  // BELOW creatorRepeat but still above repeating a clip outright.
+  const subjectFilterOn =
+    typeof opts.subjectCount === "number" && opts.subjectCount <= 1;
+  let subjectViolation: {
+    pool: PexelsVideo[];
+    orientation: "portrait" | "landscape";
+    query: string;
+  } | null = null;
 
   const toClip = (
     video: PexelsVideo,
@@ -619,16 +667,29 @@ export async function findStockVideoByPrompt(
           continue;
         }
 
+        // Sprint 49 (Subject-Count) — when the scene plans ≤1 person, demote
+        // candidates whose slug names multiple people (couple/group/team/…).
+        // Verified defect: prod e009c7fb scene 5 cut to a COUPLE in a
+        // single-protagonist story. Soft: a violating pool is remembered as
+        // tier-3; selection proceeds with subject-clean candidates.
+        const subjectOk = subjectFilterOn
+          ? fresh.filter((v) => !slugNamesMultiplePeople(v.url))
+          : fresh;
+        if (subjectOk.length === 0) {
+          if (!subjectViolation) subjectViolation = { pool: fresh, orientation, query };
+          continue;
+        }
+
         // Sprint 48 (Twin-Clip fix) — prefer clips from creators no earlier
         // scene used: same-creator "series" clips are visual twins even with
         // distinct video ids (prod 917794e4 scenes 1+2). If this query only
         // has same-creator footage, remember it as tier-2 and try the next
         // query first.
-        const freshNewCreator = fresh.filter(
+        const freshNewCreator = subjectOk.filter(
           (v) => !usedCreators.has((v.user?.name ?? "").trim().toLowerCase()),
         );
         if (freshNewCreator.length === 0) {
-          if (!creatorRepeat) creatorRepeat = { pool: fresh, orientation, query };
+          if (!creatorRepeat) creatorRepeat = { pool: subjectOk, orientation, query };
           continue;
         }
 
@@ -653,6 +714,17 @@ export async function findStockVideoByPrompt(
     const video = pickTop(creatorRepeat.pool);
     if (video) {
       const clip = toClip(video, creatorRepeat.query, creatorRepeat.orientation);
+      if (clip) return clip;
+    }
+  }
+
+  // Sprint 49 tier-3: only multi-person candidates were available for every
+  // query. A NEW (if crowded) clip still beats repeating one — graceful
+  // degradation, never fail the scene because of the subject rule.
+  if (subjectViolation) {
+    const video = pickTop(subjectViolation.pool);
+    if (video) {
+      const clip = toClip(video, subjectViolation.query, subjectViolation.orientation);
       if (clip) return clip;
     }
   }
