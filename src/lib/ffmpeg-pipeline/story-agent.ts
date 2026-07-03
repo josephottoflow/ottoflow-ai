@@ -255,7 +255,14 @@ export function applyShotContinuity(
     }
     const stripped = q.replace(PERSON_LEAD, "").trim();
     const idiom = VIS_IDIOM[vis] ?? "over shoulder";
-    const rewritten = `${idiom} ${stripped}`.trim().split(/\s+/).slice(0, 5).join(" ");
+    // Sprint 53 (P2, prod 5b7e30e3): don't prepend the idiom when the stripped
+    // query ALREADY starts with it — "woman over shoulder messy desk" became
+    // "over shoulder over shoulder messy" (doubled idiom + the 5-word cap
+    // chopped the real subject), which Pexels matched as over-the-shoulder
+    // GLANCE portraits → a second face broke the one-anchor rule, and Replace
+    // candidates (same query) were equally wrong.
+    const base = idiom && stripped.toLowerCase().startsWith(idiom) ? stripped : `${idiom} ${stripped}`;
+    const rewritten = base.trim().split(/\s+/).slice(0, 5).join(" ");
     if (rewritten.split(/\s+/).filter(Boolean).length >= 2) s.searchQuery = rewritten;
   }
 }
