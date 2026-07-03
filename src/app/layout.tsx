@@ -1,7 +1,8 @@
 // IMPORTANT: env import must come first. It validates required environment
 // variables at app boot and fails loudly if anything's missing — preferable
 // to inscrutable 500s deep in a request handler. See src/lib/env.ts.
-import "@/lib/env";
+// (Named import still runs the module's validation side-effect.)
+import { publicEnv } from "@/lib/env";
 
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
@@ -78,7 +79,14 @@ export default async function RootLayout({
   }
 
   return (
+    // Feed Clerk from our env module (not its implicit process.env read):
+    // NEXT_PUBLIC_* are build-time inlined, so on a build environment without
+    // the var (e.g. Preview scope) Clerk's implicit read is empty and it
+    // throws "Missing publishableKey" while prerendering /_not-found. Our
+    // env module supplies the build-phase placeholder there and the real
+    // key at runtime — same value in Production (var present).
     <ClerkProvider
+      publishableKey={publicEnv.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
       appearance={{
         variables: {
           colorPrimary: "#7c3aed",
