@@ -71,6 +71,18 @@ const StrategySchema = z.object({
         // scene's semantic stock-search phrase must be declared to survive
         // the dryRun → client → approve round-trip.
         searchQuery: z.string().max(120).optional(),
+        // Sprint 54 (Customer Workflow Integrity) — same zod-stripping trap,
+        // caught live on the edit path (prod 5b7e30e3: dryRun subjectCount=1
+        // on all 6 scenes → saved strategy had NONE → subject-count
+        // enforcement silently OFF for every edited-storyboard render, while
+        // searchQuery survived because it IS declared above). Sprint 49's
+        // shot-plan fields must be declared for the same reason.
+        subjectCount: z.union([z.literal(0), z.literal(1)]).optional(),
+        dominantSubject: z.string().max(60).optional(),
+        shotType: z.string().max(60).optional(),
+        cameraAngle: z.string().max(60).optional(),
+        subjectVisibility: z.string().max(60).optional(),
+        continuityRole: z.string().max(60).optional(),
       }),
     )
     .min(1),
