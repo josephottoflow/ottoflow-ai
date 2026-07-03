@@ -118,11 +118,25 @@ function formatZodError(err: z.ZodError, scope: string): Error {
 }
 
 function readPublic(): PublicEnv {
-  const result = PublicSchema.safeParse({
+  // Build-phase placeholders were always DECLARED for the public keys (see
+  // BUILD_PHASE_PLACEHOLDERS above) but were only ever merged in readServer()
+  // — so a public var missing at BUILD time crashed page-data collection
+  // despite the safety net. Runtime evidence (2026-07-04): every Preview
+  // build errored "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY — Required" after the
+  // Clerk vars were recreated with Production scope only. Same merge, same
+  // rule as readServer: build phase only, missing keys only — at RUNTIME a
+  // missing var still fails loudly.
+  const source: Record<string, string | undefined> = {
     NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
     NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
-  });
+  };
+  if (isBuildPhase) {
+    for (const [k, v] of Object.entries(BUILD_PHASE_PLACEHOLDERS)) {
+      if (k in source && !source[k]) source[k] = v;
+    }
+  }
+  const result = PublicSchema.safeParse(source);
   if (!result.success) throw formatZodError(result.error, "Public (NEXT_PUBLIC_*)");
   return result.data;
 }
