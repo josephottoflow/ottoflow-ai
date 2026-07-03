@@ -93,7 +93,14 @@ export type ServerEnv = z.infer<typeof ServerSchema>;
 const BUILD_PHASE_PLACEHOLDERS: Record<string, string> = {
   NEXT_PUBLIC_SUPABASE_URL: "https://placeholder-build-only.invalid",
   NEXT_PUBLIC_SUPABASE_ANON_KEY: "build-placeholder-anon-key-do-not-use-at-runtime",
-  NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_test_build_placeholder_not_for_runtime",
+  // Must be a STRUCTURALLY VALID Clerk key (base64 of "<frontendApi>$"), not
+  // just any pk_ string: <ClerkProvider> base64-decodes it during the
+  // /_not-found prerender and throws "invalid publishableKey" on a malformed
+  // one (the old plain-string placeholder passed OUR PublicSchema but not
+  // Clerk's parser). This decodes to `clerk.build-placeholder.invalid` — the
+  // reserved .invalid TLD never resolves, so it can never connect: valid
+  // format, obviously fake. Verified with @clerk/shared isPublishableKey.
+  NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_test_Y2xlcmsuYnVpbGQtcGxhY2Vob2xkZXIuaW52YWxpZCQ",
   SUPABASE_SERVICE_ROLE_KEY: "build-placeholder-service-role-key-do-not-use-at-runtime",
   CLERK_SECRET_KEY: "sk_test_build_placeholder_not_for_runtime",
   REDIS_URL: "redis://placeholder-build-only.invalid:6379",
