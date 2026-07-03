@@ -54,6 +54,61 @@ async function downloadTo(url: string, dest: string): Promise<void> {
   await pipeline(Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]), createWriteStream(dest));
 }
 
+/** Sprint 52 (Music-Download Resilience) — the ONE systemic defect left after
+ *  the 6-category validation: prod render 37963162 shipped with NO music bed
+ *  because a single Jamendo download failed and the composer silently
+ *  continued (by design). Music is one flaky fetch away from a silent-feeling
+ *  video, so retry it: up to `attempts` tries with exponential backoff, a
+ *  per-attempt timeout (a HANGING stream must not stall the render job), and
+ *  a size sanity check (a 0-byte/truncated "success" is a failure). Throws
+ *  after the last attempt — the caller's existing catch still degrades to a
+ *  music-less render as the absolute last resort. Exported for the local
+ *  fault-injection validator. */
+export async function downloadMusicWithRetry(
+  url: string,
+  dest: string,
+  opts: { attempts?: number; timeoutMs?: number; minBytes?: number; backoffMs?: number } = {},
+  log?: (event: string, data?: Record<string, unknown>) => void,
+): Promise<void> {
+  const attempts = opts.attempts ?? 3;
+  const timeoutMs = opts.timeoutMs ?? 60_000;
+  const minBytes = opts.minBytes ?? 10_000; // real tracks are ≥100KB; 10KB = obviously truncated
+  const backoffMs = opts.backoffMs ?? 2_000;
+  let lastErr: unknown = null;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { signal: ctl.signal });
+      if (!res.ok || !res.body) {
+        throw new Error(`music download failed: ${res.status} ${res.statusText}`);
+      }
+      await pipeline(
+        Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]),
+        createWriteStream(dest),
+      );
+      const st = await fs.stat(dest);
+      if (st.size < minBytes) {
+        throw new Error(`music download truncated: ${st.size} bytes < ${minBytes}`);
+      }
+      return; // success
+    } catch (err) {
+      lastErr = err;
+      log?.("agent.ffmpegComposer.music_download_retry", {
+        attempt,
+        attempts,
+        reason: err instanceof Error ? err.message : String(err),
+      });
+      if (attempt < attempts) {
+        await new Promise((r) => setTimeout(r, backoffMs * attempt)); // 2s, 4s, …
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+}
+
 async function downloadAllScenes(
   plan: CompositionPlan,
   workDir: string,
@@ -163,9 +218,11 @@ export async function runFfmpegComposer(
   if (plan.audio.musicUrl) {
     musicPath = path.join(workDir, "music.mp3");
     try {
-      await downloadTo(plan.audio.musicUrl, musicPath);
+      // Sprint 52 — retried download (3 attempts, backoff, timeout, size
+      // check). Prod 37963162 shipped bed-less off ONE failed fetch.
+      await downloadMusicWithRetry(plan.audio.musicUrl, musicPath, {}, ctx.log);
     } catch (err) {
-      // Music is optional — log + continue silent.
+      // Music is optional — log + continue silent (absolute last resort).
       ctx.log("agent.ffmpegComposer.music_download_failed", {
         reason: err instanceof Error ? err.message : String(err),
       });
