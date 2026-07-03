@@ -151,11 +151,21 @@ export async function processSceneGeneration(
 
     // Cross-scene de-dup (P1): Pexels asset ids already used in this render.
     // Seeded from resumed rows so a retry doesn't reintroduce a duplicate.
+    // Sprint 48 (Twin-Clip fix): also track the CREATORS of used clips —
+    // same-creator clips are often same-shoot visual twins (distinct ids,
+    // near-identical footage; prod 917794e4 scenes 1+2). Selection soft-avoids
+    // used creators (never a hard block).
     const usedPexelsIds: string[] = [];
+    const usedPexelsCreators: string[] = [];
     const recordPexelsId = (provider: string, meta: unknown) => {
       if (provider !== "pexels") return;
-      const id = (meta as { pexelsId?: unknown } | null)?.pexelsId;
+      const m = meta as { pexelsId?: unknown; photographer?: unknown } | null;
+      const id = m?.pexelsId;
       if (id != null) usedPexelsIds.push(String(id));
+      const creator = m?.photographer;
+      if (typeof creator === "string" && creator && creator !== "Unknown") {
+        usedPexelsCreators.push(creator);
+      }
     };
     for (const r of resumable.values()) {
       recordPexelsId((r.provider as string) ?? "", r.metadata);
@@ -217,6 +227,8 @@ export async function processSceneGeneration(
               searchQuery: scene.searchQuery ?? null,
               // Exclude stock clips already used by earlier scenes (P1 de-dup).
               excludeSourceIds: usedPexelsIds,
+              // Sprint 48 — soft-avoid creators earlier scenes used (twin-clip fix).
+              excludeCreators: usedPexelsCreators,
             },
             isPexels ? { forceProvider: "pexels" } : { preferProvider: "seedance" },
           );

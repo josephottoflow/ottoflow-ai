@@ -37,6 +37,8 @@ export class PexelsFallbackProvider implements VideoProvider {
         excludeIds: (request.excludeSourceIds ?? [])
           .map((s) => Number(s))
           .filter((n) => Number.isFinite(n)),
+        // Sprint 48 — soft-avoid creators earlier scenes used (twin-clip fix).
+        excludeCreators: request.excludeCreators ?? [],
       });
       if (!clip) {
         throw new Error(
@@ -57,6 +59,9 @@ export class PexelsFallbackProvider implements VideoProvider {
           query: clip.query,
           orientation: clip.orientation,
           pexelsPageUrl: clip.pexelsPageUrl,
+          // Sprint 48 — so the caller can record + soft-avoid this creator on
+          // later scenes (twin-clip fix).
+          photographer: clip.photographer,
         },
       };
     } catch (err) {

@@ -53,6 +53,15 @@ export interface SceneRequest {
    */
   excludeSourceIds?: string[];
   /**
+   * Sprint 48 (Twin-Clip fix) — creator/photographer names of stock clips
+   * already used by earlier scenes in this render. Same-creator clips are
+   * often same-shoot visual twins (distinct ids, near-identical footage —
+   * prod 917794e4 scenes 1+2). The Pexels provider soft-prefers unused
+   * creators; never a hard block. Optional/back-compat: omitted → no
+   * creator preference. AI providers ignore it.
+   */
+  excludeCreators?: string[];
+  /**
    * Sprint 46 (Scene Relevance) — literal stock-footage search phrase for the
    * shot (subject + action + setting), emitted by the story agent from its
    * structured scene fields. When present the Pexels provider searches THIS

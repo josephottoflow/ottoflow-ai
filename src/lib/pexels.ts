@@ -522,6 +522,18 @@ interface FindOpts {
    * resort — a relevant (even if repeated) clip beats failing the scene.
    */
   excludeIds?: number[];
+  /**
+   * Sprint 48 (Twin-Clip fix) — photographer names of clips already used by
+   * earlier scenes in this render. Pexels creators upload SERIES: two
+   * different video ids from the same shoot look near-identical (verified in
+   * prod render 917794e4: scene-1 and scene-2 were distinct files of the same
+   * model at the same desk — the opening read as a stuck/repeated shot). A
+   * different-id-same-creator clip passes the id de-dup but not the eye.
+   * Soft preference, never a hard block: unused-creator candidates win; a
+   * same-creator (but new) clip is the tier-2 fallback; an outright repeated
+   * clip stays the absolute last resort.
+   */
+  excludeCreators?: string[];
 }
 
 /**
@@ -543,6 +555,11 @@ export async function findStockVideoByPrompt(
   if (queries.length === 0) return null;
 
   const exclude = new Set(opts.excludeIds ?? []);
+  // Sprint 48 — creators (photographers) already used in this render, for the
+  // twin-clip tier. Lower-cased for case-insensitive matching.
+  const usedCreators = new Set(
+    (opts.excludeCreators ?? []).map((c) => c.trim().toLowerCase()).filter(Boolean),
+  );
 
   // Duplicate-scene fix (verified in prod render 6624cd5a: scene-4.mp4 and
   // scene-6.mp4 were byte-identical). Previously, when every hit for the FIRST
@@ -551,6 +568,14 @@ export async function findStockVideoByPrompt(
   // footage. Now: exhausted pools are remembered as a true last resort, tried
   // only after every query/orientation failed to yield an unused clip.
   let lastResort: {
+    pool: PexelsVideo[];
+    orientation: "portrait" | "landscape";
+    query: string;
+  } | null = null;
+  // Sprint 48 (Twin-Clip fix) — tier-2 fallback: a NEW clip from an
+  // already-used creator. Better than repeating a clip outright, worse than a
+  // new clip from a new creator (same-shoot footage looks near-identical).
+  let creatorRepeat: {
     pool: PexelsVideo[];
     orientation: "portrait" | "landscape";
     query: string;
@@ -594,10 +619,23 @@ export async function findStockVideoByPrompt(
           continue;
         }
 
+        // Sprint 48 (Twin-Clip fix) — prefer clips from creators no earlier
+        // scene used: same-creator "series" clips are visual twins even with
+        // distinct video ids (prod 917794e4 scenes 1+2). If this query only
+        // has same-creator footage, remember it as tier-2 and try the next
+        // query first.
+        const freshNewCreator = fresh.filter(
+          (v) => !usedCreators.has((v.user?.name ?? "").trim().toLowerCase()),
+        );
+        if (freshNewCreator.length === 0) {
+          if (!creatorRepeat) creatorRepeat = { pool: fresh, orientation, query };
+          continue;
+        }
+
         // Phase 1B (P1.3) — Pexels orders by relevance, but always taking
         // the first hit meant identical topic → identical clip. Random
         // among the top 3 keeps relevance while breaking determinism.
-        const video = pickTop(fresh);
+        const video = pickTop(freshNewCreator);
         if (!video) continue;
         const clip = toClip(video, query, orientation);
         if (clip) return clip;
@@ -605,6 +643,17 @@ export async function findStockVideoByPrompt(
         // Try next query on any error.
         continue;
       }
+    }
+  }
+
+  // Sprint 48 tier-2: every query either had zero unused clips or only clips
+  // from already-used creators. A NEW clip from a used creator still beats
+  // repeating a clip outright.
+  if (creatorRepeat) {
+    const video = pickTop(creatorRepeat.pool);
+    if (video) {
+      const clip = toClip(video, creatorRepeat.query, creatorRepeat.orientation);
+      if (clip) return clip;
     }
   }
 
