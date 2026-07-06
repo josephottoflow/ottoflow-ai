@@ -256,8 +256,22 @@ export function VideoDetailClient({ job, brand, scenes }: Props) {
             style={{ background: "rgba(255,255,255,0.02)", border: "1px dashed rgba(255,255,255,0.08)" }}
           >
             <div className="flex items-center justify-center gap-2 mb-5">
-              <Loader2 size={16} className="text-cyan-400 animate-spin" />
-              <p className="text-sm text-white/80">Creating your video</p>
+              {vstatus.stage === "queued" ? (
+                <>
+                  {/* Sprint 58 — the only real queue signal the backend exposes to a
+                      customer is render_jobs.status: queued (waiting for a worker) vs
+                      rendering. Surface it honestly; queue POSITION/length/ETA are not
+                      exposed customer-side (BullMQ depth is admin-only), so they aren't
+                      shown or faked. */}
+                  <Clock size={16} className="text-amber-400" />
+                  <p className="text-sm text-white/80">Waiting for the renderer</p>
+                </>
+              ) : (
+                <>
+                  <Loader2 size={16} className="text-cyan-400 animate-spin" />
+                  <p className="text-sm text-white/80">Creating your video</p>
+                </>
+              )}
             </div>
             <GenerationStages status={vstatus} isStock={isStock} />
             <p className="text-2xs text-white/40 text-center mt-5">
@@ -556,7 +570,7 @@ function GenerationStages({ status, isStock }: { status: VideoJobStatus; isStock
   const footageLabel = isStock ? "Sourcing stock footage" : "Generating scenes";
   const footageSub =
     stage === "queued"
-      ? "Starting shortly…"
+      ? "Waiting for the renderer to start"
       : stage === "generating" && scenesTotal > 0
         ? `${isStock ? "Clip" : "Scene"} ${Math.min(scenesDone + 1, scenesTotal)} of ${scenesTotal}`
         : scenesTotal > 0
@@ -586,7 +600,12 @@ function GenerationStages({ status, isStock }: { status: VideoJobStatus; isStock
               ) : errored ? (
                 <AlertCircle size={16} className="text-rose-400" />
               ) : current ? (
-                <Loader2 size={16} className="text-cyan-400 animate-spin" />
+                // queued = waiting for a worker (Clock), not actively working (spinner)
+                stage === "queued" ? (
+                  <Clock size={16} className="text-amber-400" />
+                ) : (
+                  <Loader2 size={16} className="text-cyan-400 animate-spin" />
+                )
               ) : (
                 <span className="block w-4 h-4 rounded-full border border-white/15" />
               )}
