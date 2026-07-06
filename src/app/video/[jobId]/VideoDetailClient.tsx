@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import type { DbRenderJob, DbSceneGeneration } from "@/lib/types";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { deriveVideoJobStatus, type VideoJobStatus } from "@/lib/video/status";
 import { toAppMediaUrl } from "@/lib/media-url";
 import { SceneInspector, type SceneCandidate } from "@/components/SceneInspector";
 
@@ -137,6 +138,16 @@ export function VideoDetailClient({ job, brand, scenes }: Props) {
   // polling the ai-first VideoJobClient already does).
   const isFailed = !videoReady && (job.status === "failed" || job.merge_status === "failed");
   const inProgress = !videoReady && !isFailed; // queued / rendering / merging
+  // Sprint 57 — derive the customer-facing pipeline stage from the SAME single
+  // source of truth the ai-first client uses (queued → generating[scenesDone/N]
+  // → composing → ready/failed). These are the only stages the backend actually
+  // exposes (render_jobs.status / merge_status / merged_video_url + one
+  // scene_generations row per sourced clip); the compose sub-steps
+  // (timeline/narration/music/encode/upload) are not separately observable, so
+  // they honestly collapse into one "Building your video" stage — no invented
+  // sub-stages, percentages, or ETAs.
+  const vstatus = deriveVideoJobStatus(job, scenes);
+  const isStock = (job as { scene_provider?: string | null }).scene_provider === "pexels";
 
   const router = useRouter();
   useEffect(() => {
@@ -241,15 +252,16 @@ export function VideoDetailClient({ job, brand, scenes }: Props) {
           </section>
         ) : inProgress ? (
           <section
-            className="rounded-2xl px-6 py-10 text-center"
+            className="rounded-2xl px-6 py-8"
             style={{ background: "rgba(255,255,255,0.02)", border: "1px dashed rgba(255,255,255,0.08)" }}
           >
-            <Loader2 size={28} className="text-cyan-400 mx-auto mb-3 animate-spin" />
-            <p className="text-sm text-white/75">
-              {job.status === "rendering" ? "Generating your video…" : "Getting your video ready…"}
-            </p>
-            <p className="text-2xs text-white/45 mt-1.5">
-              Sourcing footage, adding captions &amp; brand. This can take a couple of minutes — it&apos;ll appear here automatically.
+            <div className="flex items-center justify-center gap-2 mb-5">
+              <Loader2 size={16} className="text-cyan-400 animate-spin" />
+              <p className="text-sm text-white/80">Creating your video</p>
+            </div>
+            <GenerationStages status={vstatus} isStock={isStock} />
+            <p className="text-2xs text-white/40 text-center mt-5">
+              This can take a couple of minutes — it updates here automatically, no need to refresh.
             </p>
           </section>
         ) : (
@@ -521,6 +533,75 @@ function Stat({ label, value }: { label: string; value: string }) {
         {label}
       </p>
       <p className="text-sm text-white font-semibold truncate">{value}</p>
+    </div>
+  );
+}
+
+/**
+ * Sprint 57 — customer-facing pipeline for an in-flight render. Every stage maps
+ * 1:1 to a real backend signal derived by deriveVideoJobStatus; nothing is
+ * faked. Stage 0 ("Story created") is always complete here because the
+ * storyboard/strategy is composed in the studio BEFORE the job is queued
+ * (persisted as render_jobs.video_strategy). The middle stage is provider-aware
+ * (stock jobs source library footage; AI jobs generate scenes) and carries the
+ * only granular signal the backend exposes — scenesDone/scenesTotal. Compose
+ * (captions, brand, narration, music, encode, upload) is one backend step with
+ * no per-substep signal, so it is one honest stage. No % and no ETA.
+ */
+function GenerationStages({ status, isStock }: { status: VideoJobStatus; isStock: boolean }) {
+  const { stage, scenesDone, scenesTotal, isFailed } = status;
+  // 0 = Story (always done on this page), 1 = Sourcing/Generating, 2 = Building, 3 = Ready.
+  const active = stage === "ready" ? 3 : stage === "composing" ? 2 : 1;
+
+  const footageLabel = isStock ? "Sourcing stock footage" : "Generating scenes";
+  const footageSub =
+    stage === "queued"
+      ? "Starting shortly…"
+      : stage === "generating" && scenesTotal > 0
+        ? `${isStock ? "Clip" : "Scene"} ${Math.min(scenesDone + 1, scenesTotal)} of ${scenesTotal}`
+        : scenesTotal > 0
+          ? `${scenesTotal} ${isStock ? "clips" : "scenes"} ready`
+          : isStock
+            ? "Licensed footage from the library"
+            : "AI-generated scenes";
+
+  const steps = [
+    { label: "Story created", sub: "Your storyboard is ready" },
+    { label: footageLabel, sub: footageSub },
+    { label: "Building your video", sub: "Captions, brand & music" },
+    { label: "Ready", sub: "Preview & download" },
+  ];
+
+  return (
+    <div className="space-y-3 max-w-sm mx-auto">
+      {steps.map((s, i) => {
+        const done = i < active || (stage === "ready" && i === active);
+        const current = i === active && stage !== "ready" && !isFailed;
+        const errored = isFailed && i === active;
+        return (
+          <div key={s.label} className="flex items-start gap-2.5">
+            <span className="mt-0.5 shrink-0">
+              {done ? (
+                <CheckCircle2 size={16} className="text-green-400" />
+              ) : errored ? (
+                <AlertCircle size={16} className="text-rose-400" />
+              ) : current ? (
+                <Loader2 size={16} className="text-cyan-400 animate-spin" />
+              ) : (
+                <span className="block w-4 h-4 rounded-full border border-white/15" />
+              )}
+            </span>
+            <div className="min-w-0">
+              <p className={`text-sm leading-tight ${done ? "text-white/80" : current ? "text-white" : "text-white/35"}`}>
+                {s.label}
+              </p>
+              {(current || done) && s.sub && (
+                <p className="text-2xs text-white/45 mt-0.5">{s.sub}</p>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
