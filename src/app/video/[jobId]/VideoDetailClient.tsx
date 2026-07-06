@@ -21,7 +21,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { DbRenderJob, DbSceneGeneration } from "@/lib/types";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { toAppMediaUrl } from "@/lib/media-url";
 import { SceneInspector, type SceneCandidate } from "@/components/SceneInspector";
 
@@ -125,6 +126,33 @@ export function VideoDetailClient({ job, brand, scenes }: Props) {
     new Set(scenes.map((s) => s.provider).filter(Boolean)),
   );
 
+  // Sprint 56 — this legacy (stock-first) detail view is server-rendered ONCE
+  // and never re-fetched, so a queued/rendering job showed "Scenes 0" + the
+  // "generation may have failed" empty state for its entire in-flight window
+  // (confirmed live: a $0 Royalty-Free render sat here looking failed, then a
+  // manual reload revealed a successful 6-scene video). Derive an honest
+  // in-progress flag and, while in progress, softly re-fetch the server props
+  // so the page advances to Ready on its own — no new backend, no new status
+  // system (reuses job.status + Next's router.refresh, mirroring the bounded
+  // polling the ai-first VideoJobClient already does).
+  const isFailed = !videoReady && (job.status === "failed" || job.merge_status === "failed");
+  const inProgress = !videoReady && !isFailed; // queued / rendering / merging
+
+  const router = useRouter();
+  useEffect(() => {
+    if (!inProgress) return;
+    const startedAt = Date.now();
+    const id = setInterval(() => {
+      // Bounded: stop after 10 min so a genuinely stuck job doesn't refresh forever.
+      if (Date.now() - startedAt > 10 * 60_000) {
+        clearInterval(id);
+        return;
+      }
+      router.refresh();
+    }, 4000);
+    return () => clearInterval(id);
+  }, [inProgress, router]);
+
   return (
     <div className="min-h-screen text-white">
       <div className="max-w-6xl mx-auto px-6 py-8 space-y-6">
@@ -149,6 +177,8 @@ export function VideoDetailClient({ job, brand, scenes }: Props) {
               <Badge variant="info" className="text-3xs">Merging</Badge>
             ) : job.status === "failed" ? (
               <Badge variant="destructive" className="text-3xs">Failed</Badge>
+            ) : job.status === "rendering" ? (
+              <Badge variant="info" className="text-3xs">Generating</Badge>
             ) : (
               <Badge variant="warning" className="text-3xs">Queued</Badge>
             )}
@@ -209,6 +239,19 @@ export function VideoDetailClient({ job, brand, scenes }: Props) {
               )}
             </div>
           </section>
+        ) : inProgress ? (
+          <section
+            className="rounded-2xl px-6 py-10 text-center"
+            style={{ background: "rgba(255,255,255,0.02)", border: "1px dashed rgba(255,255,255,0.08)" }}
+          >
+            <Loader2 size={28} className="text-cyan-400 mx-auto mb-3 animate-spin" />
+            <p className="text-sm text-white/75">
+              {job.status === "rendering" ? "Generating your video…" : "Getting your video ready…"}
+            </p>
+            <p className="text-2xs text-white/45 mt-1.5">
+              Sourcing footage, adding captions &amp; brand. This can take a couple of minutes — it&apos;ll appear here automatically.
+            </p>
+          </section>
         ) : (
           <section
             className="rounded-2xl px-6 py-8 text-center"
@@ -226,7 +269,7 @@ export function VideoDetailClient({ job, brand, scenes }: Props) {
           className="rounded-2xl p-5 grid grid-cols-2 sm:grid-cols-4 gap-4"
           style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}
         >
-          <Stat label="Scenes" value={String(scenes.length || 0)} />
+          <Stat label="Scenes" value={scenes.length ? String(scenes.length) : inProgress ? "…" : "0"} />
           <Stat label="Provider mix" value={providersUsed.join(" + ") || "—"} />
           <Stat label="AI gen time" value={fmtMs(totalGenMs)} />
           <Stat label="AI cost" value={fmtUsd(totalCostUsd)} />
