@@ -270,6 +270,12 @@ export function VideoConfigModal({
   const [lockedIds, setLockedIds] = useState<Set<number>>(new Set());
   const strategyRef = useRef<StrategySummary | null>(null);
   const reqId = useRef(0);
+  // Sprint 58 — has the user hand-edited the storyboard? A dryRun re-estimate
+  // (triggered by changing source/platform/aspect/length/style) used to
+  // setStrategy(fresh) and SILENTLY discard those edits. When dirty, we preserve
+  // the edited scenes across re-estimates that keep the same scene structure.
+  // Reset when the subject (brand/content) changes — that's a new storyboard.
+  const scenesDirtyRef = useRef(false);
 
   function onPlatform(p: Platform) { setPlatform(p); setAspect(PLATFORM_PROFILES[p].video.aspect); setDuration("auto"); }
 
@@ -279,6 +285,7 @@ export function VideoConfigModal({
   // edits into strategyRef so the existing approve:true path renders the edits.
   function handleScenesChange(edited: VideoStrategyScene[]) {
     const scenes = edited as unknown as StrategySummary["scenes"];
+    scenesDirtyRef.current = true; // protect these edits from the next dryRun re-estimate
     setStrategy((prev) => (prev ? { ...prev, scenes } : prev));
     if (strategyRef.current) strategyRef.current = { ...strategyRef.current, scenes };
   }
@@ -314,7 +321,25 @@ export function VideoConfigModal({
         const json = (await res.json().catch(() => ({}))) as GenResponse;
         if (id !== reqId.current) return;
         if (!res.ok || !json.estimate) throw new Error(json.error ?? `Estimate failed (${res.status})`);
-        setEstimate(json.estimate); setStrategy(json.strategy ?? null); strategyRef.current = json.strategy ?? null;
+        setEstimate(json.estimate);
+        // Sprint 58 — preserve hand-edited scenes across a re-estimate that keeps
+        // the same scene structure (e.g. changing the visual source recomputes
+        // cost but must NOT silently wipe the user's caption/prompt edits). Take
+        // the freshly-composed storyboard only when unedited, or when the
+        // structure genuinely changed (different scene count → a new story).
+        const fresh = json.strategy ?? null;
+        const edited = strategyRef.current;
+        if (
+          scenesDirtyRef.current &&
+          fresh?.scenes && edited?.scenes &&
+          fresh.scenes.length === edited.scenes.length
+        ) {
+          const preserved = { ...fresh, scenes: edited.scenes };
+          setStrategy(preserved); strategyRef.current = preserved;
+        } else {
+          setStrategy(fresh); strategyRef.current = fresh;
+          scenesDirtyRef.current = false;
+        }
         setBranding(json.compositionPlan?.branding ?? null);
       } catch (err) {
         if (id !== reqId.current) return;
@@ -323,6 +348,10 @@ export function VideoConfigModal({
     }, 350);
     return () => clearTimeout(t);
   }, [open, body]);
+
+  // Sprint 58 — a new subject means a genuinely new storyboard: drop edit-protection
+  // so stale scenes aren't preserved onto different content.
+  useEffect(() => { scenesDirtyRef.current = false; }, [contentItemId, brandId]);
 
   const validation = validatePlatformContent(platform, {
     caption: contentBody ?? null, hashtags: contentHashtags ?? null, title: contentTitle ?? null, description: contentBody ?? null,
