@@ -9,6 +9,8 @@
  * Agents 11-12 run inside the BullMQ worker.
  */
 
+import type { RenderProfile } from "./render-profile";
+
 // ─── Shared primitives ──────────────────────────────────────────────────────
 
 export type SourceName =
@@ -308,6 +310,13 @@ export interface CompositionPlan {
   renderJobId: string;
   userId: string;
   topic: string;
+  /**
+   * Sprint 60 / Sprint A — Render Profile Foundation. Optional + additive: the
+   * composer does NOT consume this yet (Sprints B–F will), so absent → today's
+   * Legacy behaviour, byte-identical. Resolved from render_context.renderProfile
+   * → RENDER_PROFILE_DEFAULT → "legacy" via ./render-profile.
+   */
+  renderProfile?: RenderProfile;
   scenes: CompositionPlanScene[];
   audio: {
     narrationUrl: string;

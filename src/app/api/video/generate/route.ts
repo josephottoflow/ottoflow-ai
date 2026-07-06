@@ -33,6 +33,7 @@ import { getPlatformProfile } from "@/lib/platform/profiles";
 import { pickCta } from "@/lib/platform/platform-cta";
 import { findTrackByVibe } from "@/lib/jamendo";
 import type { AgentContext, SourceName, VideoStrategy } from "@/lib/ffmpeg-pipeline/types";
+import { resolveRenderProfile } from "@/lib/ffmpeg-pipeline/render-profile";
 
 export const runtime = "nodejs";
 export const maxDuration = 120; // buildVideoStrategy is one Gemini call.
@@ -471,6 +472,12 @@ export async function POST(req: NextRequest) {
           source,
           branding,
           musicUrl,
+          // Sprint 60 / Sprint A — persist the resolved Render Profile so a
+          // re-render (Replace Visual) reproduces the same presentation. On a
+          // fresh job there's no incoming profile → RENDER_PROFILE_DEFAULT env
+          // → "legacy". Foundation only: nothing consumes it yet, so behaviour
+          // is unchanged.
+          renderProfile: resolveRenderProfile(),
         } as unknown as Record<string, unknown>,
       })
       .select("id")
