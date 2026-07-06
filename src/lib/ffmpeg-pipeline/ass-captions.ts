@@ -120,6 +120,18 @@ export function renderAss(
   style?: CaptionStyle,
   dims?: { width: number; height: number },
 ): string {
+  // Sprint B — Caption Engine V1. Animated captions are opt-in and fully
+  // isolated behind CAPTION_ENGINE=animated (+ CAPTION_STYLE). When unset or
+  // "static" the byte-identical Legacy generator below runs unchanged. Any error
+  // in the animated path degrades to Legacy here — a caption effect can never
+  // break a render. Rollback is a single flag: CAPTION_ENGINE=static.
+  if (resolveCaptionEngine() === "animated") {
+    try {
+      return renderAnimatedAss(captions, dims, ANIMATED_PRESETS[resolveCaptionStyle()]);
+    } catch {
+      /* fall through to the Legacy static generator */
+    }
+  }
   const width = dims?.width ?? 1080;
   const height = dims?.height ?? 1920;
   const events = captions
@@ -146,4 +158,161 @@ function escapeAssText(s: string): string {
     .replace(/\{/g, "\\{")
     .replace(/\}/g, "\\}")
     .replace(/[\r\n]+/g, " ");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Sprint B — Caption Engine V1: animated ASS/libass captions (OPT-IN).
+//
+// Isolated behind CAPTION_ENGINE=animated; preset via CAPTION_STYLE. Extends the
+// SAME ASS/libass path (no renderer change). Uses ONLY the caption's own
+// [startMs,endMs] for deterministic per-word "reading-pace" karaoke timing — NO
+// Whisper, NO ElevenLabs timestamps, NO speech alignment, NO new dependency.
+// Fonts: the already-bundled "DejaVu Sans" (no new font files → no availability
+// risk). Position: Alignment 5 (middle-center) + the Legacy MarginV, so captions
+// sit in the SAME safe zone as today (clear of the TikTok bottom/side UI rails).
+// Readability: capped at 2 lines. When CAPTION_ENGINE≠animated none of this runs.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** The four core presets shipped in V1. */
+export type CoreCaptionPreset = "classic" | "bold_creator" | "minimal" | "corporate";
+
+interface AnimatedPreset {
+  /** Bundled font only (no availability risk). */
+  font: string;
+  /** Font height as a fraction of PlayResY (1920). */
+  sizePct: number;
+  bold: 0 | 1;
+  /** Karaoke "sung"/active colour "#RRGGBB". */
+  primary: string;
+  /** Karaoke "unsung"/inactive colour — kept readable for accessibility. */
+  secondary: string;
+  outlinePx: number;
+  shadowPx: number;
+  /** 0 = no background box. */
+  boxOpacity: number;
+  /** \blur amount (0 = none). Soft glow for the punchy preset. */
+  blur: number;
+  fadeInMs: number;
+  fadeOutMs: number;
+  /** Entrance scale start-% (100 = no pop). */
+  popFromPct: number;
+  popMs: number;
+  /** Emit per-word \k karaoke (false = clean fade only). */
+  karaoke: boolean;
+  case: CaptionStyle["case"];
+}
+
+const ANIMATED_PRESETS: Record<CoreCaptionPreset, AnimatedPreset> = {
+  // Neutral, close to Legacy: white active, dim-grey unsung, gentle pop + karaoke.
+  classic:      { font: "DejaVu Sans", sizePct: 72 / PLAY_RES_Y, bold: 1, primary: "#FFFFFF", secondary: "#B8B8B8", outlinePx: 4, shadowPx: 3, boxOpacity: 0, blur: 0, fadeInMs: 150, fadeOutMs: 150, popFromPct: 106, popMs: 160, karaoke: true,  case: "sentence" },
+  // Punchy creator look: UPPERCASE, large, bold, yellow active word, strong stroke + subtle glow + pronounced pop.
+  bold_creator: { font: "DejaVu Sans", sizePct: 96 / PLAY_RES_Y, bold: 1, primary: "#FFD400", secondary: "#FFFFFF", outlinePx: 6, shadowPx: 4, boxOpacity: 0, blur: 1, fadeInMs: 80,  fadeOutMs: 100, popFromPct: 118, popMs: 200, karaoke: true,  case: "upper" },
+  // Restrained: smaller, no bold, thin stroke, clean fade only (no karaoke, no pop).
+  minimal:      { font: "DejaVu Sans", sizePct: 64 / PLAY_RES_Y, bold: 0, primary: "#FFFFFF", secondary: "#FFFFFF", outlinePx: 2, shadowPx: 1, boxOpacity: 0, blur: 0, fadeInMs: 220, fadeOutMs: 200, popFromPct: 100, popMs: 0,   karaoke: false, case: "sentence" },
+  // Polished/professional: sentence case, bold, white active from a cool-grey unsung, moderate stroke, subtle pop.
+  corporate:    { font: "DejaVu Sans", sizePct: 74 / PLAY_RES_Y, bold: 1, primary: "#FFFFFF", secondary: "#9FB6C4", outlinePx: 3, shadowPx: 2, boxOpacity: 0, blur: 0, fadeInMs: 180, fadeOutMs: 160, popFromPct: 104, popMs: 180, karaoke: true,  case: "sentence" },
+};
+
+/** CAPTION_ENGINE flag → "static" (Legacy default) | "animated". */
+function resolveCaptionEngine(): "static" | "animated" {
+  return (process.env.CAPTION_ENGINE ?? "").trim().toLowerCase() === "animated" ? "animated" : "static";
+}
+
+/** CAPTION_STYLE flag → a core preset. Unknown/unset → "classic". Accepts
+ * spacing/hyphen variants ("Bold Creator", "bold-creator" → "bold_creator"). */
+function resolveCaptionStyle(): CoreCaptionPreset {
+  const s = (process.env.CAPTION_STYLE ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return (["classic", "bold_creator", "minimal", "corporate"] as const).includes(s as CoreCaptionPreset)
+    ? (s as CoreCaptionPreset)
+    : "classic";
+}
+
+/**
+ * Deterministic per-word karaoke durations (centiseconds) spanning
+ * [startMs, endMs]. Weighted by word length (longer words linger). The sum
+ * equals the event duration (last word absorbs rounding) so the fill completes
+ * exactly at endMs. Derived ONLY from the caption's own timing — no ASR.
+ */
+function karaokeRuns(words: string[], startMs: number, endMs: number): number[] {
+  if (words.length === 0) return [];
+  const totalCs = Math.max(words.length, Math.round((endMs - startMs) / 10));
+  const weights = words.map((w) => Math.max(1, w.length));
+  const wSum = weights.reduce((a, b) => a + b, 0);
+  let used = 0;
+  return words.map((_, i) => {
+    if (i === words.length - 1) return Math.max(1, totalCs - used);
+    const cs = Math.max(1, Math.round((totalCs * weights[i]) / wSum));
+    used += cs;
+    return cs;
+  });
+}
+
+function buildAnimatedHeader(p: AnimatedPreset, width: number, height: number): string {
+  const size = Math.round(p.sizePct * height);
+  const marginV = Math.round((260 / PLAY_RES_Y) * height);
+  const primary = assColor(p.primary);
+  const secondary = assColor(p.secondary);
+  const back = assBack(p.boxOpacity);
+  return `[Script Info]
+ScriptType: v4.00+
+PlayResX: ${width}
+PlayResY: ${height}
+WrapStyle: 2
+ScaledBorderAndShadow: yes
+YCbCr Matrix: TV.709
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Caption,${p.font},${size},${primary},${secondary},&H00000000,${back},${p.bold},0,0,0,100,100,0,0,1,${p.outlinePx},${p.shadowPx},5,80,80,${marginV},1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+`;
+}
+
+/**
+ * Animated ASS body. One Dialogue event per caption spanning [startMs, endMs]:
+ *   - entrance: \fad + optional scale-pop (\t \fscx/\fscy) + optional \blur glow
+ *   - per-word karaoke fill (\k) using deterministic reading-pace timing, or a
+ *     clean fade (Minimal). Colours come from the preset (Sprint B does NOT read
+ *     brand colours — brand-aware styling is a later sprint).
+ * Capped at 2 lines; libass auto-layout + Alignment 5 keep it in the safe zone.
+ */
+export function renderAnimatedAss(
+  captions: TimedCaption[],
+  dims?: { width: number; height: number },
+  preset: AnimatedPreset = ANIMATED_PRESETS.classic,
+): string {
+  const width = dims?.width ?? 1080;
+  const height = dims?.height ?? 1920;
+  const events = captions
+    .map((c) => {
+      // ≤ 2 lines for readability + safe zone; fold any extras into line 2.
+      const raw = c.lineBreaks.length > 0 ? c.lineBreaks : [c.text];
+      const lines = raw.length <= 2 ? raw : [raw[0], raw.slice(1).join(" ")];
+      const cased = lines.map((l) => applyCase(l, preset.case));
+
+      const entrance =
+        `\\fad(${preset.fadeInMs},${preset.fadeOutMs})` +
+        (preset.popMs > 0 && preset.popFromPct !== 100
+          ? `\\fscx${preset.popFromPct}\\fscy${preset.popFromPct}\\t(0,${preset.popMs},\\fscx100\\fscy100)`
+          : "") +
+        (preset.blur > 0 ? `\\blur${preset.blur}` : "");
+
+      let text: string;
+      if (preset.karaoke) {
+        const perLineWords = cased.map((l) => l.split(/\s+/).filter(Boolean));
+        const flat = perLineWords.flat();
+        const runs = karaokeRuns(flat, c.startMs, c.endMs);
+        let k = 0;
+        text = perLineWords
+          .map((lw) => lw.map((w) => `{\\k${runs[k++]}}${escapeAssText(w)}`).join(" "))
+          .join(" \\N ");
+      } else {
+        text = cased.map((l) => escapeAssText(l)).join(" \\N ");
+      }
+      return `Dialogue: 0,${fmt(c.startMs)},${fmt(c.endMs)},Caption,,0,0,0,,{${entrance}}${text}`;
+    })
+    .join("\n");
+  return buildAnimatedHeader(preset, width, height) + events + "\n";
 }
