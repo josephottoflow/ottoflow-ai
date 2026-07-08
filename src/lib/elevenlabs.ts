@@ -14,7 +14,14 @@
  * voiceId arg (e.g. from script.voiceDirection mapping).
  */
 
+import { fetchWithTimeout } from "@/lib/http";
+
 const ELEVENLABS_BASE = "https://api.elevenlabs.io/v1";
+
+// Hard client-side timeout for a single TTS synthesis. Turbo output for a
+// ~600-char script returns in a few seconds; 60s is generous headroom that
+// still stops a hung request from blocking the worker slot indefinitely.
+const SYNTHESIS_TIMEOUT_MS = 60_000;
 
 // Default voice — Rachel. Stable, professional, works for most ad copy.
 const DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM";
@@ -49,24 +56,28 @@ export async function synthesizeNarration(
   const modelId = opts.modelId ?? "eleven_turbo_v2";
 
   const url = `${ELEVENLABS_BASE}/text-to-speech/${voiceId}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "xi-api-key": apiKey,
-      "Content-Type": "application/json",
-      Accept: "audio/mpeg",
-    },
-    body: JSON.stringify({
-      text: opts.text,
-      model_id: modelId,
-      voice_settings: {
-        stability: 0.4,
-        similarity_boost: 0.75,
-        style: 0.3,
-        use_speaker_boost: true,
+  const res = await fetchWithTimeout(
+    url,
+    {
+      method: "POST",
+      headers: {
+        "xi-api-key": apiKey,
+        "Content-Type": "application/json",
+        Accept: "audio/mpeg",
       },
-    }),
-  });
+      body: JSON.stringify({
+        text: opts.text,
+        model_id: modelId,
+        voice_settings: {
+          stability: 0.4,
+          similarity_boost: 0.75,
+          style: 0.3,
+          use_speaker_boost: true,
+        },
+      }),
+    },
+    SYNTHESIS_TIMEOUT_MS,
+  );
 
   if (!res.ok) {
     const errBody = await res.text().catch(() => "");

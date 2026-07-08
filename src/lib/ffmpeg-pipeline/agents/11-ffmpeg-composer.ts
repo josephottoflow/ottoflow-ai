@@ -37,6 +37,19 @@ const CTA_CARD_SEC = 3;
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
+/**
+ * Sprint 59.5 (Production Reliability) — hard client-side timeout for a scene /
+ * narration clip download. A plain `fetch` has NO timeout, so a hung R2/CDN
+ * (connection open or mid-body stall, no bytes) would block the compose worker
+ * slot until the socket eventually dies. The AbortController spans BOTH the
+ * fetch AND the body streaming (the timer clears only after `pipeline` resolves
+ * — unlike a headers-only `fetchWithTimeout`), so a stall at any point aborts.
+ * On abort the download throws → downloadAllScenes throws → ffmpeg-compose
+ * retries per its attempts:2 policy. Clips are small (R2, ~1-5MB, sub-second);
+ * 120s only ever cuts a genuine hang, never a healthy transfer.
+ */
+const SCENE_DOWNLOAD_TIMEOUT_MS = 120_000;
+
 async function downloadTo(url: string, dest: string): Promise<void> {
   if (url.startsWith("data:")) {
     const m = url.match(/^data:[^;]+;base64,(.+)$/);
@@ -44,14 +57,20 @@ async function downloadTo(url: string, dest: string): Promise<void> {
     await fs.writeFile(dest, Buffer.from(m[1], "base64"));
     return;
   }
-  const res = await fetch(url);
-  if (!res.ok || !res.body) {
-    throw new Error(`composer: download failed ${url}: ${res.status} ${res.statusText}`);
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), SCENE_DOWNLOAD_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { signal: ctl.signal });
+    if (!res.ok || !res.body) {
+      throw new Error(`composer: download failed ${url}: ${res.status} ${res.statusText}`);
+    }
+    // STREAM to disk — do NOT buffer the whole clip in memory. Buffering all
+    // scene clips (arrayBuffer) at CONCURRENCY 4 held ~4 full clips in Node RSS
+    // during the first ffmpeg pass and contributed to the 1 GB worker OOM.
+    await pipeline(Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]), createWriteStream(dest));
+  } finally {
+    clearTimeout(timer);
   }
-  // STREAM to disk — do NOT buffer the whole clip in memory. Buffering all
-  // scene clips (arrayBuffer) at CONCURRENCY 4 held ~4 full clips in Node RSS
-  // during the first ffmpeg pass and contributed to the 1 GB worker OOM.
-  await pipeline(Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]), createWriteStream(dest));
 }
 
 /** Sprint 52 (Music-Download Resilience) — the ONE systemic defect left after

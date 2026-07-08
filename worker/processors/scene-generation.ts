@@ -71,19 +71,64 @@ function makeCtx(data: SceneGenerationJobData): AgentContext {
   };
 }
 
-/** Download a clip URL to disk then copy to R2; returns the durable URL + key. */
+/**
+ * Download a clip URL then copy to R2; returns the durable URL + key.
+ *
+ * Sprint 59.5 (Production Reliability) — the durability copy is now RETRIED.
+ * Root cause of "Seedance scene stitching occasionally fails": every OTHER
+ * external fetch in this path was already hardened (music download 3×, Seedance
+ * poll retries transient 5xx, balance preflight aborts) EXCEPT this one. Since
+ * the render is enqueued with attempts:1 (credit-safety — no auto re-charge), a
+ * single transient CDN/R2 blip on one scene's copy threw the caller's durability
+ * gate and discarded the WHOLE paid render. Retrying the copy costs NO provider
+ * credits (the clip is already generated) and is the smallest correct fix.
+ *
+ * Behaviour on the success path is byte-identical (attempt 1 succeeds → same
+ * download + upload + return as before). Each attempt bounds the download with a
+ * timeout so a hung provider CDN can't stall the render, and a truncated/empty
+ * body is treated as a failure. After the last attempt it re-throws — so the
+ * caller's durability gate still fails fast when storage is genuinely down.
+ */
 async function copyToR2(
   url: string,
   objectKey: string,
+  log?: (event: string, data?: Record<string, unknown>) => void,
 ): Promise<{ storageUrl: string; storageKey: string } | null> {
   if (!isR2Configured()) return null;
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(`scene clip download failed ${res.status} for ${url}`);
+  const attempts = 3;
+  const timeoutMs = 60_000;
+  const backoffMs = 2_000;
+  let lastErr: unknown = null;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { signal: ctl.signal });
+      if (!res.ok) {
+        throw new Error(`scene clip download failed ${res.status} for ${url}`);
+      }
+      const bytes = Buffer.from(await res.arrayBuffer());
+      if (bytes.byteLength === 0) {
+        throw new Error(`scene clip download empty (0 bytes) for ${url}`);
+      }
+      const up = await uploadToR2(objectKey, bytes, "video/mp4");
+      return { storageUrl: up.publicUrl, storageKey: up.objectKey };
+    } catch (err) {
+      lastErr = err;
+      log?.("scene-generation.r2_copy_retry", {
+        attempt,
+        attempts,
+        objectKey,
+        reason: err instanceof Error ? err.message : String(err),
+      });
+      if (attempt < attempts) {
+        await new Promise((r) => setTimeout(r, backoffMs * attempt)); // 2s, 4s
+      }
+    } finally {
+      clearTimeout(timer);
+    }
   }
-  const bytes = Buffer.from(await res.arrayBuffer());
-  const up = await uploadToR2(objectKey, bytes, "video/mp4");
-  return { storageUrl: up.publicUrl, storageKey: up.objectKey };
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
 
 export async function processSceneGeneration(
@@ -253,6 +298,8 @@ export async function processSceneGeneration(
         const copied = await copyToR2(
           result.url,
           `${data.userId}/${data.renderJobId}/scene-${scene.sceneId}.mp4`,
+          (event, extra) =>
+            console.log(JSON.stringify({ ts: new Date().toISOString(), scope: "scene-generation", msg: event, renderJobId: data.renderJobId, sceneId: scene.sceneId, ...extra })),
         );
         if (copied) {
           storageUrl = copied.storageUrl;

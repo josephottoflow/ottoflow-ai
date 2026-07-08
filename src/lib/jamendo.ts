@@ -13,7 +13,13 @@
  * API docs: https://developer.jamendo.com/v3.0/tracks
  */
 
+import { fetchWithTimeout } from "@/lib/http";
+
 const JAMENDO_BASE = "https://api.jamendo.com/v3.0";
+
+// Track search is a lightweight JSON call (<1s normally); 15s bounds a hung
+// request so background-music resolution can't stall a render.
+const SEARCH_TIMEOUT_MS = 15_000;
 
 export interface JamendoTrack {
   id: string;
@@ -72,7 +78,7 @@ export async function findTrackByVibe(
   url.searchParams.set("order", "popularity_total");
   url.searchParams.set("boost", "popularity_total");
 
-  const res = await fetch(url.toString());
+  const res = await fetchWithTimeout(url.toString(), {}, SEARCH_TIMEOUT_MS);
   if (!res.ok) {
     const errBody = await res.text().catch(() => "");
     throw new Error(

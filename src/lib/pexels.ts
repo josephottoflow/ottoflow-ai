@@ -26,7 +26,15 @@
  * streams it from Pexels directly.
  */
 
+import { fetchWithTimeout } from "@/lib/http";
+
 const PEXELS_BASE = "https://api.pexels.com";
+
+// Royalty-Free is the primary render path: a single stock search normally
+// returns in <1s. 15s bounds a hung Pexels request so one slow query can't
+// block the whole per-scene query loop (each caller already `continue`s past a
+// thrown/aborted search to the next query).
+const PEXELS_TIMEOUT_MS = 15_000;
 
 export interface PexelsVideoFile {
   id: number;
@@ -368,9 +376,11 @@ async function searchOnce(
   url.searchParams.set("orientation", orientation);
   url.searchParams.set("size", "medium"); // Full HD, avoids 4K bandwidth
 
-  const res = await fetch(url.toString(), {
-    headers: { Authorization: apiKey },
-  });
+  const res = await fetchWithTimeout(
+    url.toString(),
+    { headers: { Authorization: apiKey } },
+    PEXELS_TIMEOUT_MS,
+  );
   if (!res.ok) {
     throw new Error(`Pexels ${res.status}: ${res.statusText}`);
   }
@@ -475,9 +485,11 @@ export async function findStockPhotoByPrompt(input: {
       url.searchParams.set("per_page", "5");
       url.searchParams.set("orientation", orientation);
       url.searchParams.set("size", "large");
-      const res = await fetch(url.toString(), {
-        headers: { Authorization: apiKey },
-      });
+      const res = await fetchWithTimeout(
+        url.toString(),
+        { headers: { Authorization: apiKey } },
+        PEXELS_TIMEOUT_MS,
+      );
       if (!res.ok) continue;
       const data = (await res.json()) as PexelsPhotoSearchResp;
       // Phase 1B (P1.3) — random among top 3, not always the first hit.
