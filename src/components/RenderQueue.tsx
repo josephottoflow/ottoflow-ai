@@ -41,9 +41,9 @@ export function RenderQueue({ jobs, className }: Props) {
           >
             <div
               className="w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center"
-              style={{ background: "rgba(124, 58, 237, 0.1)" }}
+              style={{ background: "rgba(233, 134, 59, 0.1)" }}
             >
-              <Video size={14} className="text-violet-400" />
+              <Video size={14} className="text-[#F2A863]" />
             </div>
 
             <div className="flex-1 min-w-0">

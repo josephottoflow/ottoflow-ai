@@ -52,7 +52,7 @@ const KIND_META: Record<
   theme: {
     label: "Repeated theme",
     icon: Repeat2,
-    className: "text-violet-300 border-violet-500/30 bg-violet-500/10",
+    className: "text-[#F2A863] border-[#E9863B]/30 bg-[#E9863B]/10",
   },
   competitor_gap: {
     label: "Competitor gap",

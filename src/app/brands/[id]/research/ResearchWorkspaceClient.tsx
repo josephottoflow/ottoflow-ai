@@ -230,7 +230,7 @@ function SourceCard({ brandId, group }: { brandId: string; group: SourceGroup })
               {group.keywords.slice(0, 10).map((kw) => (
                 <span
                   key={kw}
-                  className="text-3xs text-violet-300/80 bg-violet-600/10 border border-violet-500/20 rounded-full px-2 py-0.5"
+                  className="text-3xs text-[#F2A863]/90 bg-[#E9863B]/10 border border-[#E9863B]/20 rounded-full px-2 py-0.5"
                 >
                   {kw}
                 </span>
@@ -339,7 +339,7 @@ function TimelineTab({ runs }: { runs: DbResearchRun[] }) {
             <span className="text-xs text-white/70 font-medium capitalize">{run.trigger}</span>
             <span className="text-3xs text-white/35">{fmtDate(run.started_at)}</span>
             {run.intelligence_version != null && (
-              <Badge variant="outline" className="text-3xs text-violet-300 border-violet-500/30">
+              <Badge variant="outline" className="text-3xs text-[#F2A863] border-[#E9863B]/30">
                 intelligence v{run.intelligence_version}
               </Badge>
             )}
@@ -560,7 +560,7 @@ export function ResearchWorkspaceClient({
             onClick={() => setTab(key)}
             className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs transition-colors ${
               tab === key
-                ? "bg-violet-600/25 text-violet-200 border border-violet-500/40"
+                ? "bg-[#E9863B]/25 text-[#F5B77A] border border-[#E9863B]/40"
                 : "text-white/50 hover:text-white/75 border border-white/10"
             }`}
           >
@@ -591,7 +591,7 @@ export function ResearchWorkspaceClient({
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder="Search evidence…"
                     aria-label="Search evidence"
-                    className="w-full rounded-lg bg-white/[0.04] border border-white/10 pl-8 pr-3 py-2 text-xs text-white placeholder:text-white/30 focus:outline-none focus:border-violet-500/50"
+                    className="w-full rounded-lg bg-white/[0.04] border border-white/10 pl-8 pr-3 py-2 text-xs text-white placeholder:text-white/30 focus:outline-none focus:border-[#E9863B]/50"
                   />
                 </div>
                 <select
@@ -677,7 +677,7 @@ function FilterChip({
       onClick={onClick}
       className={`rounded-full px-2.5 py-1 text-2xs transition-colors border ${
         active
-          ? "bg-violet-600/25 text-violet-200 border-violet-500/40"
+          ? "bg-[#E9863B]/25 text-[#F5B77A] border-[#E9863B]/40"
           : "text-white/45 hover:text-white/70 border-white/10"
       }`}
     >

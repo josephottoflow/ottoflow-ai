@@ -64,9 +64,9 @@ export default async function DashboardPage() {
 
           <p className="text-white/45 text-sm mt-1">
             You have{" "}
-            <span className="text-violet-400 font-medium">{kpis.renderQueue} renders queued</span>{" "}
+            <span className="text-[#F2A863] font-medium">{kpis.renderQueue} renders queued</span>{" "}
             and{" "}
-            <span className="text-cyan-400 font-medium">{kpis.publishedToday} posts published</span>{" "}
+            <span className="text-[#F2A863] font-medium">{kpis.publishedToday} posts published</span>{" "}
             today.
           </p>
         </div>
@@ -92,9 +92,9 @@ export default async function DashboardPage() {
       {/* First-run onboarding — guides new users through the core loop.
           Hidden once they have a brand + at least one generated output. */}
       {showOnboarding && (
-        <div className="glass rounded-2xl p-5 mb-6" style={{ border: "1px solid rgba(124,58,237,0.18)" }}>
+        <div className="glass rounded-2xl p-5 mb-6" style={{ border: "1px solid rgba(233, 134, 59, 0.18)" }}>
           <div className="flex items-center gap-2 mb-4">
-            <Sparkles size={15} className="text-violet-400" />
+            <Sparkles size={15} className="text-[#F2A863]" />
             <h2 className="text-sm font-bold text-white">Get started in 3 steps</h2>
             <span className="text-2xs text-white/35 ml-1">Turn a brand into ready-to-post content</span>
           </div>
@@ -146,16 +146,16 @@ export default async function DashboardPage() {
           value={formatNumber(kpis.totalContent)}
           subtitle="All time"
           icon={<FileText size={18} />}
-          iconColor="#a78bfa"
-          iconBg="rgba(124, 58, 237, 0.12)"
+          iconColor="#F2A863"
+          iconBg="rgba(233, 134, 59, 0.12)"
         />
         <KPICard
           title="Videos Rendered"
           value={kpis.totalVideos}
           subtitle="Completed"
           icon={<Video size={18} />}
-          iconColor="#67e8f9"
-          iconBg="rgba(6, 182, 212, 0.12)"
+          iconColor="#F2A863"
+          iconBg="rgba(233, 134, 59, 0.12)"
         />
         <KPICard
           title="Credits Used"
@@ -170,8 +170,8 @@ export default async function DashboardPage() {
           value={formatNumber(creatives.total)}
           subtitle={creatives.total > 0 ? `${creatives.ready} ready` : "Generate from any post"}
           icon={<Palette size={18} />}
-          iconColor="#e879f9"
-          iconBg="rgba(217, 70, 239, 0.12)"
+          iconColor="#F2A863"
+          iconBg="rgba(233, 134, 59, 0.12)"
         />
       </div>
 
@@ -181,14 +181,14 @@ export default async function DashboardPage() {
         <div className="glass rounded-2xl p-5 card-hover relative overflow-hidden group">
           <div
             className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-2xl"
-            style={{ background: "radial-gradient(ellipse at top left, rgba(124,58,237,0.08) 0%, transparent 60%)" }}
+            style={{ background: "radial-gradient(ellipse at top left, rgba(233,134,59,0.08) 0%, transparent 60%)" }}
           />
           <div className="relative">
             <div className="flex items-start justify-between mb-4">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl flex items-center justify-center"
-                  style={{ background: "linear-gradient(135deg, rgba(124,58,237,0.2), rgba(99,102,241,0.1))", border: "1px solid rgba(124,58,237,0.2)" }}>
-                  <FileText size={18} className="text-violet-400" />
+                  style={{ background: "linear-gradient(135deg, rgba(233,134,59,0.2), rgba(194,90,30,0.1))", border: "1px solid rgba(233,134,59,0.2)" }}>
+                  <FileText size={18} className="text-[#F2A863]" />
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-white">Content Pipeline</h3>
@@ -198,12 +198,12 @@ export default async function DashboardPage() {
                   </div>
                 </div>
               </div>
-              <Badge variant="purple" className="text-3xs">Gemini Flash Lite</Badge>
+              <Badge variant="default" className="text-3xs">Gemini Flash Lite</Badge>
             </div>
 
             <div className="grid grid-cols-3 gap-3 mb-4">
               {[
-                { label: "Generated", value: formatNumber(kpis.totalContent), color: "#a78bfa" },
+                { label: "Generated", value: formatNumber(kpis.totalContent), color: "#F2A863" },
                 { label: "Published", value: formatNumber(kpis.publishedToday), color: "#34d399" },
                 { label: "In Queue", value: String(kpis.renderQueue), color: "#94a3b8" },
               ].map((s) => (
@@ -230,7 +230,7 @@ export default async function DashboardPage() {
             </div>
 
             <Link href="/content">
-              <Button variant="outline" size="sm" className="w-full gap-1.5 text-violet-400 border-violet-500/20 hover:border-violet-500/40 hover:bg-violet-500/8">
+              <Button variant="outline" size="sm" className="w-full gap-1.5 text-[#F2A863] border-[#E9863B]/20 hover:border-[#E9863B]/40 hover:bg-[#E9863B]/8">
                 Open Pipeline <ArrowRight size={13} />
               </Button>
             </Link>
@@ -241,14 +241,14 @@ export default async function DashboardPage() {
         <div className="glass rounded-2xl p-5 card-hover relative overflow-hidden group">
           <div
             className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-2xl"
-            style={{ background: "radial-gradient(ellipse at top left, rgba(6,182,212,0.08) 0%, transparent 60%)" }}
+            style={{ background: "radial-gradient(ellipse at top left, rgba(233,134,59,0.08) 0%, transparent 60%)" }}
           />
           <div className="relative">
             <div className="flex items-start justify-between mb-4">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl flex items-center justify-center"
-                  style={{ background: "linear-gradient(135deg, rgba(6,182,212,0.2), rgba(59,130,246,0.1))", border: "1px solid rgba(6,182,212,0.2)" }}>
-                  <Video size={18} className="text-cyan-400" />
+                  style={{ background: "linear-gradient(135deg, rgba(233,134,59,0.2), rgba(194,90,30,0.1))", border: "1px solid rgba(233,134,59,0.2)" }}>
+                  <Video size={18} className="text-[#F2A863]" />
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-white">Video Pipeline</h3>
@@ -263,7 +263,7 @@ export default async function DashboardPage() {
 
             <div className="grid grid-cols-3 gap-3 mb-4">
               {[
-                { label: "Rendered", value: formatNumber(kpis.totalVideos), color: "#67e8f9" },
+                { label: "Rendered", value: formatNumber(kpis.totalVideos), color: "#F2A863" },
                 { label: "Processing", value: String(pendingJobs), color: "#fbbf24" },
                 { label: "Credits", value: formatNumber(kpis.creditsUsed), color: "#94a3b8" },
               ].map((s) => (
@@ -289,7 +289,7 @@ export default async function DashboardPage() {
             </div>
 
             <Link href="/video">
-              <Button variant="outline" size="sm" className="w-full gap-1.5 text-cyan-400 border-cyan-500/20 hover:border-cyan-500/40 hover:bg-cyan-500/8">
+              <Button variant="outline" size="sm" className="w-full gap-1.5 text-[#F2A863] border-[#E9863B]/20 hover:border-[#E9863B]/40 hover:bg-[#E9863B]/8">
                 Open Pipeline <ArrowRight size={13} />
               </Button>
             </Link>
@@ -318,12 +318,12 @@ export default async function DashboardPage() {
                   <div className="w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center"
                     style={{
                       background: proj.type === "video"
-                        ? "rgba(6,182,212,0.1)"
-                        : "rgba(124,58,237,0.1)",
+                        ? "rgba(233,134,59,0.1)"
+                        : "rgba(233,134,59,0.1)",
                     }}>
                     {proj.type === "video"
-                      ? <Video size={14} className="text-cyan-400" />
-                      : <FileText size={14} className="text-violet-400" />}
+                      ? <Video size={14} className="text-[#F2A863]" />
+                      : <FileText size={14} className="text-[#F2A863]" />}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-white/80 truncate">{proj.name}</p>
@@ -372,7 +372,7 @@ export default async function DashboardPage() {
               <h2 className="text-sm font-semibold text-white">Usage</h2>
               <div className="flex items-center gap-3 text-3xs text-white/40">
                 <span className="flex items-center gap-1">
-                  <div className="w-2 h-2 rounded-full bg-violet-500" />Content
+                  <div className="w-2 h-2 rounded-full bg-[#E9863B]" />Content
                 </span>
                 <span className="flex items-center gap-1">
                   <div className="w-2 h-2 rounded-full bg-cyan-500" />Videos

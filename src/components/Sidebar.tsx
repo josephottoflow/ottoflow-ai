@@ -94,12 +94,12 @@ export function Sidebar() {
       >
         {/* Logo */}
         <div className="flex items-center gap-2.5 px-4 py-5 border-b border-white/[0.04]">
-          <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-gradient-to-br from-violet-600 to-indigo-500">
-            <Zap size={14} className="text-white" />
+          <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-gradient-to-br from-[#F2A863] to-[#C25A1E]">
+            <Zap size={14} className="text-[#1a1008]" />
           </div>
           <div>
             <span className="text-sm font-bold text-white tracking-tight">Ottoflow</span>
-            <span className="text-3xs text-violet-400 font-medium block -mt-0.5">
+            <span className="text-3xs text-[#E9863B] font-medium block -mt-0.5">
               AI Platform
             </span>
           </div>
@@ -145,7 +145,7 @@ export function Sidebar() {
             </p>
             <Link
               href="/brands/new"
-              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 bg-violet-600/[0.08] border border-violet-600/15 text-violet-400"
+              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 bg-[#E9863B]/[0.09] border border-[#E9863B]/20 text-[#F2A863]"
             >
               <Briefcase size={13} />
               Research a Brand
@@ -155,7 +155,7 @@ export function Sidebar() {
                 Canonical path: Content → Creative brief → guided wizard. */}
             <Link
               href="/content/generate"
-              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 mt-1 bg-fuchsia-500/[0.08] border border-fuchsia-500/15 text-fuchsia-400"
+              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 mt-1 bg-[#E9863B]/[0.09] border border-[#E9863B]/20 text-[#F2A863]"
             >
               <FileText size={13} />
               Generate Post
@@ -165,7 +165,7 @@ export function Sidebar() {
                 legacy /video/generate stock-footage page). Discoverability only. */}
             <Link
               href="/video/start"
-              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 mt-1 bg-cyan-500/[0.08] border border-cyan-500/15 text-cyan-400"
+              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 mt-1 bg-[#E9863B]/[0.09] border border-[#E9863B]/20 text-[#F2A863]"
             >
               <Video size={13} />
               Generate Video

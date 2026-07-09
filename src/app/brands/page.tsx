@@ -42,11 +42,11 @@ export default async function BrandsPage() {
                       className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
                       style={{
                         background:
-                          "linear-gradient(135deg, rgba(124,58,237,0.2), rgba(99,102,241,0.1))",
-                        border: "1px solid rgba(124,58,237,0.2)",
+                          "linear-gradient(135deg, rgba(233,134,59,0.2), rgba(194,90,30,0.1))",
+                        border: "1px solid rgba(233,134,59,0.2)",
                       }}
                     >
-                      <Briefcase size={16} className="text-violet-400" />
+                      <Briefcase size={16} className="text-[#F2A863]" />
                     </div>
                     <div className="min-w-0">
                       <h3 className="text-sm font-bold text-white truncate">{b.name}</h3>
@@ -123,11 +123,11 @@ function EmptyState() {
       <div
         className="w-14 h-14 rounded-2xl mx-auto mb-4 flex items-center justify-center"
         style={{
-          background: "linear-gradient(135deg, rgba(124,58,237,0.2), rgba(99,102,241,0.1))",
-          border: "1px solid rgba(124,58,237,0.2)",
+          background: "linear-gradient(135deg, rgba(233,134,59,0.2), rgba(194,90,30,0.1))",
+          border: "1px solid rgba(233,134,59,0.2)",
         }}
       >
-        <Briefcase size={24} className="text-violet-400" />
+        <Briefcase size={24} className="text-[#F2A863]" />
       </div>
       <h2 className="text-base font-bold text-white mb-1">No brands yet</h2>
       <p className="text-sm text-white/45 mb-5">

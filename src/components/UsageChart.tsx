@@ -48,8 +48,8 @@ export function UsageChart({ data, className }: Props) {
         <AreaChart data={data} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
           <defs>
             <linearGradient id="colorContent" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="#7c3aed" stopOpacity={0.3} />
-              <stop offset="95%" stopColor="#7c3aed" stopOpacity={0} />
+              <stop offset="5%" stopColor="#E9863B" stopOpacity={0.3} />
+              <stop offset="95%" stopColor="#E9863B" stopOpacity={0} />
             </linearGradient>
             <linearGradient id="colorVideos" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.3} />
@@ -72,7 +72,7 @@ export function UsageChart({ data, className }: Props) {
           <Area
             type="monotone"
             dataKey="content"
-            stroke="#7c3aed"
+            stroke="#E9863B"
             strokeWidth={2}
             fill="url(#colorContent)"
             dot={false}

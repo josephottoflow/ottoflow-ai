@@ -108,7 +108,7 @@ function Sparkline({ pts }: { pts: PerformanceIntelligence["timeline"] }) {
         return (
           <div
             key={i}
-            className="flex-1 rounded-t bg-gradient-to-t from-violet-600/40 to-violet-400/80"
+            className="flex-1 rounded-t bg-gradient-to-t from-[#E9863B]/40 to-[#F2A863]/80"
             style={{ height: `${h}px` }}
             title={`${p.date}: eng ${p.engagement}${p.review_score != null ? ` · review ${p.review_score}` : ""}`}
           />
@@ -192,7 +192,7 @@ export function IntelligenceDashboard({
         <>
           {/* ── Campaign Intelligence (Sprint 24) — strategy governs everything. ── */}
           <div className="flex items-center gap-2 mb-3">
-            <Target size={15} className="text-violet-400" />
+            <Target size={15} className="text-[#F2A863]" />
             <h2 className="text-sm font-semibold text-white/85">Campaign Intelligence</h2>
             <span className="text-3xs uppercase tracking-wider text-white/30">marketing strategy</span>
           </div>
@@ -281,7 +281,7 @@ export function IntelligenceDashboard({
                 <ul className="space-y-2">
                   {campaign.recent.map((c, i) => (
                     <li key={i} className="flex items-start gap-2.5 text-sm">
-                      <span className="flex-shrink-0 mt-0.5 text-3xs font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-violet-600/[0.12] text-violet-300">
+                      <span className="flex-shrink-0 mt-0.5 text-3xs font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[#E9863B]/[0.12] text-[#F2A863]">
                         {fmtType(c.campaign_type)}
                       </span>
                       <span className="text-white/70 truncate">{c.core_message || "—"}</span>
@@ -450,7 +450,7 @@ export function IntelligenceDashboard({
               <ul className="space-y-1.5">
                 {ci.rationale.map((r, i) => (
                   <li key={i} className="flex gap-2 text-sm text-white/65">
-                    <span className="text-violet-400 flex-shrink-0">•</span>
+                    <span className="text-[#F2A863] flex-shrink-0">•</span>
                     {r}
                   </li>
                 ))}

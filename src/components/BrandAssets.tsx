@@ -129,7 +129,7 @@ export function BrandAssets({ brandId }: { brandId: string }) {
   return (
     <section className="glass rounded-2xl p-6">
       <div className="flex items-center gap-2 mb-1">
-        <ImageIcon size={14} className="text-violet-400" />
+        <ImageIcon size={14} className="text-[#F2A863]" />
         <h2 className="text-sm font-bold text-white">Brand Assets</h2>
         <span className="text-3xs text-white/40 font-medium">({assets.length})</span>
       </div>

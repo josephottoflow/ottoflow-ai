@@ -86,7 +86,7 @@ function InlineRich({ text, onCitationClick }: { text: string; onCitationClick: 
               key={i}
               type="button"
               onClick={() => onCitationClick(n)}
-              className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 mx-0.5 rounded text-3xs font-semibold align-text-top bg-violet-600/30 text-violet-300 hover:bg-violet-600/50 transition-colors"
+              className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 mx-0.5 rounded text-3xs font-semibold align-text-top bg-[#E9863B]/30 text-[#F2A863] hover:bg-[#E9863B]/50 transition-colors"
               aria-label={`View source ${n}`}
             >
               {n}
@@ -106,7 +106,7 @@ function SourceCard({ source, highlighted }: { source: AskSource; highlighted: b
       id={`ask-source-${source.n}`}
       className={`rounded-xl border p-3 transition-colors ${
         highlighted
-          ? "border-violet-500/60 bg-violet-600/10"
+          ? "border-[#E9863B]/60 bg-[#E9863B]/10"
           : source.cited
             ? "border-white/10 bg-white/[0.03]"
             : "border-white/5 bg-transparent opacity-60"
@@ -119,7 +119,7 @@ function SourceCard({ source, highlighted }: { source: AskSource; highlighted: b
         aria-expanded={open}
         aria-label={`Toggle source ${source.n} evidence`}
       >
-        <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-violet-600/30 text-violet-300 text-3xs font-semibold shrink-0">
+        <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-[#E9863B]/30 text-[#F2A863] text-3xs font-semibold shrink-0">
           {source.n}
         </span>
         <span className="text-xs text-white/80 font-medium truncate flex-1">
@@ -141,7 +141,7 @@ function SourceCard({ source, highlighted }: { source: AskSource; highlighted: b
               href={source.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 mt-2 text-3xs text-cyan-300 hover:text-cyan-200"
+              className="inline-flex items-center gap-1 mt-2 text-3xs text-[#F2A863] hover:text-[#F5B77A]"
             >
               <ExternalLink size={10} />
               {source.domain ?? "Open original"}
@@ -200,7 +200,7 @@ export function AskResearch({ brandId, brandReady }: { brandId: string; brandRea
   return (
     <section className="glass rounded-2xl p-6">
       <div className="flex items-center gap-2 mb-1">
-        <BookOpenText size={16} className="text-violet-400" />
+        <BookOpenText size={16} className="text-[#F2A863]" />
         <h2 className="text-base font-semibold text-white">Ask the research</h2>
         <Link
           href={`/brands/${brandId}/research`}
@@ -228,7 +228,7 @@ export function AskResearch({ brandId, brandReady }: { brandId: string; brandRea
           placeholder={brandReady ? "Ask anything about this brand's market…" : "Available once research completes…"}
           disabled={!brandReady || loading}
           maxLength={500}
-          className="flex-1 rounded-xl bg-white/[0.04] border border-white/10 px-4 py-2.5 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-violet-500/50 disabled:opacity-50"
+          className="flex-1 rounded-xl bg-white/[0.04] border border-white/10 px-4 py-2.5 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-[#E9863B]/50 disabled:opacity-50"
           aria-label="Ask a question about this brand's research"
         />
         <Button type="submit" disabled={!brandReady || loading || question.trim().length < 3} className="gap-1.5">
@@ -247,7 +247,7 @@ export function AskResearch({ brandId, brandReady }: { brandId: string; brandRea
                 setQuestion(s);
                 void ask(s);
               }}
-              className="text-2xs text-white/50 hover:text-white/80 border border-white/10 hover:border-violet-500/40 rounded-full px-3 py-1 transition-colors"
+              className="text-2xs text-white/50 hover:text-white/80 border border-white/10 hover:border-[#E9863B]/40 rounded-full px-3 py-1 transition-colors"
             >
               {s}
             </button>

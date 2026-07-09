@@ -10,8 +10,10 @@
     --card-foreground: 213 31% 91%;
     --popover: 224 71% 5%;
     --popover-foreground: 215 20% 95%;
-    --primary: 263 70% 58%;
-    --primary-foreground: 0 0% 100%;
+    /* Darkroom Studio — marigold accent (was generic violet 263 70% 58%). Dark
+       warm foreground gives AA contrast on marigold (white did not). */
+    --primary: 24 80% 57%;
+    --primary-foreground: 30 45% 8%;
     --secondary: 222 47% 11%;
     --secondary-foreground: 215 20% 95%;
     --muted: 223 47% 11%;
@@ -22,7 +24,7 @@
     --destructive-foreground: 210 40% 98%;
     --border: 216 34% 13%;
     --input: 216 34% 13%;
-    --ring: 263 70% 58%;
+    --ring: 24 80% 57%;
     --radius: 0.75rem;
   }
 }
@@ -34,10 +36,11 @@
 
   body {
     @apply bg-background text-foreground antialiased;
-    background-color: #050510;
+    /* Darkroom warm graphite ground + soft marigold glows (was #050510 + violet/blue) */
+    background-color: #15120E;
     background-image:
-      radial-gradient(ellipse 80% 60% at 50% -20%, rgba(120, 60, 240, 0.12) 0%, transparent 70%),
-      radial-gradient(ellipse 60% 40% at 80% 80%, rgba(56, 100, 246, 0.06) 0%, transparent 60%);
+      radial-gradient(ellipse 80% 60% at 50% -20%, rgba(233, 134, 59, 0.10) 0%, transparent 70%),
+      radial-gradient(ellipse 60% 40% at 80% 80%, rgba(233, 134, 59, 0.045) 0%, transparent 60%);
     min-height: 100vh;
   }
 
@@ -62,9 +65,10 @@
     border: 1px solid rgba(255, 255, 255, 0.08);
   }
 
-  /* Glow effects */
+  /* Glow effects — .glow-purple keeps its name (consumed widely) but now emits
+     the marigold accent so the whole app cascades to one accent. */
   .glow-purple {
-    box-shadow: 0 0 30px rgba(124, 58, 237, 0.2), 0 0 60px rgba(124, 58, 237, 0.05);
+    box-shadow: 0 0 30px rgba(233, 134, 59, 0.22), 0 0 60px rgba(233, 134, 59, 0.06);
   }
 
   .glow-blue {
@@ -75,9 +79,9 @@
     box-shadow: 0 0 30px rgba(6, 182, 212, 0.2), 0 0 60px rgba(6, 182, 212, 0.05);
   }
 
-  /* Text gradient */
+  /* Text gradient — marigold (was violet #a78bfa→#7c3aed→#6366f1) */
   .text-gradient {
-    background: linear-gradient(135deg, #a78bfa 0%, #7c3aed 50%, #6366f1 100%);
+    background: linear-gradient(135deg, #F2A863 0%, #E9863B 55%, #C25A1E 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -148,9 +152,9 @@
     }
   }
 
-  /* Progress bar gradient */
+  /* Progress bar gradient — marigold (was violet→blue) */
   .progress-gradient {
-    background: linear-gradient(90deg, #7c3aed, #6366f1, #3b82f6);
+    background: linear-gradient(90deg, #C25A1E, #E9863B, #F2A863);
   }
 
   /* Card hover lift */
@@ -175,9 +179,9 @@
   }
 
   .nav-item.active {
-    background: rgba(124, 58, 237, 0.12);
-    color: #a78bfa;
-    border: 1px solid rgba(124, 58, 237, 0.2);
+    background: rgba(233, 134, 59, 0.13);
+    color: #F2A863;
+    border: 1px solid rgba(233, 134, 59, 0.28);
   }
 }
 
@@ -190,4 +194,118 @@
 .recharts-text {
   fill: rgba(148, 163, 184, 0.6);
   font-size: 11px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   OttoFlow "Darkroom Studio" design language — ADDITIVE FOUNDATION (Phase 3).
+
+   Namespaced --otto-* tokens + opt-in .otto-* utilities. Nothing references
+   these yet, so this layer is ZERO-REGRESSION: every existing screen renders
+   exactly as before. Screens migrate onto these tokens slice-by-slice (with
+   visual validation in a signed-in session), replacing the generic violet
+   system above with one considered marigold accent + serif×mono type.
+   Source of truth: the "Darkroom Studio v1" design artifact.
+   ───────────────────────────────────────────────────────────────────────── */
+:root {
+  /* Surfaces — warm graphite, not cold slate */
+  --otto-ground: #15120E;
+  --otto-surface: #1F1A15;
+  --otto-surface-2: #2A231B;
+  --otto-raise: #332A20;
+  /* Ink — warm off-white ramp */
+  --otto-ink: #F4EDE2;
+  --otto-ink-dim: #BEB2A0;
+  --otto-ink-faint: #867A69;
+  /* The single signature accent — marigold (replaces generic violet) */
+  --otto-accent: #E9863B;
+  --otto-accent-2: #F2A863;
+  --otto-accent-soft: rgba(233, 134, 59, 0.13);
+  --otto-accent-line: rgba(233, 134, 59, 0.32);
+  /* Hairlines */
+  --otto-line: rgba(244, 237, 226, 0.09);
+  --otto-line-2: rgba(244, 237, 226, 0.14);
+  /* Semantic status — kept SEPARATE from the accent */
+  --otto-good: #7FC79A;
+  --otto-warn: #E9C24B;
+  --otto-crit: #E27766;
+  /* Type roles — serif display × humanist body × mono utility (not Inter) */
+  --otto-serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+  --otto-sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, sans-serif;
+  --otto-mono: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+  /* Shape */
+  --otto-radius: 14px;
+  --otto-radius-sm: 9px;
+  --otto-shadow: 0 1px 0 rgba(255,255,255,.03) inset, 0 18px 40px -20px rgba(0,0,0,.7);
+}
+
+@layer utilities {
+  .otto-eyebrow {
+    font-family: var(--otto-mono);
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--otto-accent);
+    font-weight: 600;
+  }
+
+  .otto-card {
+    background: var(--otto-surface);
+    border: 1px solid var(--otto-line);
+    border-radius: var(--otto-radius);
+    box-shadow: var(--otto-shadow);
+  }
+
+  .otto-btn {
+    font-family: var(--otto-sans);
+    font-weight: 600;
+    font-size: 14px;
+    border-radius: 10px;
+    padding: 11px 18px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    transition: filter 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  }
+  .otto-btn--primary {
+    background: linear-gradient(180deg, var(--otto-accent-2), var(--otto-accent));
+    color: #1a1008;
+    box-shadow: 0 8px 20px -10px var(--otto-accent), 0 0 0 1px var(--otto-accent-line);
+  }
+  .otto-btn--primary:hover { filter: brightness(1.05); }
+  .otto-btn--ghost {
+    background: transparent;
+    color: var(--otto-ink);
+    border-color: var(--otto-line-2);
+  }
+  .otto-btn--ghost:hover { border-color: var(--otto-accent-line); color: var(--otto-accent); }
+
+  .otto-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-family: var(--otto-mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 5px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--otto-line-2);
+  }
+  .otto-pill__dot { width: 6px; height: 6px; border-radius: 50%; }
+  .otto-pill--ready { color: var(--otto-good); border-color: color-mix(in srgb, var(--otto-good) 40%, transparent); }
+  .otto-pill--ready .otto-pill__dot { background: var(--otto-good); }
+  .otto-pill--render { color: var(--otto-accent); border-color: var(--otto-accent-line); }
+  .otto-pill--render .otto-pill__dot { background: var(--otto-accent); box-shadow: 0 0 0 3px var(--otto-accent-soft); }
+  .otto-pill--warn { color: var(--otto-warn); border-color: color-mix(in srgb, var(--otto-warn) 40%, transparent); }
+  .otto-pill--warn .otto-pill__dot { background: var(--otto-warn); }
+
+  /* Nav-item, tokenized (drop-in for .nav-item.active once the sidebar migrates) */
+  .otto-nav-active {
+    background: var(--otto-accent-soft);
+    color: var(--otto-accent);
+    border: 1px solid var(--otto-accent-line);
+  }
 }

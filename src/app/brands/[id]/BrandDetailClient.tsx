@@ -177,11 +177,11 @@ export function BrandDetailClient({
             className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0"
             style={{
               background:
-                "linear-gradient(135deg, rgba(124,58,237,0.2), rgba(99,102,241,0.1))",
-              border: "1px solid rgba(124,58,237,0.2)",
+                "linear-gradient(135deg, rgba(233,134,59,0.2), rgba(194,90,30,0.1))",
+              border: "1px solid rgba(233,134,59,0.2)",
             }}
           >
-            <Briefcase size={20} className="text-violet-400" />
+            <Briefcase size={20} className="text-[#F2A863]" />
           </div>
           <div className="min-w-0">
             <h1 className="text-2xl font-bold text-white tracking-tight truncate">
@@ -211,7 +211,7 @@ export function BrandDetailClient({
             className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-white/10 text-white/55 hover:text-white/85 hover:border-white/20 transition-colors"
             title="Creative Intelligence — internal"
           >
-            <Sparkles size={12} className="text-violet-400" />
+            <Sparkles size={12} className="text-[#F2A863]" />
             Intelligence
           </Link>
           <StatusPill status={brand.status} />
@@ -369,10 +369,10 @@ function ProgressCard({ job }: { job: DbBrandResearchJob }) {
     <div className="glass rounded-2xl p-6 mb-6">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <Loader2 size={14} className="text-violet-400 animate-spin" />
+          <Loader2 size={14} className="text-[#F2A863] animate-spin" />
           <p className="text-sm font-semibold text-white">{stepLabel}</p>
         </div>
-        <span className="text-xs font-medium text-violet-400">{job.progress}%</span>
+        <span className="text-xs font-medium text-[#F2A863]">{job.progress}%</span>
       </div>
       <Progress value={job.progress} className="h-1.5 mb-4" />
 
@@ -398,7 +398,7 @@ function LogRow({ log }: { log: ResearchLogEntry }) {
     log.level === "error" ? "bg-red-400"
     : log.level === "warn"    ? "bg-amber-400"
     : log.level === "success" ? "bg-emerald-400"
-    :                           "bg-violet-400";
+    :                           "bg-[#E9863B]";
 
   return (
     <div className="flex items-start gap-2 text-xs">
@@ -490,8 +490,8 @@ function ProfileSection({ brand }: { brand: DbBrand }) {
 
       <p className="text-sm text-white/75 leading-relaxed mb-4">{p.summary}</p>
 
-      <div className="rounded-xl p-4 mb-5" style={{ background: "rgba(124,58,237,0.06)", border: "1px solid rgba(124,58,237,0.15)" }}>
-        <p className="text-3xs uppercase tracking-widest text-violet-300/70 font-semibold mb-1.5">
+      <div className="rounded-xl p-4 mb-5" style={{ background: "rgba(233,134,59,0.06)", border: "1px solid rgba(233,134,59,0.15)" }}>
+        <p className="text-3xs uppercase tracking-widest text-[#F2A863]/70 font-semibold mb-1.5">
           Positioning
         </p>
         <p className="text-sm text-white/85 leading-relaxed italic">
@@ -539,7 +539,7 @@ function ProfileSection({ brand }: { brand: DbBrand }) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         <div>
           <div className="flex items-center gap-1.5 mb-2">
-            <Mic size={12} className="text-violet-400" />
+            <Mic size={12} className="text-[#F2A863]" />
             <h4 className="text-xs uppercase tracking-widest text-white/45 font-semibold">
               Brand Voice
             </h4>
@@ -551,7 +551,7 @@ function ProfileSection({ brand }: { brand: DbBrand }) {
 
         <div>
           <div className="flex items-center gap-1.5 mb-2">
-            <Users size={12} className="text-cyan-400" />
+            <Users size={12} className="text-[#F2A863]" />
             <h4 className="text-xs uppercase tracking-widest text-white/45 font-semibold">
               Audience &amp; ICP
             </h4>
@@ -573,7 +573,7 @@ function ProfileSection({ brand }: { brand: DbBrand }) {
             {p.personas.map((per, i) => (
               <div key={i} className="rounded-lg p-3" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)" }}>
                 <p className="text-sm font-semibold text-white">{per.name}</p>
-                <p className="text-2xs text-violet-300/80 mb-2">{per.role}</p>
+                <p className="text-2xs text-[#F2A863]/80 mb-2">{per.role}</p>
                 <PillRow label="Goals" items={per.goals} muted />
                 <PillRow label="Pains" items={per.pain_points} muted />
                 <PillRow label="Channels" items={per.channels} muted />
@@ -603,7 +603,7 @@ function CompetitorsSection({ competitors }: { competitors: DbCompetitor[] }) {
             </div>
             {c.summary && <p className="text-xs text-white/60 leading-relaxed mb-2">{c.summary}</p>}
             {c.positioning && (
-              <p className="text-2xs text-violet-300/70 italic mb-2">&ldquo;{c.positioning}&rdquo;</p>
+              <p className="text-2xs text-[#F2A863]/70 italic mb-2">&ldquo;{c.positioning}&rdquo;</p>
             )}
             {c.strengths.length > 0 && <PillRow label="Strengths" items={c.strengths} muted />}
             {c.weaknesses.length > 0 && <PillRow label="Weaknesses" items={c.weaknesses} muted />}
@@ -733,7 +733,7 @@ function TopicsSection({
     <section className="glass rounded-2xl p-6">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <Sparkles size={14} className="text-fuchsia-400" />
+          <Sparkles size={14} className="text-[#F2A863]" />
           <h2 className="text-sm font-bold text-white">Content Topics</h2>
           <span className="text-3xs text-white/40 font-medium">({topics.length})</span>
         </div>
@@ -810,13 +810,13 @@ function TopicsSection({
                   <div className="flex items-center gap-3 mt-2 pt-2 border-t border-white/[0.04]">
                     <Link
                       href="/video/start"
-                      className="text-3xs font-semibold text-fuchsia-300 hover:underline"
+                      className="text-3xs font-semibold text-[#F2A863] hover:underline"
                     >
                       Generate video →
                     </Link>
                     <Link
                       href={`/content/generate?brandId=${brandId}&topicId=${t.id}`}
-                      className="text-3xs font-semibold text-violet-300 hover:underline"
+                      className="text-3xs font-semibold text-[#F2A863] hover:underline"
                     >
                       Generate post →
                     </Link>
@@ -844,7 +844,7 @@ function SectionHeader({
 }) {
   return (
     <div className="flex items-center gap-2 mb-4">
-      <Icon size={14} className="text-violet-400" />
+      <Icon size={14} className="text-[#F2A863]" />
       <h2 className="text-sm font-bold text-white">{label}</h2>
       {count != null && (
         <span className="text-3xs text-white/40 font-medium">({count})</span>
@@ -863,7 +863,7 @@ function SubBlock({ title, items }: { title: string; items: string[] }) {
       <ul className="space-y-1.5">
         {items.map((it, i) => (
           <li key={i} className="text-sm text-white/75 leading-relaxed flex gap-2">
-            <span className="text-violet-400 mt-0.5">•</span>
+            <span className="text-[#F2A863] mt-0.5">•</span>
             <span>{it}</span>
           </li>
         ))}
@@ -884,7 +884,7 @@ function PillRow({ label, items, muted = false }: { label: string; items: string
             className={`text-3xs px-1.5 py-0.5 rounded-md ${
               muted
                 ? "bg-white/[0.04] text-white/55"
-                : "bg-violet-500/10 text-violet-300 border border-violet-500/15"
+                : "bg-[#E9863B]/10 text-[#F2A863] border border-[#E9863B]/15"
             }`}
           >
             {it}

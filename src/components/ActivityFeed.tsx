@@ -15,14 +15,14 @@ import {
 const typeConfig = {
   video_rendered: {
     icon: Video,
-    color: "#7c3aed",
-    bg: "rgba(124, 58, 237, 0.12)",
+    color: "#E9863B",
+    bg: "rgba(233, 134, 59, 0.12)",
     label: "Rendered",
   },
   content_generated: {
     icon: FileText,
-    color: "#6366f1",
-    bg: "rgba(99, 102, 241, 0.12)",
+    color: "#E9863B",
+    bg: "rgba(233, 134, 59, 0.12)",
     label: "Generated",
   },
   project_created: {
@@ -39,8 +39,8 @@ const typeConfig = {
   },
   published: {
     icon: Send,
-    color: "#06b6d4",
-    bg: "rgba(6, 182, 212, 0.12)",
+    color: "#E9863B",
+    bg: "rgba(233, 134, 59, 0.12)",
     label: "Published",
   },
   error: {
@@ -51,8 +51,8 @@ const typeConfig = {
   },
   brand_researched: {
     icon: Briefcase,
-    color: "#a78bfa",
-    bg: "rgba(167, 139, 250, 0.12)",
+    color: "#F2A863",
+    bg: "rgba(242, 168, 99, 0.12)",
     label: "Brand",
   },
 } as const;

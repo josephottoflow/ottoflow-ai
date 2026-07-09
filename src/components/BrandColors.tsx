@@ -99,7 +99,7 @@ export function BrandColors({
   return (
     <div className="glass rounded-2xl p-6">
       <div className="flex items-center gap-2 mb-1">
-        <Palette size={14} className="text-fuchsia-400" />
+        <Palette size={14} className="text-[#F2A863]" />
         <h2 className="text-sm font-semibold text-white">Brand Colors</h2>
         {source && <span className="text-3xs text-white/35 ml-1">source: {source}</span>}
       </div>
@@ -134,7 +134,7 @@ export function BrandColors({
                   onChange={(e) => setVals((v) => ({ ...v, [k]: e.target.value }))}
                   placeholder="#000000"
                   className={`flex-1 bg-white/[0.04] border rounded-lg px-3 py-2 text-sm text-white font-mono placeholder:text-white/25 focus:outline-none transition-colors ${
-                    valid ? "border-white/10 focus:border-violet-500/40" : "border-rose-500/50"
+                    valid ? "border-white/10 focus:border-[#E9863B]/40" : "border-rose-500/50"
                   }`}
                 />
               </div>

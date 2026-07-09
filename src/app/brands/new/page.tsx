@@ -66,11 +66,11 @@ export default function NewBrandPage() {
           className="w-10 h-10 rounded-xl flex items-center justify-center"
           style={{
             background:
-              "linear-gradient(135deg, rgba(124,58,237,0.2), rgba(99,102,241,0.1))",
-            border: "1px solid rgba(124,58,237,0.2)",
+              "linear-gradient(135deg, rgba(233,134,59,0.2), rgba(194,90,30,0.1))",
+            border: "1px solid rgba(233,134,59,0.2)",
           }}
         >
-          <Briefcase size={18} className="text-violet-400" />
+          <Briefcase size={18} className="text-[#F2A863]" />
         </div>
         <div>
           <h1 className="text-xl font-bold text-white tracking-tight">Research a Brand</h1>
