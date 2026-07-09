@@ -55,7 +55,7 @@ const STATUS_META: Record<string, { label: string; className: string }> = {
   approved: { label: "Approved", className: "text-emerald-300 border-emerald-500/40 bg-emerald-500/10" },
   rejected: { label: "Rejected", className: "text-red-300 border-red-500/40 bg-red-500/10" },
   scheduled: { label: "Scheduled", className: "text-cyan-300 border-cyan-500/40 bg-cyan-500/10" },
-  published: { label: "Published", className: "text-violet-300 border-violet-500/40 bg-violet-500/10" },
+  published: { label: "Published", className: "text-[#F2A863] border-[#E9863B]/40 bg-[#E9863B]/10" },
 };
 
 const TABS = ["in_review", "draft", "approved", "rejected", "all"] as const;
@@ -127,7 +127,7 @@ function ItemCard({
             )}
             <span className="text-3xs text-white/25">{item.createdAt.slice(0, 10)}</span>
             {item.evidenceCount > 0 && (
-              <span className="text-3xs text-violet-300/70">
+              <span className="text-3xs text-[#F2A863]/70">
                 {item.evidenceCount} evidence
               </span>
             )}
@@ -189,7 +189,7 @@ function ItemCard({
               }
               maxLength={1000}
               aria-label="Review note"
-              className="w-full mb-2 rounded-lg bg-white/[0.04] border border-white/10 px-3 py-2 text-xs text-white placeholder:text-white/30 focus:outline-none focus:border-violet-500/50"
+              className="w-full mb-2 rounded-lg bg-white/[0.04] border border-white/10 px-3 py-2 text-xs text-white placeholder:text-white/30 focus:outline-none focus:border-[#E9863B]/50"
             />
           )}
           {error && <p className="text-2xs text-red-400 mb-2">{error}</p>}
@@ -318,7 +318,7 @@ export function ReviewQueueClient({ initialItems }: { initialItems: ReviewItem[]
             onClick={() => setTab(t)}
             className={`rounded-lg px-3 py-1.5 text-xs transition-colors border ${
               tab === t
-                ? "bg-violet-600/25 text-violet-200 border-violet-500/40"
+                ? "bg-[#E9863B]/25 text-[#F5B77A] border-[#E9863B]/40"
                 : "text-white/50 hover:text-white/75 border-white/10"
             }`}
           >

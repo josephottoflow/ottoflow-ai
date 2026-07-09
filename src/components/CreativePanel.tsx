@@ -299,7 +299,7 @@ export function CreativePanel({
     <div className="glass rounded-2xl p-6 mb-4">
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-2">
-          <Palette size={14} className="text-fuchsia-400" />
+          <Palette size={14} className="text-[#F2A863]" />
           <h2 className="text-sm font-semibold text-white">Creative</h2>
           {active && (
             <Badge variant={STATUS_META[active.status].variant} className="text-3xs">
@@ -340,7 +340,7 @@ export function CreativePanel({
       ) : !active ? (
         composing ? (
           <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-6 flex flex-col items-center justify-center gap-2">
-            <Loader2 size={18} className="text-fuchsia-400 animate-spin" />
+            <Loader2 size={18} className="text-[#F2A863] animate-spin" />
             <p className="text-xs text-white/60">Composing the creative strategy…</p>
             <p className="text-3xs text-white/30">
               Hierarchy, concept, copy &amp; asset usage — no image generated yet.
@@ -464,7 +464,7 @@ function BriefPreview({
           up and flipped the row to 'generating'. */}
       {creative.status === "generating" && (
         <div className="mb-4 rounded-xl border border-white/[0.06] bg-white/[0.02] p-6 flex flex-col items-center justify-center gap-2">
-          <Loader2 size={20} className="text-fuchsia-400 animate-spin" />
+          <Loader2 size={20} className="text-[#F2A863] animate-spin" />
           <p className="text-xs text-white/60">{GEN_STEP_LABEL}</p>
           <p className="text-3xs text-white/30">Imagen background + asset compositing, ~30–60s.</p>
         </div>
@@ -809,7 +809,7 @@ function PublishingPreview({
                 )}
                 {cta && <p className="text-2xs text-white/50 mt-1">{cta}</p>}
                 {tags.length > 0 && (
-                  <p className="text-2xs text-violet-300/70 mt-1 break-words">
+                  <p className="text-2xs text-[#F2A863]/70 mt-1 break-words">
                     {tags.map((h) => `#${h.replace(/^#/, "")}`).join(" ")}
                   </p>
                 )}

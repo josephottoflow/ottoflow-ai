@@ -44,7 +44,7 @@ const platformConfig: Record<string, { label: string; icon: React.ElementType; c
   facebook: { label: "Facebook", icon: Facebook, color: "#1877f2", bg: "rgba(24,119,242,0.12)" },
   instagram: { label: "Instagram", icon: Globe, color: "#e1306c", bg: "rgba(225,48,108,0.12)" },
   twitter: { label: "X / Twitter", icon: Twitter, color: "#1da1f2", bg: "rgba(29,161,242,0.12)" },
-  blog: { label: "Blog Article", icon: BookOpen, color: "#a78bfa", bg: "rgba(124,58,237,0.12)" },
+  blog: { label: "Blog Article", icon: BookOpen, color: "#F2A863", bg: "rgba(233,134,59,0.12)" },
   email: { label: "Email", icon: Mail, color: "#34d399", bg: "rgba(16,185,129,0.12)" },
 };
 
@@ -78,10 +78,10 @@ export function ContentPageClient({ items, kpis }: Props) {
         <div>
           <div className="flex items-center gap-2 mb-1">
             <div className="w-6 h-6 rounded-lg flex items-center justify-center"
-              style={{ background: "linear-gradient(135deg, rgba(124,58,237,0.3), rgba(99,102,241,0.2))", border: "1px solid rgba(124,58,237,0.3)" }}>
-              <FileText size={12} className="text-violet-400" />
+              style={{ background: "linear-gradient(135deg, rgba(233,134,59,0.3), rgba(194,90,30,0.2))", border: "1px solid rgba(233,134,59,0.3)" }}>
+              <FileText size={12} className="text-[#F2A863]" />
             </div>
-            <span className="text-xs font-medium text-violet-400">Content Pipeline</span>
+            <span className="text-xs font-medium text-[#F2A863]">Content Pipeline</span>
           </div>
           <h1 className="text-2xl font-bold text-white tracking-tight">Content Generation</h1>
           <p className="text-white/40 text-sm mt-1">AI-powered multi-platform content automation · Gemini Flash Lite</p>
@@ -116,8 +116,8 @@ export function ContentPageClient({ items, kpis }: Props) {
           value={formatNumber(kpis.totalContent)}
           subtitle="All time"
           icon={<FileText size={18} />}
-          iconColor="#a78bfa"
-          iconBg="rgba(124,58,237,0.12)"
+          iconColor="#F2A863"
+          iconBg="rgba(233,134,59,0.12)"
         />
         <KPICard
           title="Credits Left"
@@ -164,17 +164,17 @@ export function ContentPageClient({ items, kpis }: Props) {
                     className="flex items-start gap-3 p-3 rounded-xl transition-colors"
                     style={{
                       background: step.active
-                        ? "rgba(124,58,237,0.1)"
+                        ? "rgba(233,134,59,0.1)"
                         : step.done ? "rgba(255,255,255,0.02)" : "transparent",
-                      border: step.active ? "1px solid rgba(124,58,237,0.2)" : "1px solid transparent",
+                      border: step.active ? "1px solid rgba(233,134,59,0.2)" : "1px solid transparent",
                     }}
                   >
                     <div
                       className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-bold"
                       style={{
-                        background: step.done ? "rgba(16,185,129,0.2)" : step.active ? "rgba(124,58,237,0.3)" : "rgba(255,255,255,0.06)",
-                        color: step.done ? "#34d399" : step.active ? "#a78bfa" : "rgba(255,255,255,0.3)",
-                        border: step.active ? "1px solid rgba(124,58,237,0.4)" : "1px solid transparent",
+                        background: step.done ? "rgba(16,185,129,0.2)" : step.active ? "rgba(233,134,59,0.3)" : "rgba(255,255,255,0.06)",
+                        color: step.done ? "#34d399" : step.active ? "#F2A863" : "rgba(255,255,255,0.3)",
+                        border: step.active ? "1px solid rgba(233,134,59,0.4)" : "1px solid transparent",
                       }}
                     >
                       {step.done && !step.active ? <Check size={11} /> : step.id}
@@ -182,12 +182,12 @@ export function ContentPageClient({ items, kpis }: Props) {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <p className="text-xs font-semibold"
-                          style={{ color: step.active ? "#a78bfa" : step.done ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.3)" }}>
+                          style={{ color: step.active ? "#F2A863" : step.done ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.3)" }}>
                           {step.label}
                         </p>
                         {step.active && (
                           <span className="text-3xs px-1.5 py-0.5 rounded-full font-semibold"
-                            style={{ background: "rgba(124,58,237,0.2)", color: "#a78bfa" }}>
+                            style={{ background: "rgba(233,134,59,0.2)", color: "#F2A863" }}>
                             ACTIVE
                           </span>
                         )}
@@ -246,9 +246,9 @@ export function ContentPageClient({ items, kpis }: Props) {
                     onClick={() => setActiveFilter(f)}
                     className="text-3xs font-medium px-2.5 py-1 rounded-full capitalize transition-all"
                     style={{
-                      background: activeFilter === f ? "rgba(124,58,237,0.15)" : "rgba(255,255,255,0.05)",
-                      color: activeFilter === f ? "#a78bfa" : "rgba(255,255,255,0.4)",
-                      border: activeFilter === f ? "1px solid rgba(124,58,237,0.25)" : "1px solid transparent",
+                      background: activeFilter === f ? "rgba(233,134,59,0.15)" : "rgba(255,255,255,0.05)",
+                      color: activeFilter === f ? "#F2A863" : "rgba(255,255,255,0.4)",
+                      border: activeFilter === f ? "1px solid rgba(233,134,59,0.25)" : "1px solid transparent",
                     }}
                   >
                     {f}
@@ -265,9 +265,9 @@ export function ContentPageClient({ items, kpis }: Props) {
             <div className="py-12 text-center">
               <div
                 className="w-10 h-10 rounded-xl flex items-center justify-center mx-auto mb-3"
-                style={{ background: "rgba(124,58,237,0.12)" }}
+                style={{ background: "rgba(233,134,59,0.12)" }}
               >
-                <Sparkles size={16} className="text-violet-400" />
+                <Sparkles size={16} className="text-[#F2A863]" />
               </div>
               <p className="text-white/60 text-sm font-medium">No content yet</p>
               <p className="text-white/30 text-xs mt-1 max-w-xs mx-auto">

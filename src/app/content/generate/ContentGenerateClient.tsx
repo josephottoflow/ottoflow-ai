@@ -49,7 +49,7 @@ const PLATFORMS: Array<{
   { id: "twitter", label: "X / Twitter", hint: "240-280 chars · punchy", icon: Twitter, color: "#1da1f2", bg: "rgba(29,161,242,0.12)" },
   { id: "instagram", label: "Instagram", hint: "Caption + hashtags", icon: Globe, color: "#e1306c", bg: "rgba(225,48,108,0.12)" },
   { id: "facebook", label: "Facebook", hint: "Story-driven post", icon: Facebook, color: "#1877f2", bg: "rgba(24,119,242,0.12)" },
-  { id: "blog", label: "Blog Article", hint: "500-700 words · markdown", icon: BookOpen, color: "#a78bfa", bg: "rgba(124,58,237,0.12)" },
+  { id: "blog", label: "Blog Article", hint: "500-700 words · markdown", icon: BookOpen, color: "#F2A863", bg: "rgba(233,134,59,0.12)" },
   { id: "email", label: "Email", hint: "Subject + body", icon: Mail, color: "#34d399", bg: "rgba(16,185,129,0.12)" },
 ];
 
@@ -478,8 +478,8 @@ export function ContentGenerateClient({
         </Link>
         <div className="glass rounded-2xl p-10 text-center">
           <div className="w-12 h-12 rounded-2xl flex items-center justify-center mx-auto mb-4"
-            style={{ background: "rgba(124,58,237,0.12)" }}>
-            <Briefcase size={20} className="text-violet-400" />
+            style={{ background: "rgba(233,134,59,0.12)" }}>
+            <Briefcase size={20} className="text-[#F2A863]" />
           </div>
           <h2 className="text-lg font-semibold text-white mb-2">No brands ready yet</h2>
           <p className="text-sm text-white/50 mb-6 max-w-md mx-auto">
@@ -678,8 +678,8 @@ export function ContentGenerateClient({
 
       <div className="flex items-start gap-3 mb-8">
         <div className="w-9 h-9 rounded-xl flex items-center justify-center"
-          style={{ background: "rgba(124,58,237,0.12)" }}>
-          <Wand2 size={17} className="text-violet-400" />
+          style={{ background: "rgba(233,134,59,0.12)" }}>
+          <Wand2 size={17} className="text-[#F2A863]" />
         </div>
         <div>
           <h1 className="text-2xl font-bold text-white tracking-tight">Generate social posts</h1>
@@ -701,7 +701,7 @@ export function ContentGenerateClient({
               setSelectedTopicId(null);
               setTopicSearch("");
             }}
-            className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-violet-500/40 transition-colors"
+            className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#E9863B]/40 transition-colors"
           >
             {readyBrands.map((b) => (
               <option key={b.id} value={b.id} className="bg-[#0a0a18]">
@@ -721,7 +721,7 @@ export function ContentGenerateClient({
               </span>
             </label>
             {brandId && (
-              <Link href={`/brands/${brandId}`} className="text-2xs text-violet-300 hover:underline">
+              <Link href={`/brands/${brandId}`} className="text-2xs text-[#F2A863] hover:underline">
                 Manage ideas →
               </Link>
             )}
@@ -732,7 +732,7 @@ export function ContentGenerateClient({
             onChange={(e) => setTopicSearch(e.target.value)}
             placeholder="Search ideas…"
             disabled={topics.length === 0}
-            className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-violet-500/40 transition-colors mb-2"
+            className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-[#E9863B]/40 transition-colors mb-2"
           />
           <div className="rounded-xl overflow-y-auto"
             style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", maxHeight: 220, minHeight: 72 }}>
@@ -743,7 +743,7 @@ export function ContentGenerateClient({
             ) : topics.length === 0 ? (
               <div className="p-4 text-xs text-white/50">
                 No researched ideas for this brand yet.{" "}
-                <Link href={`/brands/${brandId}`} className="text-violet-300 hover:underline">Generate ideas</Link>
+                <Link href={`/brands/${brandId}`} className="text-[#F2A863] hover:underline">Generate ideas</Link>
                 {" "}or leave this blank for an open-ended post.
               </div>
             ) : filteredTopics.length === 0 ? (
@@ -754,7 +754,7 @@ export function ContentGenerateClient({
                 <button
                   type="button"
                   onClick={() => setSelectedTopicId(null)}
-                  className={`w-full text-left px-3 py-2 transition-colors ${selectedTopicId === null ? "bg-violet-500/10" : "hover:bg-white/[0.03]"}`}
+                  className={`w-full text-left px-3 py-2 transition-colors ${selectedTopicId === null ? "bg-[#E9863B]/10" : "hover:bg-white/[0.03]"}`}
                 >
                   <span className="text-xs text-white/55 italic">No idea — open-ended post from the brand profile</span>
                 </button>
@@ -763,11 +763,11 @@ export function ContentGenerateClient({
                     key={t.id}
                     type="button"
                     onClick={() => setSelectedTopicId(t.id)}
-                    className={`w-full text-left px-3 py-2.5 transition-colors ${selectedTopicId === t.id ? "bg-violet-500/10" : "hover:bg-white/[0.03]"}`}
+                    className={`w-full text-left px-3 py-2.5 transition-colors ${selectedTopicId === t.id ? "bg-[#E9863B]/10" : "hover:bg-white/[0.03]"}`}
                   >
                     <div className="flex items-center gap-1.5 mb-0.5">
                       <p className="text-sm font-semibold text-white truncate">{t.title}</p>
-                      {selectedTopicId === t.id && <CheckCircle2 size={11} className="text-violet-400 shrink-0" />}
+                      {selectedTopicId === t.id && <CheckCircle2 size={11} className="text-[#F2A863] shrink-0" />}
                     </div>
                     {t.hook_angle && (
                       <p className="text-2xs text-white/55 italic truncate">&ldquo;{t.hook_angle}&rdquo;</p>
@@ -835,7 +835,7 @@ export function ContentGenerateClient({
             onChange={(e) => setUserPrompt(e.target.value.slice(0, 500))}
             placeholder="Anything to emphasize — a stat, an offer, a CTA. Leave blank to let the idea + brand voice drive it."
             rows={2}
-            className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-violet-500/40 transition-colors resize-none"
+            className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-[#E9863B]/40 transition-colors resize-none"
           />
           <p className="text-2xs text-white/30 mt-1.5">{userPrompt.length}/500</p>
         </div>
@@ -851,30 +851,30 @@ export function ContentGenerateClient({
               value={companyName}
               onChange={(e) => setCompanyName(e.target.value.slice(0, 120))}
               placeholder="Company name"
-              className="bg-white/[0.04] border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-violet-500/40"
+              className="bg-white/[0.04] border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-[#E9863B]/40"
             />
             <input
               type="text"
               value={founderName}
               onChange={(e) => setFounderName(e.target.value.slice(0, 120))}
               placeholder="Founder name"
-              className="bg-white/[0.04] border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-violet-500/40"
+              className="bg-white/[0.04] border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-[#E9863B]/40"
             />
             <input
               type="text"
               value={expertName}
               onChange={(e) => setExpertName(e.target.value.slice(0, 120))}
               placeholder="Expert name"
-              className="bg-white/[0.04] border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-violet-500/40"
+              className="bg-white/[0.04] border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-[#E9863B]/40"
             />
           </div>
           <div className="flex items-center gap-4 mt-2.5">
             <label className="flex items-center gap-1.5 text-xs text-white/60 cursor-pointer select-none">
-              <input type="checkbox" checked={useLogo} onChange={(e) => setUseLogo(e.target.checked)} className="accent-violet-500" />
+              <input type="checkbox" checked={useLogo} onChange={(e) => setUseLogo(e.target.checked)} className="accent-[#E9863B]" />
               Use uploaded logo
             </label>
             <label className="flex items-center gap-1.5 text-xs text-white/60 cursor-pointer select-none">
-              <input type="checkbox" checked={useHeadshot} onChange={(e) => setUseHeadshot(e.target.checked)} className="accent-violet-500" />
+              <input type="checkbox" checked={useHeadshot} onChange={(e) => setUseHeadshot(e.target.checked)} className="accent-[#E9863B]" />
               Use uploaded headshot
             </label>
           </div>

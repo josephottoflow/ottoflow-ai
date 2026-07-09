@@ -151,7 +151,7 @@ function MetricsEntry({
               min={0}
               value={vals[f] ?? ""}
               onChange={(e) => setVals((p) => ({ ...p, [f]: e.target.value }))}
-              className="w-full rounded-md bg-white/[0.04] border border-white/10 px-1.5 py-1 text-2xs text-white focus:outline-none focus:border-violet-500/50"
+              className="w-full rounded-md bg-white/[0.04] border border-white/10 px-1.5 py-1 text-2xs text-white focus:outline-none focus:border-[#E9863B]/50"
             />
           </div>
         ))}
@@ -306,7 +306,7 @@ function ItemCard({
               </span>
             )}
             {item.status === "published" && (
-              <span className="text-3xs rounded-full border px-2 py-0.5 text-violet-300 border-violet-500/40 bg-violet-500/10">
+              <span className="text-3xs rounded-full border px-2 py-0.5 text-[#F2A863] border-[#E9863B]/40 bg-[#E9863B]/10">
                 published {fmtDateTime(item.publishedAt)}
                 {item.publishingMethod ? ` · ${item.publishingMethod}` : ""}
               </span>
@@ -379,7 +379,7 @@ function ItemCard({
                 value={when}
                 onChange={(e) => setWhen(e.target.value)}
                 aria-label="Schedule date and time"
-                className="rounded-lg bg-white/[0.04] border border-white/10 px-3 py-1.5 text-xs text-white focus:outline-none focus:border-violet-500/50 [color-scheme:dark]"
+                className="rounded-lg bg-white/[0.04] border border-white/10 px-3 py-1.5 text-xs text-white focus:outline-none focus:border-[#E9863B]/50 [color-scheme:dark]"
               />
               <Button size="sm" onClick={submitSchedule} disabled={busy} className="h-7 text-2xs">
                 {busy ? <Loader2 size={11} className="animate-spin" /> : "Confirm schedule"}
@@ -401,13 +401,13 @@ function ItemCard({
                 onChange={(e) => setUrl(e.target.value)}
                 placeholder="Link to the live post (optional)"
                 aria-label="Published post URL"
-                className="flex-1 min-w-[220px] rounded-lg bg-white/[0.04] border border-white/10 px-3 py-1.5 text-xs text-white placeholder:text-white/30 focus:outline-none focus:border-violet-500/50"
+                className="flex-1 min-w-[220px] rounded-lg bg-white/[0.04] border border-white/10 px-3 py-1.5 text-xs text-white placeholder:text-white/30 focus:outline-none focus:border-[#E9863B]/50"
               />
               <Button
                 size="sm"
                 onClick={submitPublished}
                 disabled={busy}
-                className="h-7 text-2xs bg-violet-600 hover:bg-violet-500"
+                className="h-7 text-2xs bg-[#E9863B] hover:bg-[#F2A863]"
               >
                 {busy ? <Loader2 size={11} className="animate-spin" /> : "Confirm published"}
               </Button>
@@ -468,7 +468,7 @@ function ItemCard({
                 setScheduleMode(false);
                 setError(null);
               }}
-              className="h-7 gap-1 text-2xs bg-violet-600 hover:bg-violet-500"
+              className="h-7 gap-1 text-2xs bg-[#E9863B] hover:bg-[#F2A863]"
             >
               <CheckCheck size={11} />
               Mark published
@@ -555,7 +555,7 @@ export function PublishingQueueClient({ initialItems }: { initialItems: PublishI
       </Link>
 
       <div className="flex items-center gap-2 mb-1">
-        <Send size={18} className="text-violet-400" />
+        <Send size={18} className="text-[#F2A863]" />
         <h1 className="text-2xl font-bold text-white tracking-tight">Publishing</h1>
       </div>
       <p className="text-sm text-white/40 mb-6">
@@ -572,7 +572,7 @@ export function PublishingQueueClient({ initialItems }: { initialItems: PublishI
             onClick={() => setTab(t)}
             className={`rounded-lg px-3 py-1.5 text-xs capitalize transition-colors border ${
               tab === t
-                ? "bg-violet-600/25 text-violet-200 border-violet-500/40"
+                ? "bg-[#E9863B]/25 text-[#F5B77A] border-[#E9863B]/40"
                 : "text-white/50 hover:text-white/75 border-white/10"
             }`}
           >
