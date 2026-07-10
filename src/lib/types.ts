@@ -295,6 +295,26 @@ export interface DbContentCreative {
   campaign_role?: string | null;
 }
 
+// ─── Creative variations (Creative Studio — Proposal A, migration 032) ──────
+// One row per distinct rendered image for a creative, captured at the API
+// layer so variations / side-by-side compare / restore-version work WITHOUT
+// touching the generation pipeline. "Selected" is derived at read time
+// (image_url === content_creatives.image_url), never stored.
+export interface DbCreativeVariation {
+  id: string;
+  creative_id: string;
+  content_item_id: string;
+  brand_id: string;
+  image_url: string;
+  background_url: string | null;
+  background_source: "imagen" | "fallback" | null;
+  /** The brief that produced this image (optional; loose shape). */
+  brief_snapshot: Record<string, unknown> | null;
+  /** Parent creative's regen_count at capture time (0 = first render). */
+  regen_index: number;
+  created_at: string;
+}
+
 // ─── Campaigns (Campaign Execution Engine — Sprint 25, migration 030) ───────
 // The PARENT of many creative assets. One request → a full strategically-
 // aligned package. strategy = CampaignStrategy (src/lib/gemini.ts); qa = the
