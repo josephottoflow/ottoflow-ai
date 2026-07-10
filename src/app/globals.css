@@ -51,6 +51,22 @@
   html {
     scroll-behavior: smooth;
   }
+
+  /* Keyboard focus — a visible marigold ring on interactive elements for
+     accessibility. Uses :focus-visible so mouse/touch users never see it;
+     only keyboard navigation reveals it. Many custom buttons in the app had
+     no focus indicator at all — this covers them app-wide. */
+  a:focus-visible,
+  button:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible,
+  [role="button"]:focus-visible,
+  [tabindex]:not([tabindex="-1"]):focus-visible {
+    outline: 2px solid rgba(233, 134, 59, 0.55);
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
 }
 
 @layer utilities {

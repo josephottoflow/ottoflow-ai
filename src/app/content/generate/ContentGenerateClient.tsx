@@ -702,7 +702,7 @@ export function ContentGenerateClient({
               setSelectedTopicId(null);
               setTopicSearch("");
             }}
-            className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#E9863B]/40 transition-colors"
+            className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#E9863B]/50 transition-colors"
           >
             {readyBrands.map((b) => (
               <option key={b.id} value={b.id} className="bg-[#1a1510]">
@@ -733,7 +733,7 @@ export function ContentGenerateClient({
             onChange={(e) => setTopicSearch(e.target.value)}
             placeholder="Search ideas…"
             disabled={topics.length === 0}
-            className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-[#E9863B]/40 transition-colors mb-2"
+            className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-[#E9863B]/50 transition-colors mb-2"
           />
           <div className="rounded-xl overflow-y-auto"
             style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", maxHeight: 220, minHeight: 72 }}>
@@ -846,21 +846,21 @@ export function ContentGenerateClient({
               value={companyName}
               onChange={(e) => setCompanyName(e.target.value.slice(0, 120))}
               placeholder="Company name"
-              className="bg-white/[0.04] border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-[#E9863B]/40"
+              className="bg-white/[0.04] border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-[#E9863B]/50"
             />
             <input
               type="text"
               value={founderName}
               onChange={(e) => setFounderName(e.target.value.slice(0, 120))}
               placeholder="Founder name"
-              className="bg-white/[0.04] border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-[#E9863B]/40"
+              className="bg-white/[0.04] border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-[#E9863B]/50"
             />
             <input
               type="text"
               value={expertName}
               onChange={(e) => setExpertName(e.target.value.slice(0, 120))}
               placeholder="Expert name"
-              className="bg-white/[0.04] border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-[#E9863B]/40"
+              className="bg-white/[0.04] border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-[#E9863B]/50"
             />
           </div>
           <div className="flex items-center gap-4 mt-2.5">

@@ -134,7 +134,7 @@ export function BrandColors({
                   onChange={(e) => setVals((v) => ({ ...v, [k]: e.target.value }))}
                   placeholder="#000000"
                   className={`flex-1 bg-white/[0.04] border rounded-lg px-3 py-2 text-sm text-white font-mono placeholder:text-white/25 focus:outline-none transition-colors ${
-                    valid ? "border-white/10 focus:border-[#E9863B]/40" : "border-rose-500/50"
+                    valid ? "border-white/10 focus:border-[#E9863B]/50" : "border-rose-500/50"
                   }`}
                 />
               </div>

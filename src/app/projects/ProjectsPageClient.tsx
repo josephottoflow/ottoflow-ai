@@ -100,7 +100,7 @@ export function ProjectsPageClient({ projects }: Props) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search projects..."
-            className="w-full text-xs text-white/70 placeholder:text-white/25 pl-8 pr-4 py-2 rounded-xl outline-none focus:border-[#E9863B]/40 transition-colors"
+            className="w-full text-xs text-white/70 placeholder:text-white/25 pl-8 pr-4 py-2 rounded-xl outline-none focus:border-[#E9863B]/50 transition-colors"
             style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}
           />
         </div>
