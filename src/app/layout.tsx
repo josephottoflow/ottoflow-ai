@@ -90,11 +90,11 @@ export default async function RootLayout({
       appearance={{
         variables: {
           colorPrimary: "#E9863B",
-          colorBackground: "#0a0a18",
+          colorBackground: "#1a1510",
           colorInputBackground: "rgba(255,255,255,0.04)",
-          colorInputText: "#e2e8f0",
-          colorText: "#e2e8f0",
-          colorTextSecondary: "rgba(255,255,255,0.5)",
+          colorInputText: "#F4EDE2",
+          colorText: "#F4EDE2",
+          colorTextSecondary: "rgba(244,237,226,0.5)",
           borderRadius: "0.75rem",
         },
       }}

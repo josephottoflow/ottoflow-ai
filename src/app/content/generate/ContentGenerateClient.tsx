@@ -704,7 +704,7 @@ export function ContentGenerateClient({
             className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-[#E9863B]/40 transition-colors"
           >
             {readyBrands.map((b) => (
-              <option key={b.id} value={b.id} className="bg-[#0a0a18]">
+              <option key={b.id} value={b.id} className="bg-[#1a1510]">
                 {b.name}{b.industry ? ` — ${b.industry}` : ""}
               </option>
             ))}

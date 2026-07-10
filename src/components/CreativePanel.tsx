@@ -610,15 +610,15 @@ function BriefPreview({
                 style={{
                   background: unlocked
                     ? isChosen
-                      ? "rgba(168,85,247,0.18)"
+                      ? "rgba(233,134,59,0.18)"
                       : "rgba(16,185,129,0.10)"
                     : "rgba(255,255,255,0.03)",
                   color: unlocked
                     ? isChosen
-                      ? "rgb(216,180,254)"
+                      ? "rgb(242,168,99)"
                       : "rgb(110,231,183)"
                     : "rgba(255,255,255,0.3)",
-                  border: isChosen ? "1px solid rgba(168,85,247,0.35)" : "1px solid transparent",
+                  border: isChosen ? "1px solid rgba(233,134,59,0.35)" : "1px solid transparent",
                 }}
               >
                 {unlocked ? <Check size={9} /> : <Lock size={9} />}
@@ -659,7 +659,7 @@ function BriefPreview({
       {(brief.visual_tension || brief.visual_metaphor) && (
         <div
           className="rounded-lg p-3 mb-3"
-          style={{ background: "rgba(168,85,247,0.06)", border: "1px solid rgba(168,85,247,0.18)" }}
+          style={{ background: "rgba(233,134,59,0.06)", border: "1px solid rgba(233,134,59,0.18)" }}
         >
           {brief.visual_tension && (
             <div className="flex items-center gap-1.5 mb-1">

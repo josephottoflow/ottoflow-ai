@@ -70,7 +70,7 @@ export function Sidebar() {
         aria-label="Open navigation menu"
         aria-expanded={open}
         className="lg:hidden fixed top-3 left-3 z-50 w-9 h-9 rounded-lg flex items-center justify-center border border-white/10"
-        style={{ background: "rgba(5,5,20,0.85)", backdropFilter: "blur(12px)" }}
+        style={{ background: "rgba(21,18,14,0.88)", backdropFilter: "blur(12px)" }}
       >
         <Menu size={16} className="text-white/70" />
       </button>
@@ -90,7 +90,7 @@ export function Sidebar() {
           open ? "translate-x-0" : "-translate-x-full",
           "lg:translate-x-0",
         )}
-        style={{ background: "rgba(5, 5, 20, 0.9)", backdropFilter: "blur(20px)" }}
+        style={{ background: "rgba(21, 18, 14, 0.92)", backdropFilter: "blur(20px)" }}
       >
         {/* Logo */}
         <div className="flex items-center gap-2.5 px-4 py-5 border-b border-white/[0.04]">

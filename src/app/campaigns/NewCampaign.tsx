@@ -58,7 +58,7 @@ export function NewCampaign({ brands }: { brands: Array<{ id: string; name: stri
           className="bg-white/[0.04] border border-white/10 rounded-lg px-3 py-2 text-sm text-white/85 sm:col-span-2"
         >
           {brands.map((b) => (
-            <option key={b.id} value={b.id} className="bg-[#0a0a1a]">
+            <option key={b.id} value={b.id} className="bg-[#1a1510]">
               {b.name}
             </option>
           ))}
@@ -69,7 +69,7 @@ export function NewCampaign({ brands }: { brands: Array<{ id: string; name: stri
           className="bg-white/[0.04] border border-white/10 rounded-lg px-3 py-2 text-sm text-white/85 capitalize"
         >
           {PLATFORMS.map((p) => (
-            <option key={p} value={p} className="bg-[#0a0a1a]">
+            <option key={p} value={p} className="bg-[#1a1510]">
               {p}
             </option>
           ))}

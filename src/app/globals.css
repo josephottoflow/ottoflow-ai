@@ -4,26 +4,30 @@
 
 @layer base {
   :root {
-    --background: 224 71% 4%;
-    --foreground: 213 31% 91%;
-    --card: 224 71% 6%;
-    --card-foreground: 213 31% 91%;
-    --popover: 224 71% 5%;
-    --popover-foreground: 215 20% 95%;
-    /* Darkroom Studio — marigold accent (was generic violet 263 70% 58%). Dark
-       warm foreground gives AA contrast on marigold (white did not). */
+    /* Darkroom Studio — warm graphite neutral ramp (was cold blue hue 224/216/213).
+       Body is force-warmed already; warming the tokens fixes bg-card / bg-popover /
+       bg-muted / border-border / text-muted-foreground on shadcn primitives,
+       dropdowns and dialogs so nothing reads cold-blue against the warm ground. */
+    --background: 33 20% 7%;
+    --foreground: 36 40% 92%;
+    --card: 33 19% 10%;
+    --card-foreground: 36 40% 92%;
+    --popover: 33 20% 9%;
+    --popover-foreground: 36 35% 95%;
+    /* Marigold accent (was generic violet 263 70% 58%). Dark warm foreground
+       gives AA contrast on marigold (white did not). */
     --primary: 24 80% 57%;
     --primary-foreground: 30 45% 8%;
-    --secondary: 222 47% 11%;
-    --secondary-foreground: 215 20% 95%;
-    --muted: 223 47% 11%;
-    --muted-foreground: 215 16% 57%;
-    --accent: 216 34% 17%;
-    --accent-foreground: 210 40% 98%;
+    --secondary: 33 16% 14%;
+    --secondary-foreground: 36 35% 95%;
+    --muted: 33 14% 13%;
+    --muted-foreground: 36 12% 62%;
+    --accent: 33 18% 18%;
+    --accent-foreground: 36 40% 96%;
     --destructive: 0 63% 31%;
     --destructive-foreground: 210 40% 98%;
-    --border: 216 34% 13%;
-    --input: 216 34% 13%;
+    --border: 33 14% 15%;
+    --input: 33 14% 15%;
     --ring: 24 80% 57%;
     --radius: 0.75rem;
   }
@@ -167,15 +171,15 @@
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
   }
 
-  /* Sidebar nav item */
+  /* Sidebar nav item — warm ink ramp (Darkroom Studio), not cold slate */
   .nav-item {
     @apply flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150;
-    color: rgba(148, 163, 184, 0.8);
+    color: rgba(190, 178, 160, 0.85);
   }
 
   .nav-item:hover {
-    background: rgba(255, 255, 255, 0.05);
-    color: rgba(226, 232, 240, 0.9);
+    background: rgba(244, 237, 226, 0.05);
+    color: #F4EDE2;
   }
 
   .nav-item.active {

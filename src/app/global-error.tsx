@@ -35,8 +35,8 @@ export default function GlobalError({
         style={{
           fontFamily:
             "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-          background: "#0a0a18",
-          color: "#e2e8f0",
+          background: "#15120E",
+          color: "#F4EDE2",
           margin: 0,
           minHeight: "100vh",
           display: "flex",
