@@ -224,7 +224,7 @@ export function ProjectsPageClient({ projects }: Props) {
       ) : (
         /* List view */
         <div className="glass rounded-2xl overflow-hidden">
-          <table className="w-full">
+          <table className="w-full block overflow-x-auto md:table">
             <thead>
               <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
                 {["Name", "Type", "Status", "Content", "Videos", "Credits", "Updated"].map((h) => (

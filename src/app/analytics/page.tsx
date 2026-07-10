@@ -206,7 +206,7 @@ export default async function AnalyticsPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-xs">
+            <table className="w-full text-xs block overflow-x-auto md:table">
               <thead>
                 <tr className="text-white/40 border-b border-white/[0.06]">
                   <th className="text-left font-semibold py-2 px-2">Provider</th>
@@ -403,7 +403,7 @@ function HierarchyTable({ title, rows }: { title: string; rows: HierarchyGroup[]
       {rows.length === 0 ? (
         <p className="text-xs text-white/35 py-4">No data yet.</p>
       ) : (
-        <table className="w-full text-xs">
+        <table className="w-full text-xs block overflow-x-auto md:table">
           <thead>
             <tr className="text-white/40 border-b border-white/[0.06]">
               <th className="text-left font-semibold py-1.5 pr-2">Hierarchy</th>
@@ -451,7 +451,7 @@ function HierarchyDimTable({
           have a generated creative.
         </p>
       ) : (
-        <table className="w-full text-xs">
+        <table className="w-full text-xs block overflow-x-auto md:table">
           <thead>
             <tr className="text-white/40 border-b border-white/[0.06]">
               <th className="text-left font-semibold py-1.5 pr-2">{dimLabel}</th>
@@ -597,7 +597,7 @@ function GroupTable({
       {rows.length === 0 ? (
         <p className="text-xs text-white/35 py-4">No data yet.</p>
       ) : (
-        <table className="w-full text-xs">
+        <table className="w-full text-xs block overflow-x-auto md:table">
           <thead>
             <tr className="text-white/40 border-b border-white/[0.06]">
               <th className="text-left font-semibold py-1.5 pr-2">{keyLabel}</th>
