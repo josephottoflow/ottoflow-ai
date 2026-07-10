@@ -20,8 +20,8 @@ export default function BillingPage() {
               className="w-10 h-10 rounded-xl flex items-center justify-center"
               style={{
                 background:
-                  "linear-gradient(135deg, rgba(124,58,237,0.2), rgba(99,102,241,0.1))",
-                color: "#a78bfa",
+                  "linear-gradient(135deg, rgba(233,134,59,0.2), rgba(194,90,30,0.1))",
+                color: "#F2A863",
               }}
             >
               <Sparkles size={18} />

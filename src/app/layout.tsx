@@ -89,7 +89,7 @@ export default async function RootLayout({
       publishableKey={publicEnv.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
       appearance={{
         variables: {
-          colorPrimary: "#7c3aed",
+          colorPrimary: "#E9863B",
           colorBackground: "#0a0a18",
           colorInputBackground: "rgba(255,255,255,0.04)",
           colorInputText: "#e2e8f0",

@@ -40,7 +40,7 @@ const videoPipelineSteps = [
 ];
 
 const outputFormats = [
-  { label: "Product Ads", icon: Film, count: 14, color: "#a78bfa" },
+  { label: "Product Ads", icon: Film, count: 14, color: "#F2A863" },
   { label: "UGC Videos", icon: Video, count: 12, color: "#67e8f9" },
   { label: "Social Reels", icon: FileVideo, count: 8, color: "#34d399" },
   { label: "TikTok", icon: Play, count: 5, color: "#fb923c" },
@@ -51,7 +51,7 @@ const outputFormats = [
 // scenes, FFmpeg composes + brands the final MP4. Pexels remains ONLY as the
 // scene-generation fallback. (Retired: ElevenLabs voice, Jamendo music.)
 const pipelineStack = [
-  { label: "Gemini 2.5 Flash", desc: "Video strategy (4-beat) + captions", color: "#a78bfa" },
+  { label: "Gemini 2.5 Flash", desc: "Video strategy (4-beat) + captions", color: "#F2A863" },
   { label: "Seedance 2.0", desc: "AI scene generation (AtlasCloud)", color: "#67e8f9" },
   { label: "FFmpeg", desc: "Compose · grade · logo · CTA · captions", color: "#60a5fa" },
   { label: "Pexels", desc: "Stock-footage fallback", color: "#fb923c" },
@@ -114,8 +114,8 @@ export function VideoPageClient({ renderJobs, kpis }: Props) {
           value={formatNumber(kpis.totalVideos)}
           subtitle="Completed"
           icon={<Video size={18} />}
-          iconColor="#a78bfa"
-          iconBg="rgba(124,58,237,0.12)"
+          iconColor="#F2A863"
+          iconBg="rgba(233,134,59,0.12)"
         />
         <KPICard
           title="Render Credits"
@@ -279,7 +279,7 @@ export function VideoPageClient({ renderJobs, kpis }: Props) {
               <div className="text-center py-10">
                 <div
                   className="w-12 h-12 rounded-2xl mx-auto mb-3 flex items-center justify-center"
-                  style={{ background: "linear-gradient(135deg, rgba(124,58,237,0.15), rgba(6,182,212,0.12))", border: "1px solid rgba(34,211,238,0.18)" }}
+                  style={{ background: "linear-gradient(135deg, rgba(233,134,59,0.15), rgba(6,182,212,0.12))", border: "1px solid rgba(34,211,238,0.18)" }}
                 >
                   <Film size={20} className="text-cyan-300/80" />
                 </div>
@@ -293,8 +293,8 @@ export function VideoPageClient({ renderJobs, kpis }: Props) {
                     className="flex items-center gap-3 p-3 rounded-xl"
                     style={{ border: "1px solid rgba(255,255,255,0.05)", background: "rgba(255,255,255,0.015)" }}>
                     <div className="w-16 h-10 rounded-lg flex-shrink-0 flex items-center justify-center"
-                      style={{ background: "linear-gradient(135deg, rgba(124,58,237,0.15), rgba(6,182,212,0.1))" }}>
-                      <Video size={14} className="text-violet-400/60" />
+                      style={{ background: "linear-gradient(135deg, rgba(233,134,59,0.15), rgba(6,182,212,0.1))" }}>
+                      <Video size={14} className="text-[#F2A863]/60" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-medium text-white/75 truncate">{v.name}</p>

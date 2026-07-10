@@ -571,7 +571,7 @@ export function VideoGenerateClient({
             written posts live in the content pipeline. */}
         <Link
           href="/content/generate"
-          className="ml-auto flex items-center gap-1.5 text-2xs font-medium text-fuchsia-300/80 hover:text-fuchsia-200 transition-colors"
+          className="ml-auto flex items-center gap-1.5 text-2xs font-medium text-[#F2A863]/80 hover:text-[#F5B77A] transition-colors"
         >
           <Type size={12} /> Generate a social post instead →
         </Link>
@@ -881,9 +881,9 @@ export function VideoGenerateClient({
                     disabled={running}
                     className="text-xs px-3 py-1.5 rounded-full capitalize transition-all font-medium"
                     style={{
-                      background: style === s ? "rgba(124,58,237,0.15)" : "rgba(255,255,255,0.04)",
-                      border: style === s ? "1px solid rgba(124,58,237,0.3)" : "1px solid rgba(255,255,255,0.06)",
-                      color: style === s ? "#a78bfa" : "rgba(255,255,255,0.4)",
+                      background: style === s ? "rgba(233,134,59,0.15)" : "rgba(255,255,255,0.04)",
+                      border: style === s ? "1px solid rgba(233,134,59,0.3)" : "1px solid rgba(255,255,255,0.06)",
+                      color: style === s ? "#F2A863" : "rgba(255,255,255,0.4)",
                     }}
                   >
                     {s}
@@ -906,9 +906,9 @@ export function VideoGenerateClient({
                       disabled={running}
                       className="flex-1 py-1.5 rounded-lg text-xs font-bold transition-all"
                       style={{
-                        background: sceneCount === n ? "rgba(124,58,237,0.15)" : "rgba(255,255,255,0.04)",
-                        border: sceneCount === n ? "1px solid rgba(124,58,237,0.3)" : "1px solid rgba(255,255,255,0.06)",
-                        color: sceneCount === n ? "#a78bfa" : "rgba(255,255,255,0.35)",
+                        background: sceneCount === n ? "rgba(233,134,59,0.15)" : "rgba(255,255,255,0.04)",
+                        border: sceneCount === n ? "1px solid rgba(233,134,59,0.3)" : "1px solid rgba(255,255,255,0.06)",
+                        color: sceneCount === n ? "#F2A863" : "rgba(255,255,255,0.35)",
                       }}
                     >
                       {n}
@@ -959,9 +959,9 @@ export function VideoGenerateClient({
                       disabled={running}
                       className="text-2xs px-3 py-1.5 rounded-full capitalize transition-all font-medium"
                       style={{
-                        background: hookStyle === h ? "rgba(124,58,237,0.12)" : "rgba(255,255,255,0.03)",
-                        border: hookStyle === h ? "1px solid rgba(124,58,237,0.3)" : "1px solid rgba(255,255,255,0.06)",
-                        color: hookStyle === h ? "#a78bfa" : "rgba(255,255,255,0.4)",
+                        background: hookStyle === h ? "rgba(233,134,59,0.12)" : "rgba(255,255,255,0.03)",
+                        border: hookStyle === h ? "1px solid rgba(233,134,59,0.3)" : "1px solid rgba(255,255,255,0.06)",
+                        color: hookStyle === h ? "#F2A863" : "rgba(255,255,255,0.4)",
                       }}
                     >
                       {h.replace(/-/g, " ")}
@@ -1191,7 +1191,7 @@ export function VideoGenerateClient({
                 <div className="px-4 py-4 border-t border-white/5 space-y-3">
                   <div className="flex items-center justify-between">
                     <p className="text-3xs uppercase tracking-wider text-white/40 font-semibold flex items-center gap-1.5">
-                      <Wand2 size={10} className="text-fuchsia-400" /> Post copy · ready to upload
+                      <Wand2 size={10} className="text-[#F2A863]" /> Post copy · ready to upload
                     </p>
                     <Button
                       variant="ghost"

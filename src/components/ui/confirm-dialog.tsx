@@ -76,7 +76,7 @@ export function ConfirmDialog({
           <Button
             size="sm"
             className={`gap-1.5 text-2xs text-white ${
-              danger ? "bg-rose-600 hover:bg-rose-500" : "bg-violet-600 hover:bg-violet-500"
+              danger ? "bg-rose-600 hover:bg-rose-500" : "bg-[#E9863B] hover:bg-[#F2A863]"
             }`}
             onClick={onConfirm}
             disabled={busy}

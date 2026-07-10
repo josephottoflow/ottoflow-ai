@@ -12,7 +12,7 @@ import {
 const guides = [
   {
     icon: <Briefcase size={16} />,
-    color: "#a78bfa",
+    color: "#F2A863",
     title: "Researching your first brand",
     description:
       "Drop a name + website. Ottoflow fetches the homepage, extracts positioning, finds competitors, and generates SEO keywords + content pillars.",
@@ -48,8 +48,8 @@ export default function HelpPage() {
             className="w-9 h-9 rounded-xl flex items-center justify-center"
             style={{
               background:
-                "linear-gradient(135deg, rgba(124,58,237,0.2), rgba(99,102,241,0.1))",
-              color: "#a78bfa",
+                "linear-gradient(135deg, rgba(233,134,59,0.2), rgba(194,90,30,0.1))",
+              color: "#F2A863",
             }}
           >
             <HelpCircle size={17} />
@@ -98,7 +98,7 @@ export default function HelpPage() {
             rel="noreferrer"
             className="flex items-center gap-3 p-3 rounded-xl hover:bg-white/[0.03] transition-colors border border-white/[0.04]"
           >
-            <BookOpen size={16} className="text-violet-400" />
+            <BookOpen size={16} className="text-[#F2A863]" />
             <div className="flex-1">
               <div className="text-xs font-medium text-white">Docs</div>
               <div className="text-2xs text-white/35">docs.ottoflow.ai</div>

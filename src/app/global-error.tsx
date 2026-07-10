@@ -95,7 +95,7 @@ export default function GlobalError({
             style={{
               padding: "0.5rem 1.25rem",
               background:
-                "linear-gradient(135deg, #7c3aed, #6366f1)",
+                "linear-gradient(135deg, #E9863B, #F2A863)",
               color: "#fff",
               border: "none",
               borderRadius: "0.5rem",

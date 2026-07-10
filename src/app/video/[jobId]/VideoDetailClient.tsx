@@ -455,10 +455,10 @@ export function VideoDetailClient({ job, brand, scenes }: Props) {
               {overlay.keywords.map((k, i) => (
                 <span
                   key={i}
-                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-fuchsia-500/10 text-fuchsia-200 text-2xs font-bold tracking-wider border border-fuchsia-500/20"
+                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-[#E9863B]/10 text-[#F5B77A] text-2xs font-bold tracking-wider border border-[#E9863B]/20"
                 >
                   {k.text}
-                  <span className="text-3xs text-fuchsia-300/60 font-normal tracking-normal">
+                  <span className="text-3xs text-[#F2A863]/60 font-normal tracking-normal">
                     {k.start.toFixed(1)}s
                   </span>
                 </span>

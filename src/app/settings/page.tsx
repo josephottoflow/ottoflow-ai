@@ -5,8 +5,8 @@ import { Badge } from "@/components/ui/badge";
 const sections = [
   {
     icon: <User size={18} />,
-    color: "#a78bfa",
-    bg: "rgba(124,58,237,0.12)",
+    color: "#F2A863",
+    bg: "rgba(233,134,59,0.12)",
     title: "Profile",
     description: "Name, email, avatar, timezone — managed via Clerk for now.",
   },
