@@ -205,7 +205,7 @@ export default async function DashboardPage() {
               {[
                 { label: "Generated", value: formatNumber(kpis.totalContent), color: "#F2A863" },
                 { label: "Published", value: formatNumber(kpis.publishedToday), color: "#34d399" },
-                { label: "In Queue", value: String(kpis.renderQueue), color: "#94a3b8" },
+                { label: "In Queue", value: String(kpis.renderQueue), color: "#A89A86" },
               ].map((s) => (
                 <div key={s.label} className="text-center p-2 rounded-lg" style={{ background: "rgba(255,255,255,0.02)" }}>
                   <div className="text-lg font-bold" style={{ color: s.color }}>{s.value}</div>
@@ -265,7 +265,7 @@ export default async function DashboardPage() {
               {[
                 { label: "Rendered", value: formatNumber(kpis.totalVideos), color: "#F2A863" },
                 { label: "Processing", value: String(pendingJobs), color: "#fbbf24" },
-                { label: "Credits", value: formatNumber(kpis.creditsUsed), color: "#94a3b8" },
+                { label: "Credits", value: formatNumber(kpis.creditsUsed), color: "#A89A86" },
               ].map((s) => (
                 <div key={s.label} className="text-center p-2 rounded-lg" style={{ background: "rgba(255,255,255,0.02)" }}>
                   <div className="text-lg font-bold" style={{ color: s.color }}>{s.value}</div>

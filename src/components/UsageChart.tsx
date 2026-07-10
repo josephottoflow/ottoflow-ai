@@ -59,12 +59,12 @@ export function UsageChart({ data, className }: Props) {
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
           <XAxis
             dataKey="date"
-            tick={{ fontSize: 10, fill: "rgba(148,163,184,0.5)" }}
+            tick={{ fontSize: 10, fill: "rgba(190,178,160,0.5)" }}
             axisLine={false}
             tickLine={false}
           />
           <YAxis
-            tick={{ fontSize: 10, fill: "rgba(148,163,184,0.5)" }}
+            tick={{ fontSize: 10, fill: "rgba(190,178,160,0.5)" }}
             axisLine={false}
             tickLine={false}
           />

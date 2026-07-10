@@ -629,7 +629,7 @@ export function VideoGenerateClient({
                         }}
                       >
                         {brands.map((b) => (
-                          <option key={b.id} value={b.id} className="bg-slate-900">
+                          <option key={b.id} value={b.id} className="bg-[#1a1510]">
                             {b.name}{b.industry ? ` · ${b.industry}` : ""}
                           </option>
                         ))}
@@ -1334,7 +1334,7 @@ export function VideoGenerateClient({
                           entry.level === "error" ? "#f87171"
                           : entry.level === "warn" ? "#fbbf24"
                           : entry.level === "success" ? "#34d399"
-                          : "rgba(148,163,184,0.7)",
+                          : "rgba(190,178,160,0.72)",
                       }}>
                       <span className="text-white/20 flex-shrink-0 select-none">
                         {entry.level === "error" ? "✗"

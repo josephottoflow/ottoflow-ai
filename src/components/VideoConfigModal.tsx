@@ -828,7 +828,7 @@ export function VideoConfigModal({
               </div>
               <div className="rounded-xl p-3 cs-fade" style={card}>
                 <p className={labelCls}>Commercial Score</p>
-                <p className="text-xl font-bold tabular-nums" style={{ color: estimating ? "#64748b" : scoreColor(quality100) }}>{estimating ? "—" : quality100}</p>
+                <p className="text-xl font-bold tabular-nums" style={{ color: estimating ? "#867A69" : scoreColor(quality100) }}>{estimating ? "—" : quality100}</p>
                 <p className="text-3xs text-white/35 mt-0.5">Story · brand · platform fit.</p>
               </div>
             </div>
