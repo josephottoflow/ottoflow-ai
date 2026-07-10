@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { CreativePanel } from "@/components/CreativePanel";
+import { PromptStudio } from "@/components/PromptStudio";
 import { useSupabase } from "@/components/SupabaseProvider";
 import { captureFallback } from "@/lib/observability";
 import type { DbBrandTopic } from "@/lib/types";
@@ -825,20 +826,14 @@ export function ContentGenerateClient({
           </p>
         </div>
 
-        {/* Optional extra direction */}
-        <div>
-          <label className="text-xs font-semibold text-white/70 uppercase tracking-wider block mb-2">
-            Extra direction <span className="text-white/30 font-normal normal-case">(optional)</span>
-          </label>
-          <textarea
-            value={userPrompt}
-            onChange={(e) => setUserPrompt(e.target.value.slice(0, 500))}
-            placeholder="Anything to emphasize — a stat, an offer, a CTA. Leave blank to let the idea + brand voice drive it."
-            rows={2}
-            className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-[#E9863B]/40 transition-colors resize-none"
-          />
-          <p className="text-2xs text-white/30 mt-1.5">{userPrompt.length}/500</p>
-        </div>
+        {/* Prompt Studio — premium editable prompt with history / saved prompts
+            (client-side; wired to the existing userPrompt field the API accepts) */}
+        <PromptStudio
+          value={userPrompt}
+          onChange={setUserPrompt}
+          maxLength={500}
+          brandName={selectedBrand?.name}
+        />
 
         {/* Branding — overlay identity for the eventual creative image */}
         <div>
