@@ -16,6 +16,7 @@ import { createAdminClient } from "@/lib/supabase";
 import { captureFallback } from "@/lib/observability";
 import { creativeGenerationQueue } from "@/lib/queue";
 import { rateLimit } from "@/lib/rate-limit";
+import { captureVariation } from "@/lib/creative-variations";
 
 export const runtime = "nodejs";
 
@@ -48,7 +49,9 @@ export async function POST(
 
   const { data: creative } = await admin
     .from("content_creatives")
-    .select("id, status, brand_id, regen_count, status_history, brands!inner(user_id)")
+    .select(
+      "id, status, brand_id, content_item_id, image_url, background_url, background_source, creative_brief, regen_count, status_history, brands!inner(user_id)",
+    )
     .eq("id", creativeId)
     .maybeSingle();
   const ownerId = (creative?.brands as unknown as { user_id: string } | null)?.user_id;
@@ -67,6 +70,20 @@ export async function POST(
       { status: 409 },
     );
   }
+
+  // Preserve the CURRENT image as a variation before this regenerate overwrites
+  // content_creatives.image_url (Creative Studio — Proposal A). Idempotent +
+  // best-effort; the generation pipeline itself is untouched.
+  await captureVariation(admin, {
+    id: creative.id as string,
+    content_item_id: creative.content_item_id as string,
+    brand_id: creative.brand_id as string,
+    image_url: creative.image_url as string | null,
+    background_url: creative.background_url as string | null,
+    background_source: creative.background_source as string | null,
+    creative_brief: creative.creative_brief as Record<string, unknown> | null,
+    regen_count: creative.regen_count as number | null,
+  });
 
   // Move back to 'approved' (a valid generation source) + bump the counter.
   // The worker flips approved → generating → ready, same as the first run.
