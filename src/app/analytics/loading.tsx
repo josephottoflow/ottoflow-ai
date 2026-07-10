@@ -2,7 +2,7 @@ import { Skeleton, SkeletonHeader, SkeletonKPIGrid, SkeletonCard } from "@/compo
 
 export default function AnalyticsLoading() {
   return (
-    <div className="p-6 max-w-[1200px] mx-auto">
+    <div className="p-6 max-w-[1400px] mx-auto">
       <SkeletonHeader />
       <SkeletonKPIGrid />
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">

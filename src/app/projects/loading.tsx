@@ -2,7 +2,7 @@ import { SkeletonHeader, SkeletonCard, SkeletonList } from "@/components/ui/skel
 
 export default function ProjectsLoading() {
   return (
-    <div className="p-6 max-w-[1200px] mx-auto">
+    <div className="p-6 max-w-[1400px] mx-auto">
       <SkeletonHeader />
       <SkeletonCard>
         <SkeletonList rows={6} />
