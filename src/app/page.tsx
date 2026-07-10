@@ -348,7 +348,21 @@ export default async function DashboardPage() {
               </Link>
             ))}
             {activeProjects.length === 0 && (
-              <p className="text-xs text-white/30 text-center py-6">No active projects yet.</p>
+              <div className="flex flex-col items-center text-center py-8 px-4">
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center mb-2.5"
+                  style={{ background: "rgba(233,134,59,0.10)" }}>
+                  <Briefcase size={15} className="text-[#F2A863]" />
+                </div>
+                <p className="text-xs text-white/50 mb-0.5">No active projects yet</p>
+                <p className="text-3xs text-white/30 mb-3 max-w-[200px]">
+                  Projects group the content and videos you generate for a brand.
+                </p>
+                <Link href="/content/generate">
+                  <Button variant="outline" size="sm" className="gap-1.5 text-xs h-7">
+                    <Sparkles size={12} /> Generate your first post
+                  </Button>
+                </Link>
+              </div>
             )}
           </div>
         </div>

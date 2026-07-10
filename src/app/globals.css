@@ -161,6 +161,28 @@
     background: linear-gradient(90deg, #C25A1E, #E9863B, #F2A863);
   }
 
+  /* Skeleton shimmer (premium loading state) — warm-neutral sweep */
+  .otto-skeleton {
+    background: linear-gradient(
+      90deg,
+      rgba(244, 237, 226, 0.04) 25%,
+      rgba(244, 237, 226, 0.08) 37%,
+      rgba(244, 237, 226, 0.04) 63%
+    );
+    background-size: 200% 100%;
+    animation: otto-shimmer 1.6s ease-in-out infinite;
+    border-radius: 8px;
+  }
+
+  @keyframes otto-shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .otto-skeleton { animation: none; }
+  }
+
   /* Card hover lift */
   .card-hover {
     transition: transform 0.2s ease, box-shadow 0.2s ease;
