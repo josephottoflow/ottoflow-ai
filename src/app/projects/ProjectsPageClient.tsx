@@ -71,9 +71,9 @@ export function ProjectsPageClient({ projects }: Props) {
       {/* Summary cards */}
       <div className="grid grid-cols-4 gap-3 mb-6">
         {[
-          { label: "Total Projects", value: stats.total, icon: FolderOpen, color: "#a78bfa" },
+          { label: "Total Projects", value: stats.total, icon: FolderOpen, color: "#F2A863" },
           { label: "Active", value: stats.active, icon: TrendingUp, color: "#34d399" },
-          { label: "Content", value: stats.content, icon: FileText, color: "#6366f1" },
+          { label: "Content", value: stats.content, icon: FileText, color: "#F2A863" },
           { label: "Video", value: stats.video, icon: Video, color: "#67e8f9" },
         ].map((s) => {
           const Icon = s.icon;
@@ -100,7 +100,7 @@ export function ProjectsPageClient({ projects }: Props) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search projects..."
-            className="w-full text-xs text-white/70 placeholder:text-white/25 pl-8 pr-4 py-2 rounded-xl outline-none focus:border-violet-500/40 transition-colors"
+            className="w-full text-xs text-white/70 placeholder:text-white/25 pl-8 pr-4 py-2 rounded-xl outline-none focus:border-[#E9863B]/40 transition-colors"
             style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}
           />
         </div>
@@ -112,8 +112,8 @@ export function ProjectsPageClient({ projects }: Props) {
               onClick={() => setFilter(f)}
               className="text-2xs font-medium px-3 py-1.5 rounded-lg capitalize transition-all"
               style={{
-                background: filter === f ? "rgba(124,58,237,0.15)" : "transparent",
-                color: filter === f ? "#a78bfa" : "rgba(255,255,255,0.4)",
+                background: filter === f ? "rgba(233,134,59,0.15)" : "transparent",
+                color: filter === f ? "#F2A863" : "rgba(255,255,255,0.4)",
               }}
             >
               {f}
@@ -152,14 +152,14 @@ export function ProjectsPageClient({ projects }: Props) {
                       style={{
                         background: proj.type === "video"
                           ? "linear-gradient(135deg, rgba(6,182,212,0.2), rgba(59,130,246,0.1))"
-                          : "linear-gradient(135deg, rgba(124,58,237,0.2), rgba(99,102,241,0.1))",
+                          : "linear-gradient(135deg, rgba(233,134,59,0.2), rgba(194,90,30,0.1))",
                         border: proj.type === "video"
                           ? "1px solid rgba(6,182,212,0.2)"
-                          : "1px solid rgba(124,58,237,0.2)",
+                          : "1px solid rgba(233,134,59,0.2)",
                       }}>
                       {proj.type === "video"
                         ? <Video size={16} className="text-cyan-400" />
-                        : <FileText size={16} className="text-violet-400" />}
+                        : <FileText size={16} className="text-[#F2A863]" />}
                     </div>
                     <div className="flex items-center gap-2">
                       <Badge variant={status.variant} className="text-3xs">{status.label}</Badge>
@@ -182,7 +182,7 @@ export function ProjectsPageClient({ projects }: Props) {
                   <div className="flex items-center gap-4 mb-4 mt-auto">
                     {proj.content_count > 0 && (
                       <div className="flex items-center gap-1.5">
-                        <FileText size={11} className="text-violet-400/60" />
+                        <FileText size={11} className="text-[#F2A863]/60" />
                         <span className="text-xs text-white/50">{proj.content_count} posts</span>
                       </div>
                     )}
@@ -214,8 +214,8 @@ export function ProjectsPageClient({ projects }: Props) {
           <div className="rounded-2xl p-5 flex flex-col items-center justify-center cursor-pointer group transition-all min-h-[200px]"
             style={{ border: "1px dashed rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.01)" }}>
             <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3 transition-all group-hover:scale-105"
-              style={{ background: "rgba(124,58,237,0.08)", border: "1px dashed rgba(124,58,237,0.2)" }}>
-              <Plus size={18} className="text-violet-500/60 group-hover:text-violet-400 transition-colors" />
+              style={{ background: "rgba(233,134,59,0.08)", border: "1px dashed rgba(233,134,59,0.2)" }}>
+              <Plus size={18} className="text-[#E9863B]/60 group-hover:text-[#F2A863] transition-colors" />
             </div>
             <p className="text-sm font-medium text-white/30 group-hover:text-white/50 transition-colors">New Project</p>
             <p className="text-3xs text-white/20 mt-1">Content or Video pipeline</p>
@@ -245,10 +245,10 @@ export function ProjectsPageClient({ projects }: Props) {
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-2.5">
                           <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
-                            style={{ background: proj.type === "video" ? "rgba(6,182,212,0.1)" : "rgba(124,58,237,0.1)" }}>
+                            style={{ background: proj.type === "video" ? "rgba(6,182,212,0.1)" : "rgba(233,134,59,0.1)" }}>
                             {proj.type === "video"
                               ? <Video size={12} className="text-cyan-400" />
-                              : <FileText size={12} className="text-violet-400" />}
+                              : <FileText size={12} className="text-[#F2A863]" />}
                           </div>
                           <span className="text-sm text-white/75 font-medium">{proj.name}</span>
                         </div>

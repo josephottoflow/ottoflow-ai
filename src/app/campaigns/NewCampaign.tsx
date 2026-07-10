@@ -87,7 +87,7 @@ export function NewCampaign({ brands }: { brands: Array<{ id: string; name: stri
         type="button"
         onClick={submit}
         disabled={busy}
-        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-violet-600/90 hover:bg-violet-600 text-white disabled:opacity-50 transition-colors"
+        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[#E9863B]/90 hover:bg-[#E9863B] text-white disabled:opacity-50 transition-colors"
       >
         {busy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
         {busy ? "Planning campaign…" : "Generate campaign"}

@@ -106,7 +106,7 @@ export function MetricsQuickEntry() {
           onChange={(e) => setUrl(e.target.value)}
           placeholder="https://www.linkedin.com/feed/update/…"
           aria-label="Published post link"
-          className="flex-1 rounded-lg bg-white/[0.04] border border-white/10 px-3 py-2 text-xs text-white placeholder:text-white/30 focus:outline-none focus:border-violet-500/50"
+          className="flex-1 rounded-lg bg-white/[0.04] border border-white/10 px-3 py-2 text-xs text-white placeholder:text-white/30 focus:outline-none focus:border-[#E9863B]/50"
         />
         <Button size="sm" variant="outline" onClick={() => void lookup()} disabled={busy} className="gap-1.5">
           {busy && !item ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />}
@@ -140,7 +140,7 @@ export function MetricsQuickEntry() {
                   min={0}
                   value={vals[f] ?? ""}
                   onChange={(e) => setVals((p) => ({ ...p, [f]: e.target.value }))}
-                  className="w-full rounded-md bg-white/[0.04] border border-white/10 px-1.5 py-1 text-2xs text-white focus:outline-none focus:border-violet-500/50"
+                  className="w-full rounded-md bg-white/[0.04] border border-white/10 px-1.5 py-1 text-2xs text-white focus:outline-none focus:border-[#E9863B]/50"
                 />
               </div>
             ))}

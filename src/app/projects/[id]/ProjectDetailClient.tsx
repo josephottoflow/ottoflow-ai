@@ -23,7 +23,7 @@ const platformIcons: Record<string, React.ElementType> = {
 
 const platformColors: Record<string, string> = {
   linkedin: "#0a66c2", facebook: "#1877f2", instagram: "#e1306c",
-  twitter: "#1da1f2", blog: "#a78bfa", email: "#34d399",
+  twitter: "#1da1f2", blog: "#F2A863", email: "#34d399",
 };
 
 interface Props {
@@ -37,7 +37,7 @@ export function ProjectDetailClient({ project, content, renderJobs, activity }: 
   const [tab, setTab] = useState("overview");
 
   const isVideo = project.type === "video";
-  const accentColor = isVideo ? "#67e8f9" : "#a78bfa";
+  const accentColor = isVideo ? "#67e8f9" : "#F2A863";
 
   return (
     <div className="p-6 max-w-[1400px] mx-auto">
@@ -62,8 +62,8 @@ export function ProjectDetailClient({ project, content, renderJobs, activity }: 
               style={{
                 background: isVideo
                   ? "linear-gradient(135deg, rgba(6,182,212,0.25), rgba(59,130,246,0.15))"
-                  : "linear-gradient(135deg, rgba(124,58,237,0.25), rgba(99,102,241,0.15))",
-                border: `1px solid ${isVideo ? "rgba(6,182,212,0.25)" : "rgba(124,58,237,0.25)"}`,
+                  : "linear-gradient(135deg, rgba(233,134,59,0.25), rgba(194,90,30,0.15))",
+                border: `1px solid ${isVideo ? "rgba(6,182,212,0.25)" : "rgba(233,134,59,0.25)"}`,
               }}>
               {isVideo
                 ? <Video size={22} style={{ color: accentColor }} />
@@ -112,8 +112,8 @@ export function ProjectDetailClient({ project, content, renderJobs, activity }: 
               style={{
                 background: isVideo
                   ? "linear-gradient(135deg, #0891b2, #2563eb)"
-                  : "linear-gradient(135deg, #7c3aed, #6366f1)",
-                boxShadow: `0 4px 14px ${isVideo ? "rgba(6,182,212,0.25)" : "rgba(124,58,237,0.25)"}`,
+                  : "linear-gradient(135deg, #E9863B, #F2A863)",
+                boxShadow: `0 4px 14px ${isVideo ? "rgba(6,182,212,0.25)" : "rgba(233,134,59,0.25)"}`,
               }}>
               <Play size={13} />
               Run Pipeline
@@ -174,7 +174,7 @@ export function ProjectDetailClient({ project, content, renderJobs, activity }: 
                   <div className="space-y-2">
                     {content.slice(0, 4).map((item) => {
                       const Icon = platformIcons[item.platform] ?? Globe;
-                      const color = platformColors[item.platform] ?? "#a78bfa";
+                      const color = platformColors[item.platform] ?? "#F2A863";
                       return (
                         <div key={item.id} className="flex items-center gap-3 p-3 rounded-xl hover:bg-white/[0.02] transition-colors"
                           style={{ border: "1px solid rgba(255,255,255,0.04)" }}>
@@ -209,8 +209,8 @@ export function ProjectDetailClient({ project, content, renderJobs, activity }: 
                       <div key={job.id} className="flex items-center gap-3 p-3 rounded-xl"
                         style={{ border: "1px solid rgba(255,255,255,0.04)" }}>
                         <div className="w-14 h-9 rounded-lg flex-shrink-0 flex items-center justify-center"
-                          style={{ background: "linear-gradient(135deg, rgba(124,58,237,0.15), rgba(6,182,212,0.1))" }}>
-                          <Video size={12} className="text-violet-400/60" />
+                          style={{ background: "linear-gradient(135deg, rgba(233,134,59,0.15), rgba(6,182,212,0.1))" }}>
+                          <Video size={12} className="text-[#F2A863]/60" />
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-medium text-white/70 truncate">{job.name}</p>
@@ -252,7 +252,7 @@ export function ProjectDetailClient({ project, content, renderJobs, activity }: 
               <div className="space-y-3">
                 {content.map((item) => {
                   const Icon = platformIcons[item.platform] ?? Globe;
-                  const color = platformColors[item.platform] ?? "#a78bfa";
+                  const color = platformColors[item.platform] ?? "#F2A863";
                   const engagement = item.engagement as { likes?: number; shares?: number } | null;
                   return (
                     <div key={item.id} className="p-4 rounded-xl hover:bg-white/[0.015] transition-colors"
@@ -308,8 +308,8 @@ export function ProjectDetailClient({ project, content, renderJobs, activity }: 
                   <div key={job.id} className="rounded-xl overflow-hidden group cursor-pointer"
                     style={{ border: "1px solid rgba(255,255,255,0.06)" }}>
                     <div className="aspect-video flex items-center justify-center relative"
-                      style={{ background: "linear-gradient(135deg, rgba(124,58,237,0.15), rgba(6,182,212,0.08))" }}>
-                      <Video size={20} className="text-violet-400/40" />
+                      style={{ background: "linear-gradient(135deg, rgba(233,134,59,0.15), rgba(6,182,212,0.08))" }}>
+                      <Video size={20} className="text-[#F2A863]/40" />
                       {job.status === "done" && (
                         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                           style={{ background: "rgba(0,0,0,0.5)" }}>
@@ -352,7 +352,7 @@ export function ProjectDetailClient({ project, content, renderJobs, activity }: 
                   {i < 3 ? (
                     <Image size={20} className="text-blue-400/50 mb-1.5" />
                   ) : i < 6 ? (
-                    <Film size={20} className="text-violet-400/50 mb-1.5" />
+                    <Film size={20} className="text-[#F2A863]/50 mb-1.5" />
                   ) : (
                     <Mic size={20} className="text-emerald-400/50 mb-1.5" />
                   )}
@@ -374,7 +374,7 @@ export function ProjectDetailClient({ project, content, renderJobs, activity }: 
         <TabsContent value="analytics">
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
             {[
-              { label: "Total Impressions", value: "48.2K", change: "+12.4%", color: "#a78bfa", icon: Eye },
+              { label: "Total Impressions", value: "48.2K", change: "+12.4%", color: "#F2A863", icon: Eye },
               { label: "Engagements", value: "4,231", change: "+8.1%", color: "#34d399", icon: TrendingUp },
               { label: "Click-through Rate", value: "3.8%", change: "+0.4%", color: "#67e8f9", icon: BarChart3 },
             ].map((s) => {
@@ -401,7 +401,7 @@ export function ProjectDetailClient({ project, content, renderJobs, activity }: 
                   <div key={i} className="flex-1 rounded-t-md"
                     style={{
                       height: `${(h / 102) * 100}%`,
-                      background: `linear-gradient(to top, rgba(124,58,237,0.6), rgba(99,102,241,0.3))`,
+                      background: `linear-gradient(to top, rgba(233,134,59,0.6), rgba(194,90,30,0.3))`,
                       minWidth: 0,
                     }} />
                 ))}

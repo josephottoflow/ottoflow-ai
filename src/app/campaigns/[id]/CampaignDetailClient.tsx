@@ -174,7 +174,7 @@ export function CampaignDetailClient({ campaignId }: { campaignId: string }) {
         </div>
         <div className="h-2.5 rounded-full bg-white/[0.06] overflow-hidden">
           <div
-            className="h-full rounded-full bg-gradient-to-r from-violet-500 to-emerald-400 transition-all duration-500"
+            className="h-full rounded-full bg-gradient-to-r from-[#E9863B] to-emerald-400 transition-all duration-500"
             style={{ width: `${Math.max(progress.percent, progress.total ? 4 : 0)}%` }}
           />
         </div>
@@ -288,7 +288,7 @@ export function CampaignDetailClient({ campaignId }: { campaignId: string }) {
           {s.supporting_stories && s.supporting_stories.length > 0 && (
             <div className="flex flex-wrap gap-1.5 pt-1">
               {s.supporting_stories.map((st, i) => (
-                <span key={i} className="text-xs px-2.5 py-1 rounded-full bg-violet-600/[0.1] border border-violet-500/20 text-violet-200">
+                <span key={i} className="text-xs px-2.5 py-1 rounded-full bg-[#E9863B]/[0.1] border border-[#E9863B]/20 text-[#F5B77A]">
                   {st}
                 </span>
               ))}
@@ -423,7 +423,7 @@ export function CampaignDetailClient({ campaignId }: { campaignId: string }) {
               <div className="p-3">
                 <div className="flex items-center gap-1.5 mb-1">
                   <StatusIcon status={a.status} />
-                  <span className="text-3xs font-semibold uppercase tracking-wider text-violet-300">{a.role || "asset"}</span>
+                  <span className="text-3xs font-semibold uppercase tracking-wider text-[#F2A863]">{a.role || "asset"}</span>
                   {a.funnel_position && <span className="ml-auto text-3xs text-white/30">{a.funnel_position}</span>}
                 </div>
                 <p className="text-sm text-white/80 truncate">{a.headline || "—"}</p>

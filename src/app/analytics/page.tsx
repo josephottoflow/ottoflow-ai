@@ -91,8 +91,8 @@ export default async function AnalyticsPage() {
           title="Content (14d)"
           value={formatNumber(totalContent14d)}
           icon={<Eye size={18} />}
-          iconColor="#a78bfa"
-          iconBg="rgba(124,58,237,0.12)"
+          iconColor="#F2A863"
+          iconBg="rgba(233,134,59,0.12)"
         />
         <KPICard
           title="Videos (14d)"
@@ -180,8 +180,8 @@ export default async function AnalyticsPage() {
           title="AI spend"
           value={`$${totalCost14d.toFixed(2)}`}
           icon={<DollarSign size={18} />}
-          iconColor="#a78bfa"
-          iconBg="rgba(124,58,237,0.12)"
+          iconColor="#F2A863"
+          iconBg="rgba(233,134,59,0.12)"
         />
         <KPICard
           title="Fallback rate"
@@ -266,7 +266,7 @@ export default async function AnalyticsPage() {
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-white">AI spend per day</h3>
           <span className="text-3xs text-white/30 flex items-center gap-1">
-            <DollarSign size={10} className="text-violet-400/70" />
+            <DollarSign size={10} className="text-[#F2A863]/70" />
             ${totalCost14d.toFixed(2)} (14d total)
           </span>
         </div>
@@ -282,7 +282,7 @@ export default async function AnalyticsPage() {
                   className="w-full rounded-t-md"
                   style={{
                     height: `${(d.costUsd / peakBurn) * 160}px`,
-                    background: "linear-gradient(to top, rgba(124,58,237,0.6), rgba(167,139,250,0.3))",
+                    background: "linear-gradient(to top, rgba(233,134,59,0.6), rgba(242,168,99,0.3))",
                   }}
                 />
                 <span className="text-3xs text-white/25 truncate w-full text-center">
@@ -356,7 +356,7 @@ export default async function AnalyticsPage() {
       {hierarchyPerf.totalCreatives > 0 && (
         <>
           <div className="mt-8 mb-4 flex items-center gap-2">
-            <Layers size={16} className="text-fuchsia-400" />
+            <Layers size={16} className="text-[#F2A863]" />
             <h2 className="text-lg font-bold text-white">Creative hierarchy performance</h2>
             <span className="text-2xs text-white/40">
               {hierarchyPerf.totalCreatives} generated creative
@@ -484,11 +484,11 @@ function HierarchyDimTable({
 // ─── Content-performance presentation helpers ────────────────────────────────
 
 const REC_KIND_META: Record<Recommendation["kind"], { label: string; className: string }> = {
-  topic: { label: "Topic", className: "text-violet-300 border-violet-500/40 bg-violet-500/10" },
+  topic: { label: "Topic", className: "text-[#F2A863] border-[#E9863B]/40 bg-[#E9863B]/10" },
   lens: { label: "Opportunity lens", className: "text-amber-300 border-amber-500/40 bg-amber-500/10" },
   evidence: { label: "Evidence", className: "text-cyan-300 border-cyan-500/40 bg-cyan-500/10" },
   platform: { label: "Platform", className: "text-emerald-300 border-emerald-500/40 bg-emerald-500/10" },
-  creative: { label: "Creative", className: "text-fuchsia-300 border-fuchsia-500/40 bg-fuchsia-500/10" },
+  creative: { label: "Creative", className: "text-[#F2A863] border-[#E9863B]/40 bg-[#E9863B]/10" },
   hygiene: { label: "Data quality", className: "text-white/50 border-white/15 bg-white/5" },
 };
 
