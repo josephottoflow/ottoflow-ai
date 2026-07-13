@@ -128,3 +128,13 @@ export function resolveRenderFlags(
 ): ResolvedRenderFlags {
   return PROFILE_FLAGS[resolveRenderProfile(explicit, env)];
 }
+
+/**
+ * Resolve flags for a SINGLE render from its per-job profile ONLY — ignoring all
+ * environment (no global RENDER_PROFILE_DEFAULT). This is the per-render opt-in
+ * activation path used by the composer: Modern is chosen per render, never
+ * globally. An absent/invalid profile resolves to Legacy (byte-identical).
+ */
+export function resolveRenderFlagsForJob(profile?: unknown): ResolvedRenderFlags {
+  return PROFILE_FLAGS[normalizeProfile(profile) ?? "legacy"];
+}

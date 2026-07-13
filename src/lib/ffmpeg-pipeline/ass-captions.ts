@@ -13,7 +13,6 @@
  * in the FFmpeg filter chain.
  */
 import type { TimedCaption } from "./types";
-import { resolveRenderFlags } from "./render-profile";
 
 // ─── Style header ──────────────────────────────────────────────────────────
 // Numbers are ASS conventions:
@@ -120,15 +119,19 @@ export function renderAss(
   captions: TimedCaption[],
   style?: CaptionStyle,
   dims?: { width: number; height: number },
+  /** Per-render presentation flags (Video Quality V2). Resolved from the job's
+   * renderProfile by the composer and passed EXPLICITLY per render — this is the
+   * only activation path (no global env default). Absent → Legacy static. */
+  profile?: { captionEngine?: "static" | "animated"; captionStyle?: CoreCaptionPreset },
 ): string {
   // Sprint B — Caption Engine V1. Animated captions are opt-in and fully
   // isolated behind CAPTION_ENGINE=animated (+ CAPTION_STYLE). When unset or
   // "static" the byte-identical Legacy generator below runs unchanged. Any error
   // in the animated path degrades to Legacy here — a caption effect can never
   // break a render. Rollback is a single flag: CAPTION_ENGINE=static.
-  if (resolveCaptionEngine() === "animated") {
+  if (resolveCaptionEngine(profile?.captionEngine) === "animated") {
     try {
-      return renderAnimatedAss(captions, dims, ANIMATED_PRESETS[resolveCaptionStyle()]);
+      return renderAnimatedAss(captions, dims, ANIMATED_PRESETS[resolveCaptionStyle(profile?.captionStyle)]);
     } catch {
       /* fall through to the Legacy static generator */
     }
@@ -223,24 +226,23 @@ const ANIMATED_PRESETS: Record<CoreCaptionPreset, AnimatedPreset> = {
   corporate:    { font: "DejaVu Sans", sizePct: 76 / PLAY_RES_Y, bold: 1, primary: "#FFFFFF", secondary: "#9FB6C4", outlinePx: 4, shadowPx: 3, boxOpacity: 0, blur: 0, fadeInMs: 180, fadeOutMs: 160, popFromPct: 105, popMs: 180, karaoke: true,  case: "sentence", spacing: 0.5, karaokeFill: true },
 };
 
-/** Caption engine → "static" (Legacy default) | "animated". CAPTION_ENGINE wins
- * (explicit "static"/"animated"); when unset, the active Render Profile decides
- * (modern_* → animated). Unset everywhere → static (byte-identical Legacy). */
-function resolveCaptionEngine(): "static" | "animated" {
-  const explicit = (process.env.CAPTION_ENGINE ?? "").trim().toLowerCase();
-  if (explicit === "animated") return "animated";
-  if (explicit === "static") return "static";
-  return resolveRenderFlags().captionEngine;
+/** Caption engine → "static" (Legacy default) | "animated". The per-render
+ * profile flag (explicit) ALWAYS wins; CAPTION_ENGINE is a dev-only override
+ * used only when no per-render flag is passed. Neither set → static (Legacy).
+ * There is deliberately NO global-profile default here — Modern is per-render. */
+function resolveCaptionEngine(explicit?: "static" | "animated"): "static" | "animated" {
+  if (explicit === "animated" || explicit === "static") return explicit;
+  const env = (process.env.CAPTION_ENGINE ?? "").trim().toLowerCase();
+  return env === "animated" ? "animated" : "static";
 }
 
-/** Caption preset. CAPTION_STYLE wins; else the Render Profile's captionStyle;
- * else "classic". Accepts spacing/hyphen variants ("Bold Creator" → "bold_creator"). */
-function resolveCaptionStyle(): CoreCaptionPreset {
+/** Caption preset. Per-render flag (explicit) wins; else the CAPTION_STYLE dev
+ * override; else "classic". Accepts spacing/hyphen variants ("Bold Creator"). */
+function resolveCaptionStyle(explicit?: CoreCaptionPreset): CoreCaptionPreset {
   const CORE = ["classic", "bold_creator", "minimal", "corporate"] as const;
-  const s = (process.env.CAPTION_STYLE ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_");
-  if (CORE.includes(s as CoreCaptionPreset)) return s as CoreCaptionPreset;
-  const fromProfile = resolveRenderFlags().captionStyle;
-  return CORE.includes(fromProfile as CoreCaptionPreset) ? (fromProfile as CoreCaptionPreset) : "classic";
+  if (explicit && CORE.includes(explicit)) return explicit;
+  const env = (process.env.CAPTION_STYLE ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return CORE.includes(env as CoreCaptionPreset) ? (env as CoreCaptionPreset) : "classic";
 }
 
 /**

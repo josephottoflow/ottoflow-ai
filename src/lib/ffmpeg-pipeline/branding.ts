@@ -12,7 +12,6 @@
 // transitively imports this file via orchestrator → agent 11. sharp only ever
 // runs in the worker, so a dynamic import keeps it out of the Vercel import graph.
 import { createAdminClient } from "@/lib/supabase";
-import { resolveRenderFlags } from "./render-profile";
 
 export interface VideoPalette {
   primary?: string | null;
@@ -28,6 +27,10 @@ export interface CtaCardInput {
   palette?: VideoPalette | null;
   /** Optional locked logo bytes to center near the top. */
   logo?: Buffer | null;
+  /** Per-render end-screen mode (Video Quality V2). "animated" = premium card
+   * (vignette/glow/spacing); "classic"/absent = byte-identical Legacy card.
+   * Passed EXPLICITLY per render by the composer — no global default. */
+  endScreenMode?: "classic" | "animated";
 }
 
 // Neutral slate fallback — matches the still-creative decision to drop the
@@ -126,10 +129,12 @@ export async function renderCtaCard(input: CtaCardInput): Promise<Buffer> {
   // vignette + an accent glow behind the CTA + subtle letter-spacing. Default
   // (classic/unset) emits NONE of these, so the rendered PNG is byte-identical
   // to today. Rollback is a single flag. No new dependency (same sharp+SVG).
+  // Per-render flag wins; END_SCREEN_MODE is a dev-only override used only when
+  // no per-render mode is passed. Neither → classic (byte-identical Legacy card).
   const endMode = (process.env.END_SCREEN_MODE ?? "").trim().toLowerCase();
   const premiumEnd =
-    ["premium", "animated", "v2", "modern"].includes(endMode) ||
-    (endMode === "" && resolveRenderFlags().endScreenMode === "animated");
+    input.endScreenMode === "animated" ||
+    (input.endScreenMode === undefined && ["premium", "animated", "v2", "modern"].includes(endMode));
   const ls = premiumEnd ? ` letter-spacing="${Math.round(ctaFont * 0.02)}"` : "";
   const brandLs = premiumEnd ? ` letter-spacing="${Math.round(brandFont * 0.06)}"` : "";
   const premiumDefs = premiumEnd

@@ -28,7 +28,7 @@
 import { promises as fs } from "node:fs";
 import { spawn } from "node:child_process";
 import { renderAss, type CaptionStyle } from "./ass-captions";
-import { resolveRenderFlags } from "./render-profile";
+import { resolveRenderFlagsForJob } from "./render-profile";
 import type {
   CompositionPlan,
   EditDecision,
@@ -198,6 +198,10 @@ export interface FinalizeArgvInput {
   fps: number;
   durationSec: number;
   outputPath: string;
+  /** Per-render audio-mix profile (Video Quality V2). true = v2 broadcast master
+   * (loudnorm + smoother duck); false/undefined = Legacy graph (byte-identical).
+   * Passed EXPLICITLY per render by composeMultiPass — no global default. */
+  audioMixV2?: boolean;
 }
 
 // ─── Sprint 45 (Audio Timing): assemble per-scene narration on one timeline ──
@@ -320,10 +324,12 @@ export function buildFinalizeArgv(i: FinalizeArgvInput): string[] {
   // the social-platform target) so every export lands at a consistent premium
   // loudness, and softens the sidechain (threshold 0.05→0.04, release 250→300)
   // for a cleaner voice-over-music recovery. Same FFmpeg, no new dependency.
+  // Per-render flag wins; AUDIO_MIX_PROFILE is a dev-only override used only when
+  // the composer passes no explicit flag. Neither → Legacy graph (byte-identical).
   const mixMode = (process.env.AUDIO_MIX_PROFILE ?? "").trim().toLowerCase();
   const audioMixV2 =
-    ["v2", "modern", "premium"].includes(mixMode) ||
-    (mixMode === "" && resolveRenderFlags().audioMixProfile === "v2");
+    i.audioMixV2 === true ||
+    (i.audioMixV2 === undefined && ["v2", "modern", "premium"].includes(mixMode));
   const MASTER = audioMixV2 ? ",loudnorm=I=-14:TP=-1.5:LRA=11" : "";
   const duck = audioMixV2
     ? "sidechaincompress=threshold=0.04:ratio=8:attack=20:release=300"
@@ -474,6 +480,11 @@ function probeDurationSec(filePath: string): Promise<number> {
 
 export async function composeMultiPass(input: MultiPassInput): Promise<void> {
   const { plan, sceneInputPaths, workDir } = input;
+  // Per-render presentation flags (Video Quality V2). Resolved from THIS job's
+  // renderProfile ONLY — Modern is strictly opt-in per render, never global. We
+  // pass {} as the env so RENDER_PROFILE_DEFAULT can never activate Modern
+  // globally. Absent/legacy profile → Legacy flags → byte-identical output.
+  const renderFlags = resolveRenderFlagsForJob(plan.renderProfile);
   const fps = plan.output.fps;
   const W = plan.output.width;
   const H = plan.output.height;
@@ -531,7 +542,14 @@ export async function composeMultiPass(input: MultiPassInput): Promise<void> {
   const clampedCaptions = captions
     .filter((c) => c.startMs < scenesEndMs)
     .map((c) => ({ ...c, endMs: Math.min(c.endMs, scenesEndMs) }));
-  await fs.writeFile(input.assPath, renderAss(clampedCaptions, input.captionStyle, { width: W, height: H }), "utf-8");
+  await fs.writeFile(
+    input.assPath,
+    renderAss(clampedCaptions, input.captionStyle, { width: W, height: H }, {
+      captionEngine: renderFlags.captionEngine,
+      captionStyle: renderFlags.captionStyle,
+    }),
+    "utf-8",
+  );
 
   // ── Sprint 45 (Audio Timing): scene-timed narration ───────────────────────
   // Place each scene's voice line at that scene's MEASURED start offset (the
@@ -606,6 +624,7 @@ export async function composeMultiPass(input: MultiPassInput): Promise<void> {
       width: W, height: H, fps,
       durationSec: plan.output.durationMs / 1000 + extraDurationSec,
       outputPath: input.outputPath,
+      audioMixV2: renderFlags.audioMixProfile === "v2",
     }),
     "finalize",
   );

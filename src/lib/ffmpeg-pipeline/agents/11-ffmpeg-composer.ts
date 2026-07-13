@@ -24,6 +24,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { composeMultiPass } from "../ffmpeg";
 import { renderCtaCard, fetchLogoBytes } from "../branding";
+import { resolveRenderFlagsForJob } from "../render-profile";
 import { createAdminClient } from "@/lib/supabase";
 import type {
   AgentContext,
@@ -277,12 +278,16 @@ export async function runFfmpegComposer(
       }
     }
     if (plan.branding.ctaText) {
+      // Per-render end-screen mode (Video Quality V2). Resolved from THIS job's
+      // renderProfile only (env {} → no global activation). Legacy → classic card.
+      const endScreenMode = resolveRenderFlagsForJob(plan.renderProfile).endScreenMode;
       const cardPng = await renderCtaCard({
         width: plan.output.width,
         height: plan.output.height,
         ctaText: plan.branding.ctaText,
         brandName: plan.branding.brandName ?? null,
         palette: plan.branding.palette ?? null,
+        endScreenMode,
         // Logo intentionally OMITTED. buildFinalizeArgv overlays the logo
         // bottom-right across the ENTIRE timeline (incl. this end card), so
         // compositing it into the card too produced the duplicate-logo defect
