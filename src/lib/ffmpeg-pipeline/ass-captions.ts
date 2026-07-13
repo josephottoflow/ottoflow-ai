@@ -210,6 +210,14 @@ interface AnimatedPreset {
   /** Active-word emphasis: true = smooth left→right fill (\kf, polished);
    * false/omitted = instant per-word highlight (\k, punchy). Timing identical. */
   karaokeFill?: boolean;
+  /** V3 Phase 2 — Caption Intelligence. true = deterministic 1–3 word chunking
+   * (Style Guide §3) + one emphasised keyword per line. false/omitted = the V2
+   * behaviour (byte-identical: uses the caption's own lineBreaks, no emphasis). */
+  smartGroup?: boolean;
+  /** Max words per line when smartGroup is on (default 3). */
+  maxWordsPerLine?: number;
+  /** Keyword scale-% for the emphasised word when smartGroup is on (default 108). */
+  keywordScalePct?: number;
 }
 
 const ANIMATED_PRESETS: Record<CoreCaptionPreset, AnimatedPreset> = {
@@ -218,13 +226,113 @@ const ANIMATED_PRESETS: Record<CoreCaptionPreset, AnimatedPreset> = {
   classic:      { font: "DejaVu Sans", sizePct: 74 / PLAY_RES_Y, bold: 1, primary: "#FFFFFF", secondary: "#B0B0B0", outlinePx: 5, shadowPx: 3, boxOpacity: 0, blur: 0, fadeInMs: 150, fadeOutMs: 150, popFromPct: 108, popMs: 160, karaoke: true,  case: "sentence", spacing: 0.5, karaokeFill: true },
   // Punchy creator ("Hormozi") look: UPPERCASE, large, bold, yellow active word, thick stroke + subtle glow + pronounced pop.
   // V2: thicker stroke + heavier shadow for max legibility, tighter fades, letter spacing for punch.
-  bold_creator: { font: "DejaVu Sans", sizePct: 100 / PLAY_RES_Y, bold: 1, primary: "#FFD400", secondary: "#FFFFFF", outlinePx: 7, shadowPx: 5, boxOpacity: 0, blur: 1, fadeInMs: 70,  fadeOutMs: 90,  popFromPct: 120, popMs: 190, karaoke: true,  case: "upper", spacing: 1.5 },
+  bold_creator: { font: "DejaVu Sans", sizePct: 100 / PLAY_RES_Y, bold: 1, primary: "#FFD400", secondary: "#FFFFFF", outlinePx: 7, shadowPx: 5, boxOpacity: 0, blur: 1, fadeInMs: 70,  fadeOutMs: 90,  popFromPct: 120, popMs: 190, karaoke: true,  case: "upper", spacing: 1.5, smartGroup: true, maxWordsPerLine: 3, keywordScalePct: 112 },
   // Restrained: smaller, no bold, thin stroke, clean fade only (no karaoke, no pop). Kept deliberately clean.
   minimal:      { font: "DejaVu Sans", sizePct: 64 / PLAY_RES_Y, bold: 0, primary: "#FFFFFF", secondary: "#FFFFFF", outlinePx: 2, shadowPx: 1, boxOpacity: 0, blur: 0, fadeInMs: 220, fadeOutMs: 200, popFromPct: 100, popMs: 0,   karaoke: false, case: "sentence", spacing: 0 },
   // Polished/professional: sentence case, bold, white active from a cool-grey unsung, moderate stroke, subtle pop.
   // V2: a bit larger + stronger stroke for premium commercial feel.
-  corporate:    { font: "DejaVu Sans", sizePct: 76 / PLAY_RES_Y, bold: 1, primary: "#FFFFFF", secondary: "#9FB6C4", outlinePx: 4, shadowPx: 3, boxOpacity: 0, blur: 0, fadeInMs: 180, fadeOutMs: 160, popFromPct: 105, popMs: 180, karaoke: true,  case: "sentence", spacing: 0.5, karaokeFill: true },
+  corporate:    { font: "DejaVu Sans", sizePct: 76 / PLAY_RES_Y, bold: 1, primary: "#FFFFFF", secondary: "#9FB6C4", outlinePx: 4, shadowPx: 3, boxOpacity: 0, blur: 0, fadeInMs: 180, fadeOutMs: 160, popFromPct: 105, popMs: 180, karaoke: true,  case: "sentence", spacing: 0.5, karaokeFill: true, smartGroup: true, maxWordsPerLine: 3, keywordScalePct: 108 },
 };
+
+// ═══════════════════════════════════════════════════════════════════════════
+// V3 Phase 2 — Caption Intelligence (deterministic; NO AI/ASR/LLM).
+// Groups words into 1–3 word lines at natural boundaries and picks ONE emphasised
+// keyword per line by a fixed priority. Same input always → same output.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Function words that must never be emphasised nor isolated on their own line. */
+const STOP_WORDS = new Set([
+  "the", "a", "an", "of", "to", "in", "for", "with", "and", "or", "but", "on",
+  "at", "by", "as", "is", "are", "am", "be", "been", "being", "was", "were", "it",
+  "its", "this", "that", "these", "those", "from", "into", "than", "then", "so",
+  "your", "you", "our", "we", "us", "my", "me", "i", "he", "she", "they", "them",
+  "his", "her", "their", "if", "up", "out", "off", "no", "not", "do", "does",
+]);
+/** High-intent verbs (Style Guide priority #2). */
+const POWER_VERBS = new Set([
+  "save", "stop", "start", "build", "win", "grow", "boost", "unlock", "discover",
+  "transform", "create", "get", "make", "cut", "double", "triple", "launch",
+  "scale", "earn", "learn", "master", "avoid", "fix", "prove", "join", "own",
+  "ship", "close", "convert", "reduce", "increase", "turn", "switch", "upgrade",
+]);
+/** Emotion words (Style Guide priority #3). */
+const EMOTION_WORDS = new Set([
+  "amazing", "incredible", "effortless", "beautiful", "powerful", "stunning",
+  "love", "hate", "fear", "wow", "insane", "unbelievable", "perfect", "worst",
+  "best", "free", "instantly", "finally", "secret", "proven", "guaranteed",
+  "easy", "simple", "fast", "new", "now", "today", "never", "always",
+]);
+
+/** A number/quantity token: digits, %, $, currency, "10x", "3rd". Kept with its
+ * unit and always the top emphasis priority. */
+function isNumberish(w: string): boolean {
+  return /[0-9]/.test(w) || /^[$£€%]+$/.test(w);
+}
+
+const norm = (w: string): string => w.toLowerCase().replace(/^[^\p{L}\p{N}$£€%]+|[^\p{L}\p{N}$£€%]+$/gu, "");
+
+/**
+ * Deterministic 1–3 word grouping into ≤2 lines. Rules (Style Guide §3):
+ * keep a number with its following unit, keep consecutive Capitalised names
+ * together, never leave a stop-word alone at a line edge, never a full sentence.
+ * Short captions (≤ maxPerLine words) stay on one line.
+ */
+export function groupIntoLines(words: string[], maxPerLine = 3): string[][] {
+  const n = words.length;
+  if (n === 0) return [];
+  if (n <= maxPerLine) return [words];
+
+  // Allowed break BEFORE index i? Not mid number+unit, not mid Capitalised-name
+  // run, not right after a leading stop-word that would dangle at a line end.
+  const allowedBreakBefore = (i: number): boolean => {
+    if (i <= 0 || i >= n) return false;
+    const prev = words[i - 1], cur = words[i];
+    if (isNumberish(prev) && !isNumberish(cur) && /^\p{Ll}/u.test(cur)) return false; // "50 %" / "10 miles"
+    const cap = (w: string) => /^\p{Lu}/u.test(w);
+    if (cap(prev) && cap(cur)) return false; // name run "New York"
+    if (STOP_WORDS.has(norm(prev))) return false; // don't end a line on a stop-word
+    return true;
+  };
+
+  // Pick the allowed break nearest the midpoint that keeps both lines ≤ maxPerLine.
+  const mid = Math.ceil(n / 2);
+  let best = -1, bestDist = Infinity;
+  for (let i = 1; i < n; i++) {
+    if (i > maxPerLine || n - i > maxPerLine) continue; // both lines must fit
+    if (!allowedBreakBefore(i)) continue;
+    const d = Math.abs(i - mid);
+    if (d < bestDist) { bestDist = d; best = i; }
+  }
+  if (best === -1) {
+    // Relax the fit rule if no ideal split exists; still avoid dangling stop-words.
+    for (let i = 1; i < n; i++) {
+      if (!allowedBreakBefore(i)) continue;
+      const d = Math.abs(i - mid);
+      if (d < bestDist) { bestDist = d; best = i; }
+    }
+  }
+  if (best === -1) best = mid; // last resort: balanced split
+  return [words.slice(0, best), words.slice(best)];
+}
+
+/** Pick ONE keyword index in a line by fixed priority; -1 if none (all stop-words). */
+export function selectKeywordIndex(line: string[]): number {
+  let numberIdx = -1, verbIdx = -1, emotionIdx = -1, nounIdx = -1, longIdx = -1, longLen = -1;
+  for (let i = 0; i < line.length; i++) {
+    const w = norm(line[i]);
+    if (!w || STOP_WORDS.has(w)) continue;
+    if (numberIdx === -1 && isNumberish(line[i])) numberIdx = i;
+    if (verbIdx === -1 && POWER_VERBS.has(w)) verbIdx = i;
+    if (emotionIdx === -1 && EMOTION_WORDS.has(w)) emotionIdx = i;
+    if (nounIdx === -1 && /^\p{Lu}/u.test(line[i])) nounIdx = i; // Capitalised → strong/proper noun
+    if (w.length > longLen) { longLen = w.length; longIdx = i; }
+  }
+  if (numberIdx !== -1) return numberIdx;
+  if (verbIdx !== -1) return verbIdx;
+  if (emotionIdx !== -1) return emotionIdx;
+  if (nounIdx !== -1) return nounIdx;
+  return longIdx;
+}
 
 /** Caption engine → "static" (Legacy default) | "animated". The per-render
  * profile flag (explicit) ALWAYS wins; CAPTION_ENGINE is a dev-only override
@@ -305,11 +413,6 @@ export function renderAnimatedAss(
   const height = dims?.height ?? 1920;
   const events = captions
     .map((c) => {
-      // ≤ 2 lines for readability + safe zone; fold any extras into line 2.
-      const raw = c.lineBreaks.length > 0 ? c.lineBreaks : [c.text];
-      const lines = raw.length <= 2 ? raw : [raw[0], raw.slice(1).join(" ")];
-      const cased = lines.map((l) => applyCase(l, preset.case));
-
       const entrance =
         `\\fad(${preset.fadeInMs},${preset.fadeOutMs})` +
         (preset.popMs > 0 && preset.popFromPct !== 100
@@ -318,17 +421,57 @@ export function renderAnimatedAss(
         (preset.blur > 0 ? `\\blur${preset.blur}` : "");
 
       let text: string;
-      if (preset.karaoke) {
-        const perLineWords = cased.map((l) => l.split(/\s+/).filter(Boolean));
-        const flat = perLineWords.flat();
-        const runs = karaokeRuns(flat, c.startMs, c.endMs);
-        const kTag = preset.karaokeFill ? "kf" : "k"; // smooth fill vs instant
-        let k = 0;
-        text = perLineWords
-          .map((lw) => lw.map((w) => `{\\${kTag}${runs[k++]}}${escapeAssText(w)}`).join(" "))
-          .join(" \\N ");
+      if (preset.smartGroup) {
+        // V3 Phase 2 — deterministic 1–3 word chunks + one emphasised keyword/line.
+        // Keyword index computed on PRE-case words (preserves capitalisation for
+        // proper-noun detection); casing is then applied per line.
+        const words = (c.lineBreaks.length > 0 ? c.lineBreaks.join(" ") : c.text)
+          .split(/\s+/)
+          .filter(Boolean);
+        const grouped = groupIntoLines(words, preset.maxWordsPerLine ?? 3);
+        const kwIdx = grouped.map((lw) => selectKeywordIndex(lw));
+        const casedWords = grouped.map((lw) =>
+          applyCase(lw.join(" "), preset.case).split(/\s+/).filter(Boolean),
+        );
+        if (preset.karaoke) {
+          const flat = casedWords.flat();
+          const runs = karaokeRuns(flat, c.startMs, c.endMs);
+          const kTag = preset.karaokeFill ? "kf" : "k";
+          const KS = preset.keywordScalePct ?? 108;
+          let k = 0;
+          text = casedWords
+            .map((lw, li) =>
+              lw
+                .map((w, wi) => {
+                  const run = runs[k++];
+                  const on = wi === kwIdx[li];
+                  const emph = on ? `\\fscx${KS}\\fscy${KS}` : "";
+                  const reset = on ? "{\\fscx100\\fscy100}" : "";
+                  return `{\\${kTag}${run}${emph}}${escapeAssText(w)}${reset}`;
+                })
+                .join(" "),
+            )
+            .join(" \\N ");
+        } else {
+          text = casedWords.map((lw) => lw.map((w) => escapeAssText(w)).join(" ")).join(" \\N ");
+        }
       } else {
-        text = cased.map((l) => escapeAssText(l)).join(" \\N ");
+        // V2 path — byte-identical (uses the caption's own lineBreaks, no emphasis).
+        const raw = c.lineBreaks.length > 0 ? c.lineBreaks : [c.text];
+        const lines = raw.length <= 2 ? raw : [raw[0], raw.slice(1).join(" ")];
+        const cased = lines.map((l) => applyCase(l, preset.case));
+        if (preset.karaoke) {
+          const perLineWords = cased.map((l) => l.split(/\s+/).filter(Boolean));
+          const flat = perLineWords.flat();
+          const runs = karaokeRuns(flat, c.startMs, c.endMs);
+          const kTag = preset.karaokeFill ? "kf" : "k"; // smooth fill vs instant
+          let k = 0;
+          text = perLineWords
+            .map((lw) => lw.map((w) => `{\\${kTag}${runs[k++]}}${escapeAssText(w)}`).join(" "))
+            .join(" \\N ");
+        } else {
+          text = cased.map((l) => escapeAssText(l)).join(" \\N ");
+        }
       }
       return `Dialogue: 0,${fmt(c.startMs)},${fmt(c.endMs)},Caption,,0,0,0,,{${entrance}}${text}`;
     })
