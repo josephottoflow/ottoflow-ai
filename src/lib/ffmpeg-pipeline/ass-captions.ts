@@ -203,12 +203,15 @@ interface AnimatedPreset {
   /** Letter spacing (px) — a touch improves premium legibility on busy footage.
    * Optional; omitted = 0 (unchanged). */
   spacing?: number;
+  /** Active-word emphasis: true = smooth left→right fill (\kf, polished);
+   * false/omitted = instant per-word highlight (\k, punchy). Timing identical. */
+  karaokeFill?: boolean;
 }
 
 const ANIMATED_PRESETS: Record<CoreCaptionPreset, AnimatedPreset> = {
   // Neutral, close to Legacy: white active, dim-grey unsung, gentle pop + karaoke.
   // V2: slightly stronger stroke/shadow for readability on busy Seedance footage + a touch of spacing.
-  classic:      { font: "DejaVu Sans", sizePct: 74 / PLAY_RES_Y, bold: 1, primary: "#FFFFFF", secondary: "#B0B0B0", outlinePx: 5, shadowPx: 3, boxOpacity: 0, blur: 0, fadeInMs: 150, fadeOutMs: 150, popFromPct: 108, popMs: 160, karaoke: true,  case: "sentence", spacing: 0.5 },
+  classic:      { font: "DejaVu Sans", sizePct: 74 / PLAY_RES_Y, bold: 1, primary: "#FFFFFF", secondary: "#B0B0B0", outlinePx: 5, shadowPx: 3, boxOpacity: 0, blur: 0, fadeInMs: 150, fadeOutMs: 150, popFromPct: 108, popMs: 160, karaoke: true,  case: "sentence", spacing: 0.5, karaokeFill: true },
   // Punchy creator ("Hormozi") look: UPPERCASE, large, bold, yellow active word, thick stroke + subtle glow + pronounced pop.
   // V2: thicker stroke + heavier shadow for max legibility, tighter fades, letter spacing for punch.
   bold_creator: { font: "DejaVu Sans", sizePct: 100 / PLAY_RES_Y, bold: 1, primary: "#FFD400", secondary: "#FFFFFF", outlinePx: 7, shadowPx: 5, boxOpacity: 0, blur: 1, fadeInMs: 70,  fadeOutMs: 90,  popFromPct: 120, popMs: 190, karaoke: true,  case: "upper", spacing: 1.5 },
@@ -216,7 +219,7 @@ const ANIMATED_PRESETS: Record<CoreCaptionPreset, AnimatedPreset> = {
   minimal:      { font: "DejaVu Sans", sizePct: 64 / PLAY_RES_Y, bold: 0, primary: "#FFFFFF", secondary: "#FFFFFF", outlinePx: 2, shadowPx: 1, boxOpacity: 0, blur: 0, fadeInMs: 220, fadeOutMs: 200, popFromPct: 100, popMs: 0,   karaoke: false, case: "sentence", spacing: 0 },
   // Polished/professional: sentence case, bold, white active from a cool-grey unsung, moderate stroke, subtle pop.
   // V2: a bit larger + stronger stroke for premium commercial feel.
-  corporate:    { font: "DejaVu Sans", sizePct: 76 / PLAY_RES_Y, bold: 1, primary: "#FFFFFF", secondary: "#9FB6C4", outlinePx: 4, shadowPx: 3, boxOpacity: 0, blur: 0, fadeInMs: 180, fadeOutMs: 160, popFromPct: 105, popMs: 180, karaoke: true,  case: "sentence", spacing: 0.5 },
+  corporate:    { font: "DejaVu Sans", sizePct: 76 / PLAY_RES_Y, bold: 1, primary: "#FFFFFF", secondary: "#9FB6C4", outlinePx: 4, shadowPx: 3, boxOpacity: 0, blur: 0, fadeInMs: 180, fadeOutMs: 160, popFromPct: 105, popMs: 180, karaoke: true,  case: "sentence", spacing: 0.5, karaokeFill: true },
 };
 
 /** CAPTION_ENGINE flag → "static" (Legacy default) | "animated". */
@@ -310,9 +313,10 @@ export function renderAnimatedAss(
         const perLineWords = cased.map((l) => l.split(/\s+/).filter(Boolean));
         const flat = perLineWords.flat();
         const runs = karaokeRuns(flat, c.startMs, c.endMs);
+        const kTag = preset.karaokeFill ? "kf" : "k"; // smooth fill vs instant
         let k = 0;
         text = perLineWords
-          .map((lw) => lw.map((w) => `{\\k${runs[k++]}}${escapeAssText(w)}`).join(" "))
+          .map((lw) => lw.map((w) => `{\\${kTag}${runs[k++]}}${escapeAssText(w)}`).join(" "))
           .join(" \\N ");
       } else {
         text = cased.map((l) => escapeAssText(l)).join(" \\N ");
