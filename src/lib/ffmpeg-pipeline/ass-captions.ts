@@ -13,6 +13,7 @@
  * in the FFmpeg filter chain.
  */
 import type { TimedCaption } from "./types";
+import { resolveRenderFlags } from "./render-profile";
 
 // ─── Style header ──────────────────────────────────────────────────────────
 // Numbers are ASS conventions:
@@ -222,18 +223,24 @@ const ANIMATED_PRESETS: Record<CoreCaptionPreset, AnimatedPreset> = {
   corporate:    { font: "DejaVu Sans", sizePct: 76 / PLAY_RES_Y, bold: 1, primary: "#FFFFFF", secondary: "#9FB6C4", outlinePx: 4, shadowPx: 3, boxOpacity: 0, blur: 0, fadeInMs: 180, fadeOutMs: 160, popFromPct: 105, popMs: 180, karaoke: true,  case: "sentence", spacing: 0.5, karaokeFill: true },
 };
 
-/** CAPTION_ENGINE flag → "static" (Legacy default) | "animated". */
+/** Caption engine → "static" (Legacy default) | "animated". CAPTION_ENGINE wins
+ * (explicit "static"/"animated"); when unset, the active Render Profile decides
+ * (modern_* → animated). Unset everywhere → static (byte-identical Legacy). */
 function resolveCaptionEngine(): "static" | "animated" {
-  return (process.env.CAPTION_ENGINE ?? "").trim().toLowerCase() === "animated" ? "animated" : "static";
+  const explicit = (process.env.CAPTION_ENGINE ?? "").trim().toLowerCase();
+  if (explicit === "animated") return "animated";
+  if (explicit === "static") return "static";
+  return resolveRenderFlags().captionEngine;
 }
 
-/** CAPTION_STYLE flag → a core preset. Unknown/unset → "classic". Accepts
- * spacing/hyphen variants ("Bold Creator", "bold-creator" → "bold_creator"). */
+/** Caption preset. CAPTION_STYLE wins; else the Render Profile's captionStyle;
+ * else "classic". Accepts spacing/hyphen variants ("Bold Creator" → "bold_creator"). */
 function resolveCaptionStyle(): CoreCaptionPreset {
+  const CORE = ["classic", "bold_creator", "minimal", "corporate"] as const;
   const s = (process.env.CAPTION_STYLE ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_");
-  return (["classic", "bold_creator", "minimal", "corporate"] as const).includes(s as CoreCaptionPreset)
-    ? (s as CoreCaptionPreset)
-    : "classic";
+  if (CORE.includes(s as CoreCaptionPreset)) return s as CoreCaptionPreset;
+  const fromProfile = resolveRenderFlags().captionStyle;
+  return CORE.includes(fromProfile as CoreCaptionPreset) ? (fromProfile as CoreCaptionPreset) : "classic";
 }
 
 /**

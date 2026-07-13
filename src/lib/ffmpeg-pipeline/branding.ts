@@ -12,6 +12,7 @@
 // transitively imports this file via orchestrator → agent 11. sharp only ever
 // runs in the worker, so a dynamic import keeps it out of the Vercel import graph.
 import { createAdminClient } from "@/lib/supabase";
+import { resolveRenderFlags } from "./render-profile";
 
 export interface VideoPalette {
   primary?: string | null;
@@ -125,9 +126,10 @@ export async function renderCtaCard(input: CtaCardInput): Promise<Buffer> {
   // vignette + an accent glow behind the CTA + subtle letter-spacing. Default
   // (classic/unset) emits NONE of these, so the rendered PNG is byte-identical
   // to today. Rollback is a single flag. No new dependency (same sharp+SVG).
-  const premiumEnd = ["premium", "animated", "v2", "modern"].includes(
-    (process.env.END_SCREEN_MODE ?? "").trim().toLowerCase(),
-  );
+  const endMode = (process.env.END_SCREEN_MODE ?? "").trim().toLowerCase();
+  const premiumEnd =
+    ["premium", "animated", "v2", "modern"].includes(endMode) ||
+    (endMode === "" && resolveRenderFlags().endScreenMode === "animated");
   const ls = premiumEnd ? ` letter-spacing="${Math.round(ctaFont * 0.02)}"` : "";
   const brandLs = premiumEnd ? ` letter-spacing="${Math.round(brandFont * 0.06)}"` : "";
   const premiumDefs = premiumEnd

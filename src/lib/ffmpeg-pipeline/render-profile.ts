@@ -36,6 +36,8 @@ export interface ResolvedRenderFlags {
   profile: RenderProfile;
   /** static = the existing renderAss() generator (Legacy). */
   captionEngine: "static" | "animated";
+  /** Animated-caption preset when captionEngine = "animated". Ignored for static. */
+  captionStyle: "classic" | "bold_creator" | "minimal" | "corporate";
   /** v1 = the existing sidechain+limiter audio mix (Legacy). */
   audioMixProfile: "v1" | "v2";
   /** classic = the existing static renderCtaCard end card (Legacy). */
@@ -46,6 +48,7 @@ export interface ResolvedRenderFlags {
  * must keep its Legacy default so absent/older renders never change. */
 export const LEGACY_FLAGS: Readonly<Omit<ResolvedRenderFlags, "profile">> = {
   captionEngine: "static",
+  captionStyle: "classic",
   audioMixProfile: "v1",
   endScreenMode: "classic",
 } as const;
@@ -53,15 +56,41 @@ export const LEGACY_FLAGS: Readonly<Omit<ResolvedRenderFlags, "profile">> = {
 /**
  * Profile → flags mapping.
  *
- * Sprint A: EVERY profile maps to LEGACY_FLAGS (no modern implementation exists
- * yet, so nothing new may execute). Future sprints replace individual entries,
- * e.g. Sprint B sets modern_v1.captionEngine = "animated".
+ * legacy       → the certified byte-identical production behaviour (default).
+ * modern_v1    → Video Quality V2: animated captions (professional "corporate"
+ *                preset), broadcast audio master (v2), premium end screen. The
+ *                recommended premium profile.
+ * modern_v2    → same modern stack with the punchy "bold_creator" caption look.
+ * experimental → tracks modern_v2 (bleeding edge; may change).
+ *
+ * Each modern flag is individually gated + fail-safe in its consumer (captions
+ * fall back to Legacy on any error; audio/end-screen default to Legacy strings),
+ * so selecting a modern profile can only ADD the opt-in presentation layer — it
+ * never alters scene generation, stitching, retries, upload, or the pipeline.
  */
 const PROFILE_FLAGS: Record<RenderProfile, ResolvedRenderFlags> = {
   legacy: { profile: "legacy", ...LEGACY_FLAGS },
-  modern_v1: { profile: "modern_v1", ...LEGACY_FLAGS },
-  modern_v2: { profile: "modern_v2", ...LEGACY_FLAGS },
-  experimental: { profile: "experimental", ...LEGACY_FLAGS },
+  modern_v1: {
+    profile: "modern_v1",
+    captionEngine: "animated",
+    captionStyle: "corporate",
+    audioMixProfile: "v2",
+    endScreenMode: "animated",
+  },
+  modern_v2: {
+    profile: "modern_v2",
+    captionEngine: "animated",
+    captionStyle: "bold_creator",
+    audioMixProfile: "v2",
+    endScreenMode: "animated",
+  },
+  experimental: {
+    profile: "experimental",
+    captionEngine: "animated",
+    captionStyle: "bold_creator",
+    audioMixProfile: "v2",
+    endScreenMode: "animated",
+  },
 };
 
 /** Coerce an arbitrary value to a known RenderProfile, or null. Accepts

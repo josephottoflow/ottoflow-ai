@@ -28,6 +28,7 @@
 import { promises as fs } from "node:fs";
 import { spawn } from "node:child_process";
 import { renderAss, type CaptionStyle } from "./ass-captions";
+import { resolveRenderFlags } from "./render-profile";
 import type {
   CompositionPlan,
   EditDecision,
@@ -319,9 +320,10 @@ export function buildFinalizeArgv(i: FinalizeArgvInput): string[] {
   // the social-platform target) so every export lands at a consistent premium
   // loudness, and softens the sidechain (threshold 0.05→0.04, release 250→300)
   // for a cleaner voice-over-music recovery. Same FFmpeg, no new dependency.
-  const audioMixV2 = ["v2", "modern", "premium"].includes(
-    (process.env.AUDIO_MIX_PROFILE ?? "").trim().toLowerCase(),
-  );
+  const mixMode = (process.env.AUDIO_MIX_PROFILE ?? "").trim().toLowerCase();
+  const audioMixV2 =
+    ["v2", "modern", "premium"].includes(mixMode) ||
+    (mixMode === "" && resolveRenderFlags().audioMixProfile === "v2");
   const MASTER = audioMixV2 ? ",loudnorm=I=-14:TP=-1.5:LRA=11" : "";
   const duck = audioMixV2
     ? "sidechaincompress=threshold=0.04:ratio=8:attack=20:release=300"
