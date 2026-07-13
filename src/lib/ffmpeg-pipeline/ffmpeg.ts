@@ -313,6 +313,19 @@ export function buildFinalizeArgv(i: FinalizeArgvInput): string[] {
     "silenceremove=start_periods=1:start_threshold=-45dB," +
     "areverse,silenceremove=start_periods=1:start_threshold=-30dB,areverse," +
     "aloop=loop=-1:size=2147483647";
+  // Audio Mix V2 (AUDIO_MIX_PROFILE): broadcast mastering + a touch smoother
+  // ducking. Default (unset/v1) emits the EXACT legacy graph below (byte-
+  // identical, certified). v2 appends loudnorm (EBU R128 −14 LUFS / −1.5 dBTP,
+  // the social-platform target) so every export lands at a consistent premium
+  // loudness, and softens the sidechain (threshold 0.05→0.04, release 250→300)
+  // for a cleaner voice-over-music recovery. Same FFmpeg, no new dependency.
+  const audioMixV2 = ["v2", "modern", "premium"].includes(
+    (process.env.AUDIO_MIX_PROFILE ?? "").trim().toLowerCase(),
+  );
+  const MASTER = audioMixV2 ? ",loudnorm=I=-14:TP=-1.5:LRA=11" : "";
+  const duck = audioMixV2
+    ? "sidechaincompress=threshold=0.04:ratio=8:attack=20:release=300"
+    : "sidechaincompress=threshold=0.05:ratio=8:attack=20:release=250";
   let audioFilter: string | null = null;
   let audioOut: string | null = null;
   if (narrIdx >= 0 && musIdx >= 0) {
@@ -326,14 +339,14 @@ export function buildFinalizeArgv(i: FinalizeArgvInput): string[] {
     audioFilter =
       `[${narrIdx}:a]${norm},volume=1.0,apad,asplit=2[narr_main][narr_key];` +
       `[${musIdx}:a]${norm},${MUSIC_LOOP_PREP},volume=${musicLinear.toFixed(3)},${musicFades}[mus];` +
-      `[mus][narr_key]sidechaincompress=threshold=0.05:ratio=8:attack=20:release=250[ducked];` +
-      `[narr_main][ducked]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95[aout]`;
+      `[mus][narr_key]${duck}[ducked];` +
+      `[narr_main][ducked]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.95${MASTER}[aout]`;
     audioOut = "[aout]";
   } else if (narrIdx >= 0) {
-    audioFilter = `[${narrIdx}:a]${norm},volume=1.0[aout]`;
+    audioFilter = `[${narrIdx}:a]${norm},volume=1.0${MASTER}[aout]`;
     audioOut = "[aout]";
   } else if (musIdx >= 0) {
-    audioFilter = `[${musIdx}:a]${norm},${MUSIC_LOOP_PREP},volume=1.0,${musicFades}[aout]`;
+    audioFilter = `[${musIdx}:a]${norm},${MUSIC_LOOP_PREP},volume=1.0,${musicFades}${MASTER}[aout]`;
     audioOut = "[aout]";
   }
   // else: no audio inputs → silent video (no audio map / codec).
