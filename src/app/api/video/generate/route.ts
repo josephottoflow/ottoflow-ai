@@ -148,6 +148,11 @@ const Schema = z.object({
   approve: z.boolean().optional().default(false),
   /** Optional: reuse a dryRun's strategy on approve (prevents preview/cost drift). */
   strategy: StrategySchema.optional(),
+  /** Video Quality V2 — OPTIONAL per-render presentation profile. Absent →
+   * "legacy" (the certified production default). Modern is strictly opt-in per
+   * render; there is NO global default. Legacy output stays byte-identical, so
+   * Modern can never regress an existing render. */
+  renderProfile: z.enum(["legacy", "modern_v1", "modern_v2", "experimental"]).optional(),
 });
 
 const RATE_LIMIT = { limit: 20, windowSeconds: 60 * 60 } as const; // 20/hr
@@ -472,12 +477,12 @@ export async function POST(req: NextRequest) {
           source,
           branding,
           musicUrl,
-          // Sprint 60 / Sprint A — persist the resolved Render Profile so a
-          // re-render (Replace Visual) reproduces the same presentation. On a
-          // fresh job there's no incoming profile → RENDER_PROFILE_DEFAULT env
-          // → "legacy". Foundation only: nothing consumes it yet, so behaviour
-          // is unchanged.
-          renderProfile: resolveRenderProfile(),
+          // Video Quality V2 — persist the per-render Render Profile so the
+          // compose worker resolves presentation flags per job and a re-render
+          // (Replace Visual) reproduces the same look. The caller chooses it
+          // explicitly (Legacy / Modern V1 / Modern V2); absent → "legacy" (the
+          // certified default). Modern is opt-in per render — never global.
+          renderProfile: resolveRenderProfile(parsed.data.renderProfile),
         } as unknown as Record<string, unknown>,
       })
       .select("id")

@@ -36,6 +36,7 @@ import type {
   CompositionResult,
   QCReport,
 } from "@/lib/ffmpeg-pipeline/types";
+import { normalizeProfile } from "@/lib/ffmpeg-pipeline/render-profile";
 import { runFfmpegComposer } from "@/lib/ffmpeg-pipeline/agents/11-ffmpeg-composer";
 import { runQualityControl } from "@/lib/ffmpeg-pipeline/agents/12-quality-control";
 import { runCaptionCompression } from "@/lib/ffmpeg-pipeline/agents/08-caption-compression";
@@ -208,6 +209,31 @@ export async function processFfmpegCompose(
 ): Promise<{ ok: true; mergedUrl: string; qcScore: number }> {
   const admin = createAdminClient();
   let plan = data.plan;
+
+  // Video Quality V2 — resolve the per-render presentation profile from
+  // render_context (set at job creation by the generate route). Populated HERE,
+  // not in the frozen Agents 1-10 plan, so presentation flags resolve per job
+  // with zero change to scene generation. Absent/older jobs / invalid value →
+  // renderProfile stays undefined → Legacy (byte-identical). Never global.
+  if (!plan.renderProfile) {
+    try {
+      const { data: jobRow } = await admin
+        .from("render_jobs")
+        .select("render_context")
+        .eq("id", plan.renderJobId)
+        .maybeSingle();
+      const rc = jobRow?.render_context as { renderProfile?: unknown } | null;
+      const rp = normalizeProfile(rc?.renderProfile ?? null);
+      if (rp) plan = { ...plan, renderProfile: rp };
+    } catch (err) {
+      // Best-effort: a lookup failure must never break a render — fall through
+      // to Legacy (undefined profile). Presentation is advisory, not critical.
+      captureFallback("ffmpeg-compose.render_profile_lookup_failed", err, {
+        renderJobId: plan.renderJobId,
+      });
+    }
+  }
+
   const ctx = makeCtx(plan, report);
 
   const workDir = path.join(tmpdir(), `compose-${plan.renderJobId}-${randomUUID()}`);
