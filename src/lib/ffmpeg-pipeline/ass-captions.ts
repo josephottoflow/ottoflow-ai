@@ -200,17 +200,23 @@ interface AnimatedPreset {
   /** Emit per-word \k karaoke (false = clean fade only). */
   karaoke: boolean;
   case: CaptionStyle["case"];
+  /** Letter spacing (px) — a touch improves premium legibility on busy footage.
+   * Optional; omitted = 0 (unchanged). */
+  spacing?: number;
 }
 
 const ANIMATED_PRESETS: Record<CoreCaptionPreset, AnimatedPreset> = {
   // Neutral, close to Legacy: white active, dim-grey unsung, gentle pop + karaoke.
-  classic:      { font: "DejaVu Sans", sizePct: 72 / PLAY_RES_Y, bold: 1, primary: "#FFFFFF", secondary: "#B8B8B8", outlinePx: 4, shadowPx: 3, boxOpacity: 0, blur: 0, fadeInMs: 150, fadeOutMs: 150, popFromPct: 106, popMs: 160, karaoke: true,  case: "sentence" },
-  // Punchy creator look: UPPERCASE, large, bold, yellow active word, strong stroke + subtle glow + pronounced pop.
-  bold_creator: { font: "DejaVu Sans", sizePct: 96 / PLAY_RES_Y, bold: 1, primary: "#FFD400", secondary: "#FFFFFF", outlinePx: 6, shadowPx: 4, boxOpacity: 0, blur: 1, fadeInMs: 80,  fadeOutMs: 100, popFromPct: 118, popMs: 200, karaoke: true,  case: "upper" },
-  // Restrained: smaller, no bold, thin stroke, clean fade only (no karaoke, no pop).
-  minimal:      { font: "DejaVu Sans", sizePct: 64 / PLAY_RES_Y, bold: 0, primary: "#FFFFFF", secondary: "#FFFFFF", outlinePx: 2, shadowPx: 1, boxOpacity: 0, blur: 0, fadeInMs: 220, fadeOutMs: 200, popFromPct: 100, popMs: 0,   karaoke: false, case: "sentence" },
+  // V2: slightly stronger stroke/shadow for readability on busy Seedance footage + a touch of spacing.
+  classic:      { font: "DejaVu Sans", sizePct: 74 / PLAY_RES_Y, bold: 1, primary: "#FFFFFF", secondary: "#B0B0B0", outlinePx: 5, shadowPx: 3, boxOpacity: 0, blur: 0, fadeInMs: 150, fadeOutMs: 150, popFromPct: 108, popMs: 160, karaoke: true,  case: "sentence", spacing: 0.5 },
+  // Punchy creator ("Hormozi") look: UPPERCASE, large, bold, yellow active word, thick stroke + subtle glow + pronounced pop.
+  // V2: thicker stroke + heavier shadow for max legibility, tighter fades, letter spacing for punch.
+  bold_creator: { font: "DejaVu Sans", sizePct: 100 / PLAY_RES_Y, bold: 1, primary: "#FFD400", secondary: "#FFFFFF", outlinePx: 7, shadowPx: 5, boxOpacity: 0, blur: 1, fadeInMs: 70,  fadeOutMs: 90,  popFromPct: 120, popMs: 190, karaoke: true,  case: "upper", spacing: 1.5 },
+  // Restrained: smaller, no bold, thin stroke, clean fade only (no karaoke, no pop). Kept deliberately clean.
+  minimal:      { font: "DejaVu Sans", sizePct: 64 / PLAY_RES_Y, bold: 0, primary: "#FFFFFF", secondary: "#FFFFFF", outlinePx: 2, shadowPx: 1, boxOpacity: 0, blur: 0, fadeInMs: 220, fadeOutMs: 200, popFromPct: 100, popMs: 0,   karaoke: false, case: "sentence", spacing: 0 },
   // Polished/professional: sentence case, bold, white active from a cool-grey unsung, moderate stroke, subtle pop.
-  corporate:    { font: "DejaVu Sans", sizePct: 74 / PLAY_RES_Y, bold: 1, primary: "#FFFFFF", secondary: "#9FB6C4", outlinePx: 3, shadowPx: 2, boxOpacity: 0, blur: 0, fadeInMs: 180, fadeOutMs: 160, popFromPct: 104, popMs: 180, karaoke: true,  case: "sentence" },
+  // V2: a bit larger + stronger stroke for premium commercial feel.
+  corporate:    { font: "DejaVu Sans", sizePct: 76 / PLAY_RES_Y, bold: 1, primary: "#FFFFFF", secondary: "#9FB6C4", outlinePx: 4, shadowPx: 3, boxOpacity: 0, blur: 0, fadeInMs: 180, fadeOutMs: 160, popFromPct: 105, popMs: 180, karaoke: true,  case: "sentence", spacing: 0.5 },
 };
 
 /** CAPTION_ENGINE flag → "static" (Legacy default) | "animated". */
@@ -263,7 +269,7 @@ YCbCr Matrix: TV.709
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Caption,${p.font},${size},${primary},${secondary},&H00000000,${back},${p.bold},0,0,0,100,100,0,0,1,${p.outlinePx},${p.shadowPx},5,80,80,${marginV},1
+Style: Caption,${p.font},${size},${primary},${secondary},&H00000000,${back},${p.bold},0,0,0,100,100,${p.spacing ?? 0},0,1,${p.outlinePx},${p.shadowPx},5,120,120,${marginV},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
