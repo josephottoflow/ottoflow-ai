@@ -255,6 +255,11 @@ export function VideoConfigModal({
   const [source, setSource] = useState<SourceId>("ai");
   const [mode, setMode] = useState<string>("commercial_story");
   const [quality, setQuality] = useState<Quality>("best");
+  // Video Quality V2 — per-render presentation profile (opt-in). Legacy is the
+  // certified default; Modern is chosen explicitly for A/B comparison. Absent
+  // from the payload unless the user selects Modern, so default renders are
+  // byte-identical Legacy.
+  const [renderProfile, setRenderProfile] = useState<"legacy" | "modern_v1" | "modern_v2">("legacy");
   const [openSec, setOpenSec] = useState<Record<string, boolean>>({});
   const toggle = (k: string) => setOpenSec((o) => ({ ...o, [k]: !o[k] }));
 
@@ -304,9 +309,11 @@ export function VideoConfigModal({
       // Sprint 31.1 — send the chosen visual source so "pexels" routes to the
       // stock-first pipeline (no AI/Seedance cost). Only ai/pexels are selectable.
       source: source === "pexels" ? "pexels" : "ai",
+      // Only send when Modern is chosen; absent → Legacy (byte-identical default).
+      ...(renderProfile !== "legacy" ? { renderProfile } : {}),
       ...(duration !== "auto" ? { durationSec: Number(duration) } : {}), ...extra,
     }),
-    [brandId, contentItemId, platform, aspect, resolution, quality, mode, duration, source],
+    [brandId, contentItemId, platform, aspect, resolution, quality, mode, duration, source, renderProfile],
   );
 
   useEffect(() => {
@@ -797,7 +804,7 @@ export function VideoConfigModal({
                   <span className={c.ok ? "text-white/60" : "text-red-400"}>{c.ok ? "✓" : "✗"} {c.actual} · needs {c.rule}</span></div>))}</div>
             </Section>
 
-            <Section open={!!openSec["advanced"]} onToggle={() => toggle("advanced")} title="Advanced Settings" hint="resolution · quality">
+            <Section open={!!openSec["advanced"]} onToggle={() => toggle("advanced")} title="Advanced Settings" hint="resolution · quality · style">
               <div className="grid grid-cols-2 gap-3">
                 <div><label className="text-3xs text-white/45">Resolution</label>
                   <select className={`${selCls} mt-0.5`} value={resolution} onChange={(e) => setResolution(e.target.value as Resolution)}>
@@ -806,6 +813,14 @@ export function VideoConfigModal({
                   <select className={`${selCls} mt-0.5`} value={quality} onChange={(e) => setQuality(e.target.value as Quality)}>
                     <option value="best">Best (Recommended)</option><option value="balanced" disabled>Balanced · Soon</option><option value="fast" disabled>Fast · Soon</option></select></div>
               </div>
+              {/* Video Quality V2 — per-render presentation profile (opt-in A/B). */}
+              <div className="mt-3"><label className="text-3xs text-white/45">Render Style</label>
+                <select className={`${selCls} mt-0.5`} value={renderProfile} onChange={(e) => setRenderProfile(e.target.value as "legacy" | "modern_v1" | "modern_v2")}>
+                  <option value="legacy">Legacy · Certified default</option>
+                  <option value="modern_v1">Modern V1 · Premium (professional captions)</option>
+                  <option value="modern_v2">Modern V2 · Premium (bold creator captions)</option>
+                </select>
+                <p className="text-3xs text-white/40 mt-0.5">Modern is opt-in for side-by-side comparison. Legacy remains the production default.</p></div>
             </Section>
 
             {/* ── Premium checkout (always open) ── */}
