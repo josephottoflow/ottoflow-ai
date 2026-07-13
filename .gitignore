@@ -60,3 +60,4 @@ spike-output.mp4
 # ─── Claude Code local artifacts ─────────────────────────────────────────────
 .claude/logs/
 .claude/settings.local.json
+.vercel
