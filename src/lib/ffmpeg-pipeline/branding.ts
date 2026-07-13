@@ -121,10 +121,36 @@ export async function renderCtaCard(input: CtaCardInput): Promise<Buffer> {
   const underlineH = Math.max(4, Math.round(width * 0.012));
   const brandBaseline = underlineY + underlineH + brandFont + Math.round(height * 0.012);
 
+  // End Screen V2 (END_SCREEN_MODE): additive cinematic depth — a soft radial
+  // vignette + an accent glow behind the CTA + subtle letter-spacing. Default
+  // (classic/unset) emits NONE of these, so the rendered PNG is byte-identical
+  // to today. Rollback is a single flag. No new dependency (same sharp+SVG).
+  const premiumEnd = ["premium", "animated", "v2", "modern"].includes(
+    (process.env.END_SCREEN_MODE ?? "").trim().toLowerCase(),
+  );
+  const ls = premiumEnd ? ` letter-spacing="${Math.round(ctaFont * 0.02)}"` : "";
+  const brandLs = premiumEnd ? ` letter-spacing="${Math.round(brandFont * 0.06)}"` : "";
+  const premiumDefs = premiumEnd
+    ? `<radialGradient id="vig" cx="50%" cy="42%" r="75%">
+      <stop offset="55%" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.45"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="60%">
+      <stop offset="0%" stop-color="${accent}" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="${accent}" stop-opacity="0"/>
+    </radialGradient>`
+    : "";
+  const premiumGlow = premiumEnd
+    ? `<ellipse cx="${cx}" cy="${Math.round(height * 0.5)}" rx="${Math.round(width * 0.42)}" ry="${Math.round(blockHeight * 0.9 + ctaFont)}" fill="url(#glow)"/>`
+    : "";
+  const premiumVignette = premiumEnd
+    ? `<rect width="${width}" height="${height}" fill="url(#vig)"/>`
+    : "";
+
   const ctaLines = lines
     .map(
       (ln, i) =>
-        `<text x="${cx}" y="${firstBaseline + i * lineHeight}" font-family="Arial, Helvetica, sans-serif" font-size="${ctaFont}" font-weight="700" fill="#ffffff" text-anchor="middle">${esc(ln)}</text>`,
+        `<text x="${cx}" y="${firstBaseline + i * lineHeight}" font-family="Arial, Helvetica, sans-serif" font-size="${ctaFont}" font-weight="700" fill="#ffffff" text-anchor="middle"${ls}>${esc(ln)}</text>`,
     )
     .join("\n  ");
 
@@ -139,11 +165,14 @@ export async function renderCtaCard(input: CtaCardInput): Promise<Buffer> {
       <stop offset="50%" stop-color="${accent}" stop-opacity="0.9"/>
       <stop offset="100%" stop-color="${accent}" stop-opacity="0"/>
     </linearGradient>
+    ${premiumDefs}
   </defs>
   <rect width="${width}" height="${height}" fill="url(#bg)"/>
+  ${premiumGlow}
   ${ctaLines}
   <rect x="${cx - width * 0.2}" y="${underlineY}" width="${width * 0.4}" height="${underlineH}" fill="url(#ul)"/>
-  ${brand ? `<text x="${cx}" y="${brandBaseline}" font-family="Arial, Helvetica, sans-serif" font-size="${brandFont}" font-weight="500" fill="#e2e8f0" text-anchor="middle" opacity="0.85">${brand}</text>` : ""}
+  ${brand ? `<text x="${cx}" y="${brandBaseline}" font-family="Arial, Helvetica, sans-serif" font-size="${brandFont}" font-weight="500" fill="#e2e8f0" text-anchor="middle" opacity="0.85"${brandLs}>${brand}</text>` : ""}
+  ${premiumVignette}
 </svg>`;
 
   let img = sharp(Buffer.from(svg)).png();
