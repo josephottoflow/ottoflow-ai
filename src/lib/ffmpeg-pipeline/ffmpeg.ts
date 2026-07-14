@@ -25,10 +25,34 @@
  *     (which would otherwise spawn one thread per host CPU — 32+) does not
  *     blow the RAM cap.
  */
-import { promises as fs } from "node:fs";
+import { promises as fs, existsSync } from "node:fs";
+import { join as pathJoin } from "node:path";
 import { spawn } from "node:child_process";
 import { renderAss, type CaptionStyle } from "./ass-captions";
 import { resolveRenderFlagsForJob } from "./render-profile";
+
+/**
+ * V3 Phase 3 — locate the bundled premium fonts (assets/fonts) for libass
+ * `fontsdir`. Existence-checked over candidate roots so it NEVER throws; returns
+ * null when not found → the caption renders in DejaVu (graceful fallback, always
+ * readable). Only used for Modern (animated) renders; Legacy passes null.
+ */
+function resolveFontsDir(): string | null {
+  const marker = "Sora-Bold.ttf";
+  const candidates = [
+    pathJoin(process.cwd(), "assets", "fonts"),
+    pathJoin(process.cwd(), "ottoflow-ai", "assets", "fonts"),
+    pathJoin(__dirname, "..", "..", "..", "assets", "fonts"),
+  ];
+  for (const c of candidates) {
+    try {
+      if (existsSync(pathJoin(c, marker))) return c;
+    } catch {
+      /* ignore and try next */
+    }
+  }
+  return null;
+}
 import type {
   CompositionPlan,
   EditDecision,
@@ -202,6 +226,9 @@ export interface FinalizeArgvInput {
    * (loudnorm + smoother duck); false/undefined = Legacy graph (byte-identical).
    * Passed EXPLICITLY per render by composeMultiPass — no global default. */
   audioMixV2?: boolean;
+  /** V3 Phase 3 — bundled premium-font directory for libass `fontsdir` (Modern
+   * only). null/undefined → not added → Legacy byte-identical (DejaVu). */
+  fontsDir?: string | null;
 }
 
 // ─── Sprint 45 (Audio Timing): assemble per-scene narration on one timeline ──
@@ -276,6 +303,11 @@ export function buildFinalizeArgv(i: FinalizeArgvInput): string[] {
   }
 
   // ─── Video: burn captions, then (optional) overlay the logo bottom-right ──
+  // V3 Phase 3: add libass `fontsdir` ONLY when a Modern render supplies it, so
+  // the ass-filter string (and thus the output) is byte-identical for Legacy.
+  const assFilter = `ass='${escapeFilterPath(i.assPath)}'${
+    i.fontsDir ? `:fontsdir='${escapeFilterPath(i.fontsDir)}'` : ""
+  }`;
   let videoFilter: string;
   if (logoIdx >= 0) {
     // Size the logo to the SHORT edge so it occupies a consistent fraction of
@@ -287,11 +319,11 @@ export function buildFinalizeArgv(i: FinalizeArgvInput): string[] {
     const marginX = Math.round(i.width * 0.05);
     const marginY = Math.round(i.height * 0.04);
     videoFilter =
-      `[0:v]ass='${escapeFilterPath(i.assPath)}'[base];` +
+      `[0:v]${assFilter}[base];` +
       `[${logoIdx}:v]scale=${logoW}:-1[lg];` +
       `[base][lg]overlay=W-w-${marginX}:H-h-${marginY}:shortest=1[vout]`;
   } else {
-    videoFilter = `[0:v]ass='${escapeFilterPath(i.assPath)}'[vout]`;
+    videoFilter = `[0:v]${assFilter}[vout]`;
   }
 
   // ─── Audio: narration full; music side-chain ducked when both present;
@@ -625,6 +657,8 @@ export async function composeMultiPass(input: MultiPassInput): Promise<void> {
       durationSec: plan.output.durationMs / 1000 + extraDurationSec,
       outputPath: input.outputPath,
       audioMixV2: renderFlags.audioMixProfile === "v2",
+      // Premium fonts only when captions are animated (Modern); Legacy → null.
+      fontsDir: renderFlags.captionEngine === "animated" ? resolveFontsDir() : null,
     }),
     "finalize",
   );
