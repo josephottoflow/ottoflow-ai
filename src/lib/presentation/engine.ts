@@ -34,13 +34,17 @@ export function initModel(input: PresentationInput): PresentationModel {
       startMs: c.startMs,
       endMs: c.endMs,
       sourceText: c.text,
-      keyword: null,
+      keywordByLine: undefined,
     };
   });
   return {
     frame: input.frame,
     accentColor: input.accentColor,
     captionStyle: input.captionStyle,
+    config: {
+      maxWordsPerLine: input.config?.maxWordsPerLine ?? 3,
+      smartGroup: input.config?.smartGroup ?? false,
+    },
     beats,
   };
 }

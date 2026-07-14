@@ -14,6 +14,7 @@
  */
 import type { TimedCaption } from "./types";
 import { FONT } from "./typography";
+import { runPresentationEngine } from "../presentation";
 
 // ─── Style header ──────────────────────────────────────────────────────────
 // Numbers are ASS conventions:
@@ -431,8 +432,26 @@ export function renderAnimatedAss(
 ): string {
   const width = dims?.width ?? 1080;
   const height = dims?.height ?? 1920;
+
+  // V4 Presentation Engine — for smart presets, source grouping + keyword from the
+  // engine (upgraded emphasis lexicon + overflow). Fail-safe: any error → null →
+  // the inline V3 helpers below still run. Legacy/non-smart presets never call it.
+  let engineBeats: ReturnType<typeof runPresentationEngine>["model"]["beats"] | null = null;
+  if (preset.smartGroup) {
+    try {
+      engineBeats = runPresentationEngine({
+        captions,
+        frame: { width, height },
+        accentColor,
+        config: { smartGroup: true, maxWordsPerLine: preset.maxWordsPerLine ?? 3 },
+      }).model.beats;
+    } catch {
+      engineBeats = null;
+    }
+  }
+
   const events = captions
-    .map((c) => {
+    .map((c, ci) => {
       const entrance =
         `\\fad(${preset.fadeInMs},${preset.fadeOutMs})` +
         (preset.popMs > 0 && preset.popFromPct !== 100
@@ -445,11 +464,18 @@ export function renderAnimatedAss(
         // V3 Phase 2 — deterministic 1–3 word chunks + one emphasised keyword/line.
         // Keyword index computed on PRE-case words (preserves capitalisation for
         // proper-noun detection); casing is then applied per line.
-        const words = (c.lineBreaks.length > 0 ? c.lineBreaks.join(" ") : c.text)
-          .split(/\s+/)
-          .filter(Boolean);
-        const grouped = groupIntoLines(words, preset.maxWordsPerLine ?? 3);
-        const kwIdx = grouped.map((lw) => selectKeywordIndex(lw));
+        // V4: engine grouping + keyword (upgraded lexicon) when available; else the
+        // inline V3 helpers (fail-safe). Grouping algorithm is identical either way.
+        const beat = engineBeats?.[ci];
+        const grouped: string[][] = beat
+          ? beat.lines.map((l) => l.words)
+          : groupIntoLines(
+              (c.lineBreaks.length > 0 ? c.lineBreaks.join(" ") : c.text).split(/\s+/).filter(Boolean),
+              preset.maxWordsPerLine ?? 3,
+            );
+        const kwIdx: number[] = beat?.keywordByLine
+          ? beat.keywordByLine.map((k) => (k == null ? -1 : k))
+          : grouped.map((lw) => selectKeywordIndex(lw));
         const casedWords = grouped.map((lw) =>
           applyCase(lw.join(" "), preset.case).split(/\s+/).filter(Boolean),
         );

@@ -32,14 +32,25 @@ export interface Beat {
   endMs: number;
   /** Original caption text (provenance; never re-derived from lines). */
   sourceText: string;
-  /** Pass 3 — emphasised word, as {line,word} indices, or null (none). */
-  keyword?: { line: number; word: number } | null;
+  /** Pass 1 — flat tokenised words for this beat. */
+  words?: string[];
+  /** Pass 3 — emphasised word index PER LINE (one keyword/line), or null. */
+  keywordByLine?: (number | null)[];
   /** Pass 4 — assigned typography role name (e.g. "caption","hero"). */
   role?: string;
   /** Pass 5 — opaque motion spec (compiled to ASS by a later step). */
   motion?: Record<string, unknown>;
   /** Passes 6–7 — layout/fit annotations (fitted size, wrap, clamp). */
   layout?: Record<string, unknown>;
+}
+
+/** Tunable engine config (data, not logic). */
+export interface PresentationConfig {
+  /** Max words per grouped line (Pass 2). Default 3. */
+  maxWordsPerLine: number;
+  /** Whether the active preset re-groups (Modern smart presets) or preserves the
+   * caption's own lineBreaks (Legacy-ish presets). */
+  smartGroup: boolean;
 }
 
 /** The model threaded through the passes. Passes return a NEW model (pure). */
@@ -50,6 +61,7 @@ export interface PresentationModel {
   accentColor?: string;
   /** Active caption preset name (profile-resolved). */
   captionStyle?: string;
+  config: PresentationConfig;
   beats: Beat[];
 }
 
@@ -59,6 +71,7 @@ export interface PresentationInput {
   frame: { width: number; height: number };
   accentColor?: string;
   captionStyle?: string;
+  config?: Partial<PresentationConfig>;
 }
 
 /** A single deterministic pass: pure model → model. Must NOT throw for control
