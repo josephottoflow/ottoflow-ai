@@ -453,6 +453,84 @@ export function buildCtaCardClipArgv(i: CtaCardClipArgvInput): string[] {
   ];
 }
 
+// ─── End Screen V3 (Presentation Engine V4, Phase 5): a CINEMATIC animated
+//     outro clip built from layered PNGs — a slowly pushing, glowing background
+//     with STAGGERED element reveals (CTA → underline → brand), replacing the
+//     static held card. Self-contained single ffmpeg pass that emits the SAME
+//     CFR/encode contract as buildCtaCardClipArgv, so it concatenates as the
+//     final "scene" identically. Fail-safe by construction at the call site: the
+//     composer falls back to buildCtaCardClipArgv (static card) if this pass
+//     fails. Modern "animated" end screens only — Legacy uses the static card. ──
+
+export interface AnimatedCtaCardClipArgvInput {
+  /** Opaque premium background PNG (gradient + glow + vignette), full frame. */
+  backgroundPath: string;
+  /** Full-frame transparent CTA text layer. */
+  ctaPath: string;
+  /** Full-frame transparent accent underline layer. */
+  underlinePath: string;
+  /** Full-frame transparent brand-name layer (omitted when absent). */
+  brandPath?: string | null;
+  durationSec: number;
+  width: number;
+  height: number;
+  fps: number;
+  outputPath: string;
+}
+
+export function buildAnimatedCtaCardClipArgv(i: AnimatedCtaCardClipArgvInput): string[] {
+  const dur = i.durationSec;
+  // Reveal choreography (seconds). Clamped so every element is fully revealed
+  // well before the clip ends, leaving a premium hold on the finished frame.
+  const FADE = 0.45;
+  const clampT = (t: number) => Math.min(t, Math.max(0, dur - FADE - 0.2));
+  const ctaSt = clampT(0.55);
+  const ulSt = clampT(0.95);
+  const brandSt = clampT(1.25);
+  const scaleCrop =
+    `scale=${i.width}:${i.height}:force_original_aspect_ratio=increase,crop=${i.width}:${i.height}`;
+
+  // Background: safety scale/crop → slow cinematic push-in (zoompan, d=1 so each
+  // looped still frame advances the zoom) → fade-from-black entrance.
+  const parts: string[] = [
+    `[0:v]${scaleCrop},zoompan=z='min(zoom+0.0007,1.06)':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${i.width}x${i.height}:fps=${i.fps},fade=t=in:st=0:d=0.35,setsar=1,format=yuv420p[bg]`,
+    `[1:v]format=yuva420p,fade=t=in:st=${ctaSt.toFixed(2)}:d=${FADE}:alpha=1[e1]`,
+    `[2:v]format=yuva420p,fade=t=in:st=${ulSt.toFixed(2)}:d=${FADE}:alpha=1[e2]`,
+  ];
+  const hasBrand = !!i.brandPath;
+  if (hasBrand) {
+    parts.push(`[3:v]format=yuva420p,fade=t=in:st=${brandSt.toFixed(2)}:d=${FADE}:alpha=1[e3]`);
+  }
+  parts.push(`[bg][e1]overlay=0:0[o1]`);
+  parts.push(hasBrand ? `[o1][e2]overlay=0:0[o2]` : `[o1][e2]overlay=0:0,format=yuv420p[vout]`);
+  if (hasBrand) parts.push(`[o2][e3]overlay=0:0,format=yuv420p[vout]`);
+  const filterComplex = parts.join(";");
+
+  const looped = (path: string): string[] => ["-loop", "1", "-r", String(i.fps), "-t", dur.toFixed(3), "-i", path];
+  const argv: string[] = [
+    "-y",
+    ...THREAD_CAP,
+    ...looped(i.backgroundPath),
+    ...looped(i.ctaPath),
+    ...looped(i.underlinePath),
+  ];
+  if (hasBrand) argv.push(...looped(i.brandPath as string));
+  argv.push(
+    "-filter_complex", filterComplex,
+    "-map", "[vout]",
+    "-an",
+    "-c:v", ENC.vcodec,
+    "-preset", ENC.preset,
+    "-crf", String(ENC.intermediateCrf),
+    "-pix_fmt", ENC.pixFmt,
+    "-r", String(i.fps),
+    "-t", dur.toFixed(3),
+    "-movflags", "+faststart",
+    i.outputPath,
+  );
+  return argv;
+}
+
 // ─── Orchestrator: normalize each scene (1 decode), then concat-join +
 //     caption + mix in one finalize pass (1 decode). Never >1 decode at once,
 //     so it fits the 1 GB worker. (Crossfades need 2 simultaneous decodes,
@@ -481,8 +559,19 @@ export interface MultiPassInput {
   captionStyle?: CaptionStyle;
   /** Optional brand logo PNG overlaid bottom-right (Video V1 branding). */
   logoPath?: string | null;
-  /** Optional CTA end card (already rendered PNG) appended as the last clip. */
-  ctaCard?: { pngPath: string; durationSec: number } | null;
+  /** Optional CTA end card (already rendered PNG) appended as the last clip.
+   *  `animated` (Modern End Screen V3) carries pre-rendered layer PNGs for a
+   *  cinematic staggered-reveal outro; absent → the static card is used. */
+  ctaCard?: {
+    pngPath: string;
+    durationSec: number;
+    animated?: {
+      backgroundPath: string;
+      ctaPath: string;
+      underlinePath: string;
+      brandPath?: string | null;
+    } | null;
+  } | null;
   workDir: string;
   outputPath: string;
   /** Runs ffmpeg; MUST reject on non-zero exit. `label` is for logging. */
@@ -626,15 +715,41 @@ export async function composeMultiPass(input: MultiPassInput): Promise<void> {
   let extraDurationSec = 0;
   if (input.ctaCard) {
     const ctaOut = join("cta-card.mp4");
-    await input.runFfmpeg(
-      buildCtaCardClipArgv({
-        pngPath: input.ctaCard.pngPath,
-        durationSec: input.ctaCard.durationSec,
-        width: W, height: H, fps,
-        outputPath: ctaOut,
-      }),
-      "cta-card",
-    );
+    const anim = input.ctaCard.animated;
+    let built = false;
+    // End Screen V3 (Modern): try the cinematic animated outro first. On ANY
+    // failure, fall back to the static card so the render never fails and Legacy
+    // behaviour is preserved.
+    if (anim) {
+      try {
+        await input.runFfmpeg(
+          buildAnimatedCtaCardClipArgv({
+            backgroundPath: anim.backgroundPath,
+            ctaPath: anim.ctaPath,
+            underlinePath: anim.underlinePath,
+            brandPath: anim.brandPath ?? null,
+            durationSec: input.ctaCard.durationSec,
+            width: W, height: H, fps,
+            outputPath: ctaOut,
+          }),
+          "cta-card-animated",
+        );
+        built = true;
+      } catch {
+        built = false; // → static fallback below (`-y` overwrites any partial file)
+      }
+    }
+    if (!built) {
+      await input.runFfmpeg(
+        buildCtaCardClipArgv({
+          pngPath: input.ctaCard.pngPath,
+          durationSec: input.ctaCard.durationSec,
+          width: W, height: H, fps,
+          outputPath: ctaOut,
+        }),
+        "cta-card",
+      );
+    }
     normPaths.push(ctaOut);
     extraDurationSec = input.ctaCard.durationSec;
     tick();

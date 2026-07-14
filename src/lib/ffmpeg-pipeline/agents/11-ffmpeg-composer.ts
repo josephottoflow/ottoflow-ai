@@ -23,7 +23,7 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { composeMultiPass } from "../ffmpeg";
-import { renderCtaCard, fetchLogoBytes } from "../branding";
+import { renderCtaCard, renderCtaCardLayers, fetchLogoBytes } from "../branding";
 import { resolveRenderFlagsForJob } from "../render-profile";
 import { createAdminClient } from "@/lib/supabase";
 import type {
@@ -266,7 +266,11 @@ export async function runFfmpegComposer(
   // NEVER sent to a model. Absent on the stock pipeline (plan.branding unset)
   // → no logo, no CTA card, behaviour unchanged.
   let logoPath: string | null = null;
-  let ctaCard: { pngPath: string; durationSec: number } | null = null;
+  let ctaCard: {
+    pngPath: string;
+    durationSec: number;
+    animated?: { backgroundPath: string; ctaPath: string; underlinePath: string; brandPath?: string | null } | null;
+  } | null = null;
   if (plan.branding) {
     const admin = createAdminClient();
     let logoBytes: Buffer | null = null;
@@ -296,7 +300,41 @@ export async function runFfmpegComposer(
       });
       const cardPath = path.join(workDir, "cta-card.png");
       await fs.writeFile(cardPath, cardPng);
-      ctaCard = { pngPath: cardPath, durationSec: CTA_CARD_SEC };
+
+      // End Screen V3 (Presentation Engine V4, Phase 5): for Modern "animated"
+      // end screens, ALSO render layered assets for a cinematic staggered-reveal
+      // outro. Best-effort — renderCtaCardLayers returns null on failure, and the
+      // composer falls back to the static `cardPath` above, so the static card is
+      // always the guaranteed floor. Legacy/classic never enters this branch.
+      let animated:
+        | { backgroundPath: string; ctaPath: string; underlinePath: string; brandPath?: string | null }
+        | null = null;
+      if (endScreenMode === "animated") {
+        const layers = await renderCtaCardLayers({
+          width: plan.output.width,
+          height: plan.output.height,
+          ctaText: plan.branding.ctaText,
+          brandName: plan.branding.brandName ?? null,
+          palette: plan.branding.palette ?? null,
+          endScreenMode,
+          logo: null,
+        });
+        if (layers) {
+          const bgPath = path.join(workDir, "cta-bg.png");
+          const ctaLayerPath = path.join(workDir, "cta-text.png");
+          const underlinePath = path.join(workDir, "cta-underline.png");
+          await fs.writeFile(bgPath, layers.background);
+          await fs.writeFile(ctaLayerPath, layers.cta);
+          await fs.writeFile(underlinePath, layers.underline);
+          let brandPath: string | null = null;
+          if (layers.brand) {
+            brandPath = path.join(workDir, "cta-brand.png");
+            await fs.writeFile(brandPath, layers.brand);
+          }
+          animated = { backgroundPath: bgPath, ctaPath: ctaLayerPath, underlinePath, brandPath };
+        }
+      }
+      ctaCard = { pngPath: cardPath, durationSec: CTA_CARD_SEC, animated };
     }
   }
 

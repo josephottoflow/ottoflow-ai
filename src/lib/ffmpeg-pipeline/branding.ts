@@ -205,6 +205,139 @@ export async function renderCtaCard(input: CtaCardInput): Promise<Buffer> {
 }
 
 /**
+ * End Screen V3 — layered outro assets (Presentation Engine V4, Phase 5).
+ *
+ * Renders the CTA end card as SEPARATE full-frame transparent PNG layers so the
+ * composer can choreograph a CINEMATIC animated final scene (moving/glowing
+ * background + staggered element reveals) instead of a static held slide. Each
+ * element layer is the full frame size with a TRANSPARENT background and only its
+ * own element drawn AT ITS FINAL RESTING POSITION — so ffmpeg composites them with
+ * a plain `overlay=0:0` (no per-element geometry in the filtergraph) and only the
+ * reveal timing/opacity is animated.
+ *
+ * Geometry is intentionally duplicated from renderCtaCard (NOT refactored) so that
+ * function stays byte-frozen for the Legacy/classic card. This function is used
+ * ONLY for Modern "animated" end screens and always renders the premium
+ * background (glow + vignette). Fail-safe: returns null on ANY error, so the
+ * composer degrades to the guaranteed static card.
+ */
+export interface CtaCardLayers {
+  /** Opaque base: gradient + accent glow + vignette (no text). */
+  background: Buffer;
+  /** Transparent full-frame CTA text layer. */
+  cta: Buffer;
+  /** Transparent full-frame accent underline layer. */
+  underline: Buffer;
+  /** Transparent full-frame brand-name layer (null when no brand name). */
+  brand: Buffer | null;
+}
+
+export async function renderCtaCardLayers(
+  input: CtaCardInput,
+): Promise<CtaCardLayers | null> {
+  try {
+    const { default: sharp } = await import("sharp");
+    const { width, height } = input;
+    const top = input.palette?.primary || NEUTRAL_TOP;
+    const bottom = input.palette?.secondary || NEUTRAL_BOTTOM;
+    const accent = input.palette?.accent || NEUTRAL_ACCENT;
+    const ctaRaw = input.ctaText.trim().slice(0, 120);
+    const brand = input.brandName ? esc(input.brandName.slice(0, 40)) : "";
+
+    const cx = width / 2;
+    const safeWidth = width * 0.86;
+    const maxLines = 3;
+    const minFont = Math.round(width * 0.045);
+    const maxFont = Math.round(width * 0.072);
+
+    // Auto-scale (identical rule to renderCtaCard) so positions match the card.
+    let ctaFont = maxFont;
+    let lines = wrapText(ctaRaw, safeWidth, ctaFont);
+    while (lines.length > maxLines && ctaFont > minFont) {
+      ctaFont = Math.max(minFont, ctaFont - Math.round(width * 0.006));
+      lines = wrapText(ctaRaw, safeWidth, ctaFont);
+    }
+    if (lines.length > maxLines) {
+      lines = lines.slice(0, maxLines);
+      lines[maxLines - 1] = `${lines[maxLines - 1].replace(/[.\s]+$/, "")}…`;
+    }
+
+    const lineHeight = Math.round(ctaFont * 1.18);
+    const blockHeight = lines.length * lineHeight;
+    const brandFont = Math.round(width * 0.04);
+    const blockTop = Math.round(height * 0.5 - blockHeight / 2);
+    const firstBaseline = blockTop + Math.round(ctaFont * 0.82);
+    const underlineY = blockTop + blockHeight + Math.round(ctaFont * 0.5);
+    const underlineH = Math.max(4, Math.round(width * 0.012));
+    const brandBaseline = underlineY + underlineH + brandFont + Math.round(height * 0.012);
+    const ls = ` letter-spacing="${Math.round(ctaFont * 0.02)}"`;
+    const brandLs = ` letter-spacing="${Math.round(brandFont * 0.06)}"`;
+
+    // ── Layer 1: premium background (gradient + accent glow + vignette). ──────
+    const backgroundSvg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="${top}"/>
+      <stop offset="100%" stop-color="${bottom}"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="60%">
+      <stop offset="0%" stop-color="${accent}" stop-opacity="0.30"/>
+      <stop offset="100%" stop-color="${accent}" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="vig" cx="50%" cy="42%" r="75%">
+      <stop offset="55%" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.45"/>
+    </radialGradient>
+  </defs>
+  <rect width="${width}" height="${height}" fill="url(#bg)"/>
+  <ellipse cx="${cx}" cy="${Math.round(height * 0.5)}" rx="${Math.round(width * 0.42)}" ry="${Math.round(blockHeight * 0.9 + ctaFont)}" fill="url(#glow)"/>
+  <rect width="${width}" height="${height}" fill="url(#vig)"/>
+</svg>`;
+
+    // ── Layer 2: CTA text (transparent). ─────────────────────────────────────
+    const ctaLines = lines
+      .map(
+        (ln, i) =>
+          `<text x="${cx}" y="${firstBaseline + i * lineHeight}" font-family="Arial, Helvetica, sans-serif" font-size="${ctaFont}" font-weight="700" fill="#ffffff" text-anchor="middle"${ls}>${esc(ln)}</text>`,
+      )
+      .join("\n  ");
+    const ctaSvg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+  ${ctaLines}
+</svg>`;
+
+    // ── Layer 3: accent underline (transparent). ─────────────────────────────
+    const underlineSvg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="ul" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="${accent}" stop-opacity="0"/>
+      <stop offset="50%" stop-color="${accent}" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="${accent}" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="${cx - width * 0.2}" y="${underlineY}" width="${width * 0.4}" height="${underlineH}" fill="url(#ul)"/>
+</svg>`;
+
+    // ── Layer 4: brand name (transparent; omitted when no brand). ────────────
+    const brandSvg = brand
+      ? `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+  <text x="${cx}" y="${brandBaseline}" font-family="Arial, Helvetica, sans-serif" font-size="${brandFont}" font-weight="500" fill="#e2e8f0" text-anchor="middle" opacity="0.85"${brandLs}>${brand}</text>
+</svg>`
+      : null;
+
+    const [background, cta, underline, brandBuf] = await Promise.all([
+      sharp(Buffer.from(backgroundSvg)).png().toBuffer(),
+      sharp(Buffer.from(ctaSvg)).png().toBuffer(),
+      sharp(Buffer.from(underlineSvg)).png().toBuffer(),
+      brandSvg ? sharp(Buffer.from(brandSvg)).png().toBuffer() : Promise.resolve(null),
+    ]);
+    return { background, cta, underline, brand: brandBuf };
+  } catch {
+    // Fail-safe: the composer falls back to the static renderCtaCard card.
+    return null;
+  }
+}
+
+/**
  * Download a locked logo asset's raw bytes from the brand-assets bucket.
  * These bytes are composited pixel-for-pixel and NEVER sent to any AI model.
  * (Same path as worker/processors/creative-generation.ts downloadAssetBytes.)
