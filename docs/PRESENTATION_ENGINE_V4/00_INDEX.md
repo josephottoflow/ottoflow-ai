@@ -31,6 +31,13 @@ Builds on [[video-quality-v2-rollout]] and the V3 docs (typography.ts, Style Gui
 | 15 | Production Rollout Strategy | `04_ROADMAP_ROLLOUT_RISK.md` §15 |
 | 16 | Risk Assessment | `04_ROADMAP_ROLLOUT_RISK.md` §16 |
 
+## Design research (post-implementation-start; govern all future waves)
+| Doc | Purpose |
+|---|---|
+| `05_PREMIUM_MOTION_TYPOGRAPHY_RESEARCH.md` | Deterministic typography/motion/emphasis rules + gap analysis + backlog P1–P8 |
+| `06_CREATIVE_DIRECTION_BIBLE.md` | Attention-first reframe: the One Law + 8 systems + 37-pattern reference library |
+| **`07_OTTOFLOW_PRESENTATION_DESIGN_BIBLE.md`** | **SINGLE SOURCE OF TRUTH** — consolidates 05+06+foundational science (eye-tracking/retention psych); 12 systems + deterministic-rules master table + quality checklist (release gate) + implementation mapping (waves W1–W7) |
+
 ## The one-paragraph answer to "why does it still feel generated?"
 Six root causes, all **authoring**, none renderer: (1) **uniform cadence** — every
 caption enters the same way at the same size for the same duration; premium editing
