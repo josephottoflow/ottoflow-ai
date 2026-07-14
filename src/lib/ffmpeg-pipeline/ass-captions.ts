@@ -263,7 +263,7 @@ const ANIMATED_PRESETS: Record<CoreCaptionPreset, AnimatedPreset> = {
   minimal:      { font: "DejaVu Sans", sizePct: 64 / PLAY_RES_Y, bold: 0, primary: "#FFFFFF", secondary: "#FFFFFF", outlinePx: 2, shadowPx: 1, boxOpacity: 0, blur: 0, fadeInMs: 220, fadeOutMs: 200, popFromPct: 100, popMs: 0,   karaoke: false, case: "sentence", spacing: 0 },
   // Polished/professional: sentence case, bold, white active from a cool-grey unsung, moderate stroke, subtle pop.
   // V2: a bit larger + stronger stroke for premium commercial feel.
-  corporate:    { font: FONT.JAKARTA, sizePct: 88 / PLAY_RES_Y, bold: 1, primary: "#FFFFFF", secondary: "#9FB6C4", outlinePx: 5, shadowPx: 3, boxOpacity: 0, blur: 0, fadeInMs: 180, fadeOutMs: 160, popFromPct: 105, popMs: 180, karaoke: true,  case: "sentence", spacing: 0.5, karaokeFill: true, smartGroup: true, maxWordsPerLine: 3, keywordScalePct: 118, staggerMs: 45, wordFadeMs: 150, easeAccel: 0.5, emphasisMaxTier: 5 },
+  corporate:    { font: FONT.JAKARTA, sizePct: 104 / PLAY_RES_Y, bold: 1, primary: "#FFFFFF", secondary: "#9FB6C4", outlinePx: 5, shadowPx: 3, boxOpacity: 0, blur: 0, fadeInMs: 180, fadeOutMs: 160, popFromPct: 105, popMs: 180, karaoke: true,  case: "sentence", spacing: 0.5, karaokeFill: true, smartGroup: true, maxWordsPerLine: 3, keywordScalePct: 118, staggerMs: 45, wordFadeMs: 150, easeAccel: 0.5, emphasisMaxTier: 5 },
 };
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -39,6 +39,16 @@ export function groupIntoLines(words: string[], maxPerLine = 3): string[][] {
     if (d < bestDist) { bestDist = d; best = i; }
   }
   if (best === -1) {
+    // Fit-first fallback: keep BOTH lines ≤ maxPerLine even if it means breaking
+    // after a stop-word. A balanced 3/2 always reads better than an unbalanced
+    // 4/1 — a long line is the worse "subtitle" tell than a dangling "the".
+    for (let i = 1; i < n; i++) {
+      if (i > maxPerLine || n - i > maxPerLine) continue;
+      const d = Math.abs(i - mid);
+      if (d < bestDist) { bestDist = d; best = i; }
+    }
+  }
+  if (best === -1) {
     for (let i = 1; i < n; i++) {
       if (!allowedBreakBefore(i)) continue;
       const d = Math.abs(i - mid);
