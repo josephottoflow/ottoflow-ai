@@ -38,6 +38,11 @@ export interface Beat {
   keywordByLine?: (number | null)[];
   /** Pass 4 — assigned typography role name (e.g. "caption","hero"). */
   role?: string;
+  /** Pass 4 — narrative TREATMENT giving the beat its own visual+motion identity
+   * (Motion Graphics V1): "hook" | "stat" | "turn" | "question" | "cta" |
+   * "statement". Deterministic from position + content; drives per-beat
+   * choreography so beats don't all animate alike. */
+  treatment?: string;
   /** Pass 5 — opaque motion spec (compiled to ASS by a later step). */
   motion?: Record<string, unknown>;
   /** Passes 6–7 — layout/fit annotations (fitted size, wrap, clamp). */

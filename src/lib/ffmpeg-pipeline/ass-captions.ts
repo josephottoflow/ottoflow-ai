@@ -267,6 +267,34 @@ const ANIMATED_PRESETS: Record<CoreCaptionPreset, AnimatedPreset> = {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Motion Graphics V1 — per-beat MOTION SIGNATURES. Each narrative treatment
+// (from the engine) animates DIFFERENTLY so a video reads as a designed sequence,
+// not a uniform subtitle track (Design Bible §B1/A4/A5). Values are scale-in
+// start-% (support/keyword), overshoot-%, per-word fade ms, stagger ms; `hold`
+// beats barely move (still, fade only) so motion elsewhere owns the frame.
+// ═══════════════════════════════════════════════════════════════════════════
+interface MotionSig {
+  supportPop: number; keyPop: number; overshoot: number;
+  wordFadeMs: number; staggerMs: number; hold?: boolean; fadeInMs?: number;
+}
+const MOTION_SIGNATURES: Record<string, MotionSig> = {
+  // Explodes in — punchy, fast, deep dip + strong overshoot. Owns the 2s window.
+  hook:      { supportPop: 48, keyPop: 42, overshoot: 9,  wordFadeMs: 130, staggerMs: 26 },
+  // The number detonates from small with big overshoot; support barely moves → the figure is the star.
+  stat:      { supportPop: 86, keyPop: 40, overshoot: 11, wordFadeMs: 150, staggerMs: 46 },
+  // Snap — quick, tight stagger, a pattern interrupt that marks the pivot.
+  turn:      { supportPop: 64, keyPop: 56, overshoot: 7,  wordFadeMs: 120, staggerMs: 20 },
+  // Drift — slow, soft, no overshoot; a question invites thought.
+  question:  { supportPop: 86, keyPop: 82, overshoot: 0,  wordFadeMs: 220, staggerMs: 60, fadeInMs: 240 },
+  // Calm confidence — gentle slow rise, minimal overshoot.
+  cta:       { supportPop: 88, keyPop: 84, overshoot: 3,  wordFadeMs: 200, staggerMs: 55, fadeInMs: 220 },
+  // Default gentle fade-rise (the V3 baseline).
+  statement: { supportPop: 72, keyPop: 56, overshoot: 5,  wordFadeMs: 150, staggerMs: 45 },
+  // Barely moves — still, fade only. Inserted on a rhythm so the next motion pops.
+  hold:      { supportPop: 100, keyPop: 100, overshoot: 0, wordFadeMs: 0,  staggerMs: 0, hold: true },
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
 // V3 Phase 2 — Caption Intelligence (deterministic; NO AI/ASR/LLM).
 // Groups words into 1–3 word lines at natural boundaries and picks ONE emphasised
 // keyword per line by a fixed priority. Same input always → same output.
@@ -478,14 +506,23 @@ export function renderAnimatedAss(
       // reads keep the preset's Spacing. Deterministic, Modern smart presets only.
       const beatTrack = fontMult >= 1.4 ? "\\fsp-3" : fontMult >= 1.2 ? "\\fsp-2" : "";
 
+      // Motion Graphics V1 — per-beat treatment → motion signature. Each narrative
+      // beat animates in its own way (hook explodes, question drifts, stat pops,
+      // turn snaps, cta glides), and ~1 in 3 ordinary statements HOLDS (barely
+      // moves) so the moving beats own the frame. Deterministic; smart presets only.
+      const treatment = (beat?.treatment as string | undefined) ?? (ci === 0 ? "hook" : "statement");
+      const effTreatment = treatment === "statement" && ci % 3 === 2 ? "hold" : treatment;
+      const sig = MOTION_SIGNATURES[effTreatment] ?? MOTION_SIGNATURES.statement;
+
       // V4 Phase 4 — per-word staggered reveal (smart presets): the whole-caption
       // scale-pop is replaced by per-word scale-in below, so the event keeps only
       // the opacity fade + glow. Non-stagger presets are UNCHANGED (byte-identical).
-      const stagger = preset.smartGroup && preset.staggerMs ? preset.staggerMs : 0;
+      // Hold beats set stagger 0 → no per-word entrance (still, fade only).
+      const stagger = preset.smartGroup && preset.staggerMs && !sig.hold ? sig.staggerMs : 0;
       const entrance =
         beatFs + beatTrack +
-        `\\fad(${preset.fadeInMs},${preset.fadeOutMs})` +
-        (!stagger && preset.popMs > 0 && preset.popFromPct !== 100
+        `\\fad(${sig.fadeInMs ?? preset.fadeInMs},${preset.fadeOutMs})` +
+        (!stagger && !sig.hold && preset.popMs > 0 && preset.popFromPct !== 100
           ? `\\fscx${preset.popFromPct}\\fscy${preset.popFromPct}\\t(0,${preset.popMs},\\fscx100\\fscy100)`
           : "") +
         (preset.blur > 0 ? `\\blur${preset.blur}` : "");
@@ -519,14 +556,13 @@ export function renderAnimatedAss(
           // accentColor absent → scale-only (Phase-2 behaviour). \1c uses 6-hex.
           const accentAss = accentColor ? assColorTag(accentColor) : "";
           const primaryAss = assColorTag(preset.primary);
-          const wordFade = preset.wordFadeMs ?? 140;
+          const wordFade = sig.wordFadeMs || (preset.wordFadeMs ?? 140);
           const accelStr = preset.easeAccel && preset.easeAccel !== 1 ? `${preset.easeAccel},` : "";
-          // Differentiated entrance so motion reads as CHOREOGRAPHY, not a uniform
-          // per-word pop: the keyword dips deeper and settles a touch slower (visual
-          // weight, draws the eye) while support words rise subtly. Non-stagger
-          // presets are unaffected.
-          const SUPPORT_POP = 72; // support word scale-in start-% (→ 100)
-          const KEYWORD_POP = 56; // keyword dips lower → more dramatic rise (→ its scale)
+          // Per-beat CHOREOGRAPHY (Motion Graphics V1): the treatment's signature
+          // sets how deep the words dip, how hard they overshoot, how fast they
+          // stagger — so a hook explodes, a question drifts, a stat detonates.
+          const SUPPORT_POP = sig.supportPop; // support word scale-in start-% (→ 100)
+          const KEYWORD_POP = sig.keyPop;     // keyword dip (→ its scale)
           let k = 0;
           let gi = 0; // global word index for the stagger offset
           text = casedWords
@@ -548,7 +584,7 @@ export function renderAnimatedAss(
                   // + a focus-pull on the keyword only (brief \blur that resolves,
                   // like a rack focus). Two \t segments = anticipation/overshoot/
                   // follow-through that libass' single-exponent \t can't do alone.
-                  const OS = 5;        // overshoot %
+                  const OS = sig.overshoot; // overshoot % (per treatment; 0 = none)
                   const SETTLE = 90;   // ms to relax from overshoot back to target
                   const over = target + OS;
                   const blurIn = isKw ? `\\blur${preset.blur + 6}` : "";

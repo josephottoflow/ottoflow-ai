@@ -16,7 +16,25 @@
  */
 import type { PresentationModel, PresentationPass } from "./types";
 import { groupIntoLines, selectKeyword, estimateWidthPx } from "./grouping";
-import { emphasisTier, norm } from "./lexicon";
+import { emphasisTier, norm, isNumberish, CONTRAST_PIVOTS, POWER_VERBS } from "./lexicon";
+
+/**
+ * Narrative TREATMENT of a beat (Motion Graphics V1) — deterministic from position
+ * + content. Gives each beat its own visual/motion identity so a video reads as a
+ * designed sequence, not a uniform subtitle track. Priority: hook (first beat) >
+ * stat (has a number) > turn (has a contrast pivot) > question (ends "?") > cta
+ * (last beat, imperative power-verb) > statement (default).
+ */
+function classifyTreatment(words: string[], index: number, total: number): string {
+  if (words.length === 0) return "statement";
+  const norms = words.map(norm);
+  if (index === 0) return "hook";
+  if (words.some(isNumberish)) return "stat";
+  if (norms.some((w) => CONTRAST_PIVOTS.has(w))) return "turn";
+  if (/\?["']?$/.test(words[words.length - 1] ?? "")) return "question";
+  if (index === total - 1 && POWER_VERBS.has(norms[0] ?? "")) return "cta";
+  return "statement";
+}
 
 const identity = (name: string): PresentationPass => ({ name, run: (m) => m });
 
@@ -125,9 +143,12 @@ export const typographyLayoutPass: PresentationPass = {
     if (!model.config.smartGroup) return model;
     const baseFontPx = model.config.baseFontPx ?? Math.round(0.04 * model.frame.height);
     const safeWidth = Math.round(model.frame.width * 0.84);
+    const total = model.beats.length;
     return {
       ...model,
       beats: model.beats.map((b, i) => {
+        const allWords = b.lines.flatMap((l) => l.words);
+        const treatment = classifyTreatment(allWords, i, total);
         const totalWords = b.lines.reduce((a, l) => a + l.words.length, 0);
         const strongKeyword = (b.keywordByLine ?? []).some(
           (k, li) => k != null && emphasisTier(b.lines[li]?.words[k] ?? "") <= 4,
@@ -152,7 +173,7 @@ export const typographyLayoutPass: PresentationPass = {
           role === "hero" && mult >= 1.3 && b.keywordByLine
             ? b.keywordByLine.map(() => null)
             : b.keywordByLine;
-        return { ...b, role, keywordByLine, layout: { ...(b.layout ?? {}), fontMult: mult } };
+        return { ...b, role, treatment, keywordByLine, layout: { ...(b.layout ?? {}), fontMult: mult } };
       }),
     };
   },
