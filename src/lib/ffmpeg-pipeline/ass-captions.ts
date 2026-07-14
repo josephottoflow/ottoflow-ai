@@ -236,6 +236,11 @@ interface AnimatedPreset {
   maxWordsPerLine?: number;
   /** Keyword scale-% for the emphasised word when smartGroup is on (default 108). */
   keywordScalePct?: number;
+  /** Max emphasis tier eligible for a keyword highlight (Caption Design V2). Lower
+   * = more restrained/premium (only true payload words get colour; ordinary lines
+   * stay clean white). 5 = number..power-verb (premium); 6 = +contrast (creator).
+   * Omitted → 8 (every line highlighted; V4-P4 behaviour). */
+  emphasisMaxTier?: number;
   /** V4 Phase 4 — per-word staggered reveal (ms between words). When set (smart
    * presets), words fade in one-by-one instead of the whole caption at once — the
    * premium "designed" reveal. Omitted → V3 whole-caption entrance (unchanged). */
@@ -253,12 +258,12 @@ const ANIMATED_PRESETS: Record<CoreCaptionPreset, AnimatedPreset> = {
   classic:      { font: "DejaVu Sans", sizePct: 74 / PLAY_RES_Y, bold: 1, primary: "#FFFFFF", secondary: "#B0B0B0", outlinePx: 5, shadowPx: 3, boxOpacity: 0, blur: 0, fadeInMs: 150, fadeOutMs: 150, popFromPct: 108, popMs: 160, karaoke: true,  case: "sentence", spacing: 0.5, karaokeFill: true },
   // Punchy creator ("Hormozi") look: UPPERCASE, large, bold, yellow active word, thick stroke + subtle glow + pronounced pop.
   // V2: thicker stroke + heavier shadow for max legibility, tighter fades, letter spacing for punch.
-  bold_creator: { font: FONT.SORA, sizePct: 100 / PLAY_RES_Y, bold: 1, primary: "#FFD400", secondary: "#FFFFFF", outlinePx: 7, shadowPx: 5, boxOpacity: 0, blur: 1, fadeInMs: 70,  fadeOutMs: 90,  popFromPct: 120, popMs: 190, karaoke: true,  case: "upper", spacing: 1.5, smartGroup: true, maxWordsPerLine: 3, keywordScalePct: 112, staggerMs: 40, wordFadeMs: 120, easeAccel: 0.7 },
+  bold_creator: { font: FONT.SORA, sizePct: 100 / PLAY_RES_Y, bold: 1, primary: "#FFD400", secondary: "#FFFFFF", outlinePx: 7, shadowPx: 5, boxOpacity: 0, blur: 1, fadeInMs: 70,  fadeOutMs: 90,  popFromPct: 120, popMs: 190, karaoke: true,  case: "upper", spacing: 1.5, smartGroup: true, maxWordsPerLine: 3, keywordScalePct: 126, staggerMs: 40, wordFadeMs: 120, easeAccel: 0.5, emphasisMaxTier: 6 },
   // Restrained: smaller, no bold, thin stroke, clean fade only (no karaoke, no pop). Kept deliberately clean.
   minimal:      { font: "DejaVu Sans", sizePct: 64 / PLAY_RES_Y, bold: 0, primary: "#FFFFFF", secondary: "#FFFFFF", outlinePx: 2, shadowPx: 1, boxOpacity: 0, blur: 0, fadeInMs: 220, fadeOutMs: 200, popFromPct: 100, popMs: 0,   karaoke: false, case: "sentence", spacing: 0 },
   // Polished/professional: sentence case, bold, white active from a cool-grey unsung, moderate stroke, subtle pop.
   // V2: a bit larger + stronger stroke for premium commercial feel.
-  corporate:    { font: FONT.JAKARTA, sizePct: 76 / PLAY_RES_Y, bold: 1, primary: "#FFFFFF", secondary: "#9FB6C4", outlinePx: 4, shadowPx: 3, boxOpacity: 0, blur: 0, fadeInMs: 180, fadeOutMs: 160, popFromPct: 105, popMs: 180, karaoke: true,  case: "sentence", spacing: 0.5, karaokeFill: true, smartGroup: true, maxWordsPerLine: 3, keywordScalePct: 108, staggerMs: 45, wordFadeMs: 150, easeAccel: 0.7 },
+  corporate:    { font: FONT.JAKARTA, sizePct: 88 / PLAY_RES_Y, bold: 1, primary: "#FFFFFF", secondary: "#9FB6C4", outlinePx: 5, shadowPx: 3, boxOpacity: 0, blur: 0, fadeInMs: 180, fadeOutMs: 160, popFromPct: 105, popMs: 180, karaoke: true,  case: "sentence", spacing: 0.5, karaokeFill: true, smartGroup: true, maxWordsPerLine: 3, keywordScalePct: 118, staggerMs: 45, wordFadeMs: 150, easeAccel: 0.5, emphasisMaxTier: 5 },
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -454,7 +459,7 @@ export function renderAnimatedAss(
         captions,
         frame: { width, height },
         accentColor,
-        config: { smartGroup: true, maxWordsPerLine: preset.maxWordsPerLine ?? 3, baseFontPx: baseSize },
+        config: { smartGroup: true, maxWordsPerLine: preset.maxWordsPerLine ?? 3, baseFontPx: baseSize, emphasisMaxTier: preset.emphasisMaxTier },
       }).model.beats;
     } catch {
       engineBeats = null;
@@ -468,13 +473,17 @@ export function renderAnimatedAss(
       // added when it differs from the base so most beats are unchanged.
       const fontMult = (beat?.layout?.fontMult as number | undefined) ?? 1;
       const beatFs = fontMult !== 1 ? `\\fs${Math.round(baseSize * fontMult)}` : "";
+      // Optical tracking: large display type reads premium with slightly TIGHTER
+      // letter-spacing (negative \fsp). Only on hero/headline beats; ordinary
+      // reads keep the preset's Spacing. Deterministic, Modern smart presets only.
+      const beatTrack = fontMult >= 1.4 ? "\\fsp-3" : fontMult >= 1.2 ? "\\fsp-2" : "";
 
       // V4 Phase 4 — per-word staggered reveal (smart presets): the whole-caption
       // scale-pop is replaced by per-word scale-in below, so the event keeps only
       // the opacity fade + glow. Non-stagger presets are UNCHANGED (byte-identical).
       const stagger = preset.smartGroup && preset.staggerMs ? preset.staggerMs : 0;
       const entrance =
-        beatFs +
+        beatFs + beatTrack +
         `\\fad(${preset.fadeInMs},${preset.fadeOutMs})` +
         (!stagger && preset.popMs > 0 && preset.popFromPct !== 100
           ? `\\fscx${preset.popFromPct}\\fscy${preset.popFromPct}\\t(0,${preset.popMs},\\fscx100\\fscy100)`
@@ -512,7 +521,12 @@ export function renderAnimatedAss(
           const primaryAss = assColorTag(preset.primary);
           const wordFade = preset.wordFadeMs ?? 140;
           const accelStr = preset.easeAccel && preset.easeAccel !== 1 ? `${preset.easeAccel},` : "";
-          const WORDPOP = 62; // per-word scale-in start-% (→ target) when staggering
+          // Differentiated entrance so motion reads as CHOREOGRAPHY, not a uniform
+          // per-word pop: the keyword dips deeper and settles a touch slower (visual
+          // weight, draws the eye) while support words rise subtly. Non-stagger
+          // presets are unaffected.
+          const SUPPORT_POP = 72; // support word scale-in start-% (→ 100)
+          const KEYWORD_POP = 56; // keyword dips lower → more dramatic rise (→ its scale)
           let k = 0;
           let gi = 0; // global word index for the stagger offset
           text = casedWords
@@ -527,8 +541,10 @@ export function renderAnimatedAss(
                   gi++;
                   // Non-stagger + non-keyword → EXACT V3 output (byte-identical).
                   if (!stagger && !isKw) return `{\\${kTag}${run}}${escapeAssText(w)}`;
+                  const popFrom = isKw ? KEYWORD_POP : SUPPORT_POP;
+                  const wf = isKw ? wordFade + 40 : wordFade; // keyword settles slower
                   const scale = stagger
-                    ? `\\fscx${WORDPOP}\\fscy${WORDPOP}\\t(${off},${off + wordFade},${accelStr}\\fscx${target}\\fscy${target})`
+                    ? `\\fscx${popFrom}\\fscy${popFrom}\\t(${off},${off + wf},${accelStr}\\fscx${target}\\fscy${target})`
                     : isKw
                       ? `\\fscx${KS}\\fscy${KS}`
                       : "";

@@ -54,6 +54,12 @@ export interface PresentationConfig {
   /** Preset base caption font size in px (Pass 4 hierarchy + overflow). Default
    * ~4% of frame height. */
   baseFontPx?: number;
+  /** Max emphasis tier eligible for a keyword highlight (Pass 3). Lower = more
+   * restrained/premium (only true payload words); higher = more creator-style
+   * highlighting. 1 number · 2 pain · 3 transformation · 4 emotion · 5 power-verb ·
+   * 6 contrast-pivot · 7 Capitalised · 8 longest-word. Default 8 (highlight every
+   * line, legacy). Premium presets pass 5; bold/creator 6. */
+  emphasisMaxTier?: number;
 }
 
 /** The model threaded through the passes. Passes return a NEW model (pure). */

@@ -16,7 +16,7 @@
  */
 import type { PresentationModel, PresentationPass } from "./types";
 import { groupIntoLines, selectKeyword, estimateWidthPx } from "./grouping";
-import { emphasisTier } from "./lexicon";
+import { emphasisTier, norm } from "./lexicon";
 
 const identity = (name: string): PresentationPass => ({ name, run: (m) => m });
 
@@ -56,15 +56,30 @@ export const keywordSelectionPass: PresentationPass = {
   name: "keyword-selection",
   run(model: PresentationModel): PresentationModel {
     if (!model.config.smartGroup) return model;
+    const maxTier = model.config.emphasisMaxTier ?? 8;
+    // Premium restraint: when emphasis is gated to true payload words (maxTier ≤ 5),
+    // highlight AT MOST ONE word for the whole on-screen beat — a professional editor
+    // colours a single focal word per moment, not one per line. Creator presets
+    // (maxTier ≥ 6) keep per-line emphasis for energy.
+    const onePerBeat = maxTier <= 5;
     return {
       ...model,
-      beats: model.beats.map((b) => ({
-        ...b,
-        keywordByLine: b.lines.map((l) => {
-          const i = selectKeyword(l.words);
+      beats: model.beats.map((b) => {
+        const perLine = b.lines.map((l) => {
+          const i = selectKeyword(l.words, maxTier);
           return i >= 0 ? i : null;
-        }),
-      })),
+        });
+        if (!onePerBeat) return { ...b, keywordByLine: perLine };
+        // Keep only the single strongest keyword (lowest tier, then longest).
+        let keepLine = -1, bestTier = 99, bestLen = -1;
+        perLine.forEach((idx, li) => {
+          if (idx == null) return;
+          const w = b.lines[li].words[idx];
+          const t = emphasisTier(w), len = norm(w).length;
+          if (t < bestTier || (t === bestTier && len > bestLen)) { bestTier = t; bestLen = len; keepLine = li; }
+        });
+        return { ...b, keywordByLine: perLine.map((idx, li) => (li === keepLine ? idx : null)) };
+      }),
     };
   },
 };
@@ -98,9 +113,10 @@ export const overflowDetectionPass: PresentationPass = {
  * the size contrast that makes editing feel intentional. Overflow-safe: the
  * multiplier is stepped down until the widest line fits the safe width, so bigger
  * type never clips or cramps (Priority 5). Deterministic; smart presets only.
- *   hero     1.30×  — the hook (first beat) or any ≤2-word punch beat
- *   headline 1.12×  — a ≤3-word beat whose keyword is high-intent (number/pain/
- *                     transformation/emotion, tier ≤4)
+ * Sizes follow a real modular scale (≈ major-third / perfect-fourth steps) so the
+ * contrast is VISIBLE and intentional, not a timid few-percent nudge:
+ *   hero     1.44×  — the hook (first beat) or any ≤2-word punch beat
+ *   headline 1.24×  — a ≤3-word beat whose keyword is high-intent (tier ≤4)
  *   caption  1.00×  — default reads (unchanged)
  */
 export const typographyLayoutPass: PresentationPass = {
@@ -118,8 +134,8 @@ export const typographyLayoutPass: PresentationPass = {
         );
         let role = "caption";
         let mult = 1;
-        if (i === 0 || totalWords <= 2) { role = "hero"; mult = 1.3; }
-        else if (strongKeyword && totalWords <= 3) { role = "headline"; mult = 1.12; }
+        if (i === 0 || totalWords <= 2) { role = "hero"; mult = 1.44; }
+        else if (strongKeyword && totalWords <= 3) { role = "headline"; mult = 1.24; }
         // Overflow guard: shrink the multiplier until the widest line fits.
         while (mult > 1) {
           const widest = Math.max(

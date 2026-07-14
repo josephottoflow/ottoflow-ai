@@ -44,6 +44,8 @@ export function initModel(input: PresentationInput): PresentationModel {
     config: {
       maxWordsPerLine: input.config?.maxWordsPerLine ?? 3,
       smartGroup: input.config?.smartGroup ?? false,
+      baseFontPx: input.config?.baseFontPx,
+      emphasisMaxTier: input.config?.emphasisMaxTier,
     },
     beats,
   };

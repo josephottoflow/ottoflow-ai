@@ -53,8 +53,16 @@ export function groupIntoLines(words: string[], maxPerLine = 3): string[][] {
  * Pick ONE keyword index in a line by the Style Guide V4 priority (number → pain →
  * transformation → emotion → power-verb → contrast-pivot-next → strong noun →
  * longest non-stop-word). Returns -1 if the line is all stop-words.
+ *
+ * `maxTier` gates emphasis to genuinely high-intent words: a premium editor
+ * highlights the emotional payload (number/pain/transformation/emotion/power/
+ * contrast, tiers 1–6), NOT "the longest word" (tier 8) or every Capitalised
+ * token (tier 7). Passing e.g. maxTier=5 keeps emphasis SPARSE and deliberate —
+ * many lines stay clean white, so the highlighted word actually means something
+ * (fixes the "every line has a coloured word → feels algorithmic" tell). Default
+ * 8 preserves the original always-pick behaviour for legacy callers.
  */
-export function selectKeyword(words: string[]): number {
+export function selectKeyword(words: string[], maxTier = 8): number {
   const tiers = words.map(emphasisTier);
   // Contrast pivot: the word AFTER "but/instead/until/without/yet" is elevated.
   for (let i = 0; i < words.length - 1; i++) {
@@ -70,7 +78,7 @@ export function selectKeyword(words: string[]): number {
       bestTier = tiers[i]; bestLen = len; best = i;
     }
   }
-  return best;
+  return bestTier <= maxTier ? best : -1;
 }
 
 /**
