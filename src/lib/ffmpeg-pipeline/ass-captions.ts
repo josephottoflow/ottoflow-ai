@@ -13,6 +13,7 @@
  * in the FFmpeg filter chain.
  */
 import type { TimedCaption } from "./types";
+import { FONT } from "./typography";
 
 // ─── Style header ──────────────────────────────────────────────────────────
 // Numbers are ASS conventions:
@@ -50,6 +51,11 @@ function assColor(hex?: string): string {
 }
 
 /** Box/shadow BackColour from opacity. ASS alpha: 00 opaque … FF transparent. */
+/** Inline colour-override form `&HBBGGRR&` (no alpha) for \1c/\3c tags. */
+function assColorTag(hex: string): string {
+  return `&H${assColor(hex).slice(4)}&`;
+}
+
 function assBack(opacity: number): string {
   const a = Math.max(0, Math.min(255, Math.round((1 - opacity) * 255)));
   return `&H${a.toString(16).padStart(2, "0").toUpperCase()}000000`;
@@ -119,10 +125,16 @@ export function renderAss(
   captions: TimedCaption[],
   style?: CaptionStyle,
   dims?: { width: number; height: number },
-  /** Per-render presentation flags (Video Quality V2). Resolved from the job's
+  /** Per-render presentation flags (Video Quality V2/V3). Resolved from the job's
    * renderProfile by the composer and passed EXPLICITLY per render — this is the
-   * only activation path (no global env default). Absent → Legacy static. */
-  profile?: { captionEngine?: "static" | "animated"; captionStyle?: CoreCaptionPreset },
+   * only activation path (no global env default). Absent → Legacy static.
+   * accentColor (V3) = brand-palette accent for keyword emphasis (never hardcoded;
+   * the composer supplies marigold only as a fallback). */
+  profile?: {
+    captionEngine?: "static" | "animated";
+    captionStyle?: CoreCaptionPreset;
+    accentColor?: string | null;
+  },
 ): string {
   // Sprint B — Caption Engine V1. Animated captions are opt-in and fully
   // isolated behind CAPTION_ENGINE=animated (+ CAPTION_STYLE). When unset or
@@ -131,7 +143,12 @@ export function renderAss(
   // break a render. Rollback is a single flag: CAPTION_ENGINE=static.
   if (resolveCaptionEngine(profile?.captionEngine) === "animated") {
     try {
-      return renderAnimatedAss(captions, dims, ANIMATED_PRESETS[resolveCaptionStyle(profile?.captionStyle)]);
+      return renderAnimatedAss(
+        captions,
+        dims,
+        ANIMATED_PRESETS[resolveCaptionStyle(profile?.captionStyle)],
+        profile?.accentColor ?? undefined,
+      );
     } catch {
       /* fall through to the Legacy static generator */
     }
@@ -226,12 +243,12 @@ const ANIMATED_PRESETS: Record<CoreCaptionPreset, AnimatedPreset> = {
   classic:      { font: "DejaVu Sans", sizePct: 74 / PLAY_RES_Y, bold: 1, primary: "#FFFFFF", secondary: "#B0B0B0", outlinePx: 5, shadowPx: 3, boxOpacity: 0, blur: 0, fadeInMs: 150, fadeOutMs: 150, popFromPct: 108, popMs: 160, karaoke: true,  case: "sentence", spacing: 0.5, karaokeFill: true },
   // Punchy creator ("Hormozi") look: UPPERCASE, large, bold, yellow active word, thick stroke + subtle glow + pronounced pop.
   // V2: thicker stroke + heavier shadow for max legibility, tighter fades, letter spacing for punch.
-  bold_creator: { font: "DejaVu Sans", sizePct: 100 / PLAY_RES_Y, bold: 1, primary: "#FFD400", secondary: "#FFFFFF", outlinePx: 7, shadowPx: 5, boxOpacity: 0, blur: 1, fadeInMs: 70,  fadeOutMs: 90,  popFromPct: 120, popMs: 190, karaoke: true,  case: "upper", spacing: 1.5, smartGroup: true, maxWordsPerLine: 3, keywordScalePct: 112 },
+  bold_creator: { font: FONT.SORA, sizePct: 100 / PLAY_RES_Y, bold: 1, primary: "#FFD400", secondary: "#FFFFFF", outlinePx: 7, shadowPx: 5, boxOpacity: 0, blur: 1, fadeInMs: 70,  fadeOutMs: 90,  popFromPct: 120, popMs: 190, karaoke: true,  case: "upper", spacing: 1.5, smartGroup: true, maxWordsPerLine: 3, keywordScalePct: 112 },
   // Restrained: smaller, no bold, thin stroke, clean fade only (no karaoke, no pop). Kept deliberately clean.
   minimal:      { font: "DejaVu Sans", sizePct: 64 / PLAY_RES_Y, bold: 0, primary: "#FFFFFF", secondary: "#FFFFFF", outlinePx: 2, shadowPx: 1, boxOpacity: 0, blur: 0, fadeInMs: 220, fadeOutMs: 200, popFromPct: 100, popMs: 0,   karaoke: false, case: "sentence", spacing: 0 },
   // Polished/professional: sentence case, bold, white active from a cool-grey unsung, moderate stroke, subtle pop.
   // V2: a bit larger + stronger stroke for premium commercial feel.
-  corporate:    { font: "DejaVu Sans", sizePct: 76 / PLAY_RES_Y, bold: 1, primary: "#FFFFFF", secondary: "#9FB6C4", outlinePx: 4, shadowPx: 3, boxOpacity: 0, blur: 0, fadeInMs: 180, fadeOutMs: 160, popFromPct: 105, popMs: 180, karaoke: true,  case: "sentence", spacing: 0.5, karaokeFill: true, smartGroup: true, maxWordsPerLine: 3, keywordScalePct: 108 },
+  corporate:    { font: FONT.JAKARTA, sizePct: 76 / PLAY_RES_Y, bold: 1, primary: "#FFFFFF", secondary: "#9FB6C4", outlinePx: 4, shadowPx: 3, boxOpacity: 0, blur: 0, fadeInMs: 180, fadeOutMs: 160, popFromPct: 105, popMs: 180, karaoke: true,  case: "sentence", spacing: 0.5, karaokeFill: true, smartGroup: true, maxWordsPerLine: 3, keywordScalePct: 108 },
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -408,6 +425,9 @@ export function renderAnimatedAss(
   captions: TimedCaption[],
   dims?: { width: number; height: number },
   preset: AnimatedPreset = ANIMATED_PRESETS.classic,
+  /** V3 — brand accent "#RRGGBB" for keyword emphasis. undefined → scale-only
+   * (Phase-2 behaviour). Supplied by the composer (brand palette → marigold). */
+  accentColor?: string,
 ): string {
   const width = dims?.width ?? 1080;
   const height = dims?.height ?? 1920;
@@ -438,16 +458,29 @@ export function renderAnimatedAss(
           const runs = karaokeRuns(flat, c.startMs, c.endMs);
           const kTag = preset.karaokeFill ? "kf" : "k";
           const KS = preset.keywordScalePct ?? 108;
+          // Keyword emphasis (Phase 3): scale + brand-accent colour; a NUMERIC
+          // keyword also switches to IBM Plex Mono (Style Guide "proof/data" cue).
+          // accentColor absent → scale-only (Phase-2 behaviour). \1c uses 6-hex.
+          const accentAss = accentColor ? assColorTag(accentColor) : "";
+          const primaryAss = assColorTag(preset.primary);
           let k = 0;
           text = casedWords
             .map((lw, li) =>
               lw
                 .map((w, wi) => {
                   const run = runs[k++];
-                  const on = wi === kwIdx[li];
-                  const emph = on ? `\\fscx${KS}\\fscy${KS}` : "";
-                  const reset = on ? "{\\fscx100\\fscy100}" : "";
-                  return `{\\${kTag}${run}${emph}}${escapeAssText(w)}${reset}`;
+                  if (wi !== kwIdx[li]) return `{\\${kTag}${run}}${escapeAssText(w)}`;
+                  const isNum = isNumberish(w);
+                  const pre =
+                    `\\fscx${KS}\\fscy${KS}` +
+                    (accentAss ? `\\1c${accentAss}` : "") +
+                    (isNum ? `\\fn${FONT.MONO}` : "");
+                  const post =
+                    `{\\fscx100\\fscy100` +
+                    (accentAss ? `\\1c${primaryAss}` : "") +
+                    (isNum ? `\\fn${preset.font}` : "") +
+                    "}";
+                  return `{\\${kTag}${run}${pre}}${escapeAssText(w)}${post}`;
                 })
                 .join(" "),
             )

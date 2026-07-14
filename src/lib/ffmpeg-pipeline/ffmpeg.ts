@@ -579,6 +579,8 @@ export async function composeMultiPass(input: MultiPassInput): Promise<void> {
     renderAss(clampedCaptions, input.captionStyle, { width: W, height: H }, {
       captionEngine: renderFlags.captionEngine,
       captionStyle: renderFlags.captionStyle,
+      // Brand accent → OttoFlow marigold fallback ONLY (never hardcoded default).
+      accentColor: plan.branding?.palette?.accent || "#E9863B",
     }),
     "utf-8",
   );
