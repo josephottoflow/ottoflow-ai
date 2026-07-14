@@ -16,6 +16,7 @@
  */
 import type { PresentationModel, PresentationPass } from "./types";
 import { groupIntoLines, selectKeyword, estimateWidthPx } from "./grouping";
+import { emphasisTier } from "./lexicon";
 
 const identity = (name: string): PresentationPass => ({ name, run: (m) => m });
 
@@ -91,8 +92,47 @@ export const overflowDetectionPass: PresentationPass = {
   },
 };
 
-// Phases 3/4/7 replace these:
-export const typographyLayoutPass: PresentationPass = identity("typography-layout");
+/**
+ * Pass 4 — per-beat typography HIERARCHY (Phase 3). Assigns a role + font
+ * multiplier so hooks / short punch beats DOMINATE and multi-word reads support —
+ * the size contrast that makes editing feel intentional. Overflow-safe: the
+ * multiplier is stepped down until the widest line fits the safe width, so bigger
+ * type never clips or cramps (Priority 5). Deterministic; smart presets only.
+ *   hero     1.30×  — the hook (first beat) or any ≤2-word punch beat
+ *   headline 1.12×  — a ≤3-word beat whose keyword is high-intent (number/pain/
+ *                     transformation/emotion, tier ≤4)
+ *   caption  1.00×  — default reads (unchanged)
+ */
+export const typographyLayoutPass: PresentationPass = {
+  name: "typography-layout",
+  run(model: PresentationModel): PresentationModel {
+    if (!model.config.smartGroup) return model;
+    const baseFontPx = model.config.baseFontPx ?? Math.round(0.04 * model.frame.height);
+    const safeWidth = Math.round(model.frame.width * 0.84);
+    return {
+      ...model,
+      beats: model.beats.map((b, i) => {
+        const totalWords = b.lines.reduce((a, l) => a + l.words.length, 0);
+        const strongKeyword = (b.keywordByLine ?? []).some(
+          (k, li) => k != null && emphasisTier(b.lines[li]?.words[k] ?? "") <= 4,
+        );
+        let role = "caption";
+        let mult = 1;
+        if (i === 0 || totalWords <= 2) { role = "hero"; mult = 1.3; }
+        else if (strongKeyword && totalWords <= 3) { role = "headline"; mult = 1.12; }
+        // Overflow guard: shrink the multiplier until the widest line fits.
+        while (mult > 1) {
+          const widest = Math.max(
+            ...b.lines.map((l) => estimateWidthPx(l.words.join(" "), Math.round(baseFontPx * mult))),
+          );
+          if (widest <= safeWidth) break;
+          mult = Math.max(1, +(mult - 0.06).toFixed(2));
+        }
+        return { ...b, role, layout: { ...(b.layout ?? {}), fontMult: mult } };
+      }),
+    };
+  },
+};
 export const motionPlanningPass: PresentationPass = identity("motion-planning");
 export const safeAreaValidationPass: PresentationPass = identity("safe-area-validation");
 export const presentationQaPass: PresentationPass = identity("presentation-qa");

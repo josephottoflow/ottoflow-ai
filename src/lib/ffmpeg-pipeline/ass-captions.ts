@@ -432,10 +432,12 @@ export function renderAnimatedAss(
 ): string {
   const width = dims?.width ?? 1080;
   const height = dims?.height ?? 1920;
+  const baseSize = Math.round(preset.sizePct * height);
 
-  // V4 Presentation Engine — for smart presets, source grouping + keyword from the
-  // engine (upgraded emphasis lexicon + overflow). Fail-safe: any error → null →
-  // the inline V3 helpers below still run. Legacy/non-smart presets never call it.
+  // V4 Presentation Engine — for smart presets, source grouping + keyword +
+  // per-beat hierarchy from the engine (upgraded emphasis lexicon, overflow-safe
+  // sizing). Fail-safe: any error → null → the inline V3 helpers below still run.
+  // Legacy/non-smart presets never call it.
   let engineBeats: ReturnType<typeof runPresentationEngine>["model"]["beats"] | null = null;
   if (preset.smartGroup) {
     try {
@@ -443,7 +445,7 @@ export function renderAnimatedAss(
         captions,
         frame: { width, height },
         accentColor,
-        config: { smartGroup: true, maxWordsPerLine: preset.maxWordsPerLine ?? 3 },
+        config: { smartGroup: true, maxWordsPerLine: preset.maxWordsPerLine ?? 3, baseFontPx: baseSize },
       }).model.beats;
     } catch {
       engineBeats = null;
@@ -452,7 +454,14 @@ export function renderAnimatedAss(
 
   const events = captions
     .map((c, ci) => {
+      const beat = preset.smartGroup ? engineBeats?.[ci] : undefined;
+      // Per-beat hierarchy: hooks/short beats render larger (fontMult>1). Only
+      // added when it differs from the base so most beats are unchanged.
+      const fontMult = (beat?.layout?.fontMult as number | undefined) ?? 1;
+      const beatFs = fontMult !== 1 ? `\\fs${Math.round(baseSize * fontMult)}` : "";
+
       const entrance =
+        beatFs +
         `\\fad(${preset.fadeInMs},${preset.fadeOutMs})` +
         (preset.popMs > 0 && preset.popFromPct !== 100
           ? `\\fscx${preset.popFromPct}\\fscy${preset.popFromPct}\\t(0,${preset.popMs},\\fscx100\\fscy100)`
@@ -466,7 +475,6 @@ export function renderAnimatedAss(
         // proper-noun detection); casing is then applied per line.
         // V4: engine grouping + keyword (upgraded lexicon) when available; else the
         // inline V3 helpers (fail-safe). Grouping algorithm is identical either way.
-        const beat = engineBeats?.[ci];
         const grouped: string[][] = beat
           ? beat.lines.map((l) => l.words)
           : groupIntoLines(

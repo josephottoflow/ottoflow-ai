@@ -51,6 +51,9 @@ export interface PresentationConfig {
   /** Whether the active preset re-groups (Modern smart presets) or preserves the
    * caption's own lineBreaks (Legacy-ish presets). */
   smartGroup: boolean;
+  /** Preset base caption font size in px (Pass 4 hierarchy + overflow). Default
+   * ~4% of frame height. */
+  baseFontPx?: number;
 }
 
 /** The model threaded through the passes. Passes return a NEW model (pure). */
