@@ -531,6 +531,80 @@ export function buildAnimatedCtaCardClipArgv(i: AnimatedCtaCardClipArgvInput): s
   return argv;
 }
 
+// ─── End Screen "final scene" (footage continuation): the ending grows out of
+//     the commercial's LAST FRAME — blurred, darkened and slowly pushed in behind
+//     a brand-tinted scrim + the same staggered CTA/underline/brand reveals — so
+//     the viewer never feels the video "cut to a card". Self-contained single
+//     pass, SAME CFR/encode contract. Three-tier fallback at the call site:
+//     footage → gradient (buildAnimatedCtaCardClipArgv) → static card. ──────────
+
+export interface CinematicOutroClipArgvInput {
+  /** A still frame (usually the last scene's final frame) used as the backdrop. */
+  footagePath: string;
+  /** Transparent atmosphere layer (dark wash + vignette + accent glow). */
+  scrimPath: string;
+  ctaPath: string;
+  underlinePath: string;
+  brandPath?: string | null;
+  durationSec: number;
+  width: number;
+  height: number;
+  fps: number;
+  outputPath: string;
+}
+
+export function buildCinematicOutroClipArgv(i: CinematicOutroClipArgvInput): string[] {
+  const dur = i.durationSec;
+  const FADE = 0.45;
+  const clampT = (t: number) => Math.min(t, Math.max(0, dur - FADE - 0.2));
+  const ctaSt = clampT(0.6);
+  const ulSt = clampT(1.0);
+  const brandSt = clampT(1.3);
+  const scaleCrop =
+    `scale=${i.width}:${i.height}:force_original_aspect_ratio=increase,crop=${i.width}:${i.height}`;
+
+  const hasBrand = !!i.brandPath;
+  // Input order: [0]=footage still, [1]=scrim, [2]=cta, [3]=underline, [4]=brand?
+  const looped = (p: string): string[] => ["-loop", "1", "-r", String(i.fps), "-t", dur.toFixed(3), "-i", p];
+  const argv: string[] = [
+    "-y",
+    ...THREAD_CAP,
+    ...looped(i.footagePath),
+    ...looped(i.scrimPath),
+    ...looped(i.ctaPath),
+    ...looped(i.underlinePath),
+  ];
+  if (hasBrand) argv.push(...looped(i.brandPath as string));
+
+  const parts: string[] = [
+    // Defocused, darkened, slowly pushing footage → cinematic depth + camera move.
+    `[0:v]${scaleCrop},boxblur=26:2,eq=brightness=-0.34:saturation=0.78,zoompan=z='min(zoom+0.0006,1.07)':d=1:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${i.width}x${i.height}:fps=${i.fps},fade=t=in:st=0:d=0.4,setsar=1,format=yuv420p[fb]`,
+    `[1:v]format=yuva420p[sc]`,
+    `[fb][sc]overlay=0:0[bg]`,
+    `[2:v]format=yuva420p,fade=t=in:st=${ctaSt.toFixed(2)}:d=${FADE}:alpha=1[e1]`,
+    `[3:v]format=yuva420p,fade=t=in:st=${ulSt.toFixed(2)}:d=${FADE}:alpha=1[e2]`,
+  ];
+  if (hasBrand) parts.push(`[4:v]format=yuva420p,fade=t=in:st=${brandSt.toFixed(2)}:d=${FADE}:alpha=1[e3]`);
+  parts.push(`[bg][e1]overlay=0:0[o1]`);
+  parts.push(hasBrand ? `[o1][e2]overlay=0:0[o2]` : `[o1][e2]overlay=0:0,format=yuv420p[vout]`);
+  if (hasBrand) parts.push(`[o2][e3]overlay=0:0,format=yuv420p[vout]`);
+
+  argv.push(
+    "-filter_complex", parts.join(";"),
+    "-map", "[vout]",
+    "-an",
+    "-c:v", ENC.vcodec,
+    "-preset", ENC.preset,
+    "-crf", String(ENC.intermediateCrf),
+    "-pix_fmt", ENC.pixFmt,
+    "-r", String(i.fps),
+    "-t", dur.toFixed(3),
+    "-movflags", "+faststart",
+    i.outputPath,
+  );
+  return argv;
+}
+
 // ─── Orchestrator: normalize each scene (1 decode), then concat-join +
 //     caption + mix in one finalize pass (1 decode). Never >1 decode at once,
 //     so it fits the 1 GB worker. (Crossfades need 2 simultaneous decodes,
@@ -570,6 +644,10 @@ export interface MultiPassInput {
       ctaPath: string;
       underlinePath: string;
       brandPath?: string | null;
+      /** Atmosphere layer for the footage-continuation outro (End Screen "final
+       * scene"). When present, the composer tries a cinematic outro built on the
+       * last scene's frame; absence or any failure falls back to the gradient. */
+      scrimPath?: string | null;
     } | null;
   } | null;
   workDir: string;
@@ -717,10 +795,37 @@ export async function composeMultiPass(input: MultiPassInput): Promise<void> {
     const ctaOut = join("cta-card.mp4");
     const anim = input.ctaCard.animated;
     let built = false;
-    // End Screen V3 (Modern): try the cinematic animated outro first. On ANY
-    // failure, fall back to the static card so the render never fails and Legacy
-    // behaviour is preserved.
-    if (anim) {
+    // End Screen "final scene" (Modern): 3-tier, each fail-safe to the next so a
+    // render can never fail on the outro. (1) cinematic outro grown from the last
+    // scene's frame → (2) gradient animated outro → (3) static card.
+    if (anim && anim.scrimPath && normPaths.length > 0) {
+      try {
+        // Grab the last scene's FINAL frame as the outro backdrop (defocused).
+        const lastFramePng = join("outro-lastframe.png");
+        await input.runFfmpeg(
+          ["-y", "-sseof", "-0.2", "-i", normPaths[normPaths.length - 1],
+            "-frames:v", "1", "-q:v", "2", lastFramePng],
+          "outro-lastframe",
+        );
+        await input.runFfmpeg(
+          buildCinematicOutroClipArgv({
+            footagePath: lastFramePng,
+            scrimPath: anim.scrimPath,
+            ctaPath: anim.ctaPath,
+            underlinePath: anim.underlinePath,
+            brandPath: anim.brandPath ?? null,
+            durationSec: input.ctaCard.durationSec,
+            width: W, height: H, fps,
+            outputPath: ctaOut,
+          }),
+          "cta-card-cinematic",
+        );
+        built = true;
+      } catch {
+        built = false; // → gradient outro below
+      }
+    }
+    if (!built && anim) {
       try {
         await input.runFfmpeg(
           buildAnimatedCtaCardClipArgv({

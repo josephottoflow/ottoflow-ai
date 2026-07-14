@@ -269,7 +269,7 @@ export async function runFfmpegComposer(
   let ctaCard: {
     pngPath: string;
     durationSec: number;
-    animated?: { backgroundPath: string; ctaPath: string; underlinePath: string; brandPath?: string | null } | null;
+    animated?: { backgroundPath: string; ctaPath: string; underlinePath: string; brandPath?: string | null; scrimPath?: string | null } | null;
   } | null = null;
   if (plan.branding) {
     const admin = createAdminClient();
@@ -307,7 +307,7 @@ export async function runFfmpegComposer(
       // composer falls back to the static `cardPath` above, so the static card is
       // always the guaranteed floor. Legacy/classic never enters this branch.
       let animated:
-        | { backgroundPath: string; ctaPath: string; underlinePath: string; brandPath?: string | null }
+        | { backgroundPath: string; ctaPath: string; underlinePath: string; brandPath?: string | null; scrimPath?: string | null }
         | null = null;
       if (endScreenMode === "animated") {
         const layers = await renderCtaCardLayers({
@@ -323,15 +323,17 @@ export async function runFfmpegComposer(
           const bgPath = path.join(workDir, "cta-bg.png");
           const ctaLayerPath = path.join(workDir, "cta-text.png");
           const underlinePath = path.join(workDir, "cta-underline.png");
+          const scrimPath = path.join(workDir, "cta-scrim.png");
           await fs.writeFile(bgPath, layers.background);
           await fs.writeFile(ctaLayerPath, layers.cta);
           await fs.writeFile(underlinePath, layers.underline);
+          await fs.writeFile(scrimPath, layers.scrim);
           let brandPath: string | null = null;
           if (layers.brand) {
             brandPath = path.join(workDir, "cta-brand.png");
             await fs.writeFile(brandPath, layers.brand);
           }
-          animated = { backgroundPath: bgPath, ctaPath: ctaLayerPath, underlinePath, brandPath };
+          animated = { backgroundPath: bgPath, ctaPath: ctaLayerPath, underlinePath, brandPath, scrimPath };
         }
       }
       ctaCard = { pngPath: cardPath, durationSec: CTA_CARD_SEC, animated };

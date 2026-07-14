@@ -230,6 +230,11 @@ export interface CtaCardLayers {
   underline: Buffer;
   /** Transparent full-frame brand-name layer (null when no brand name). */
   brand: Buffer | null;
+  /** Transparent full-frame ATMOSPHERE layer for the FOOTAGE outro: a dark
+   * legibility wash + brand-tinted vignette + centre accent glow, composited OVER
+   * the blurred final scene so the ending grows out of the film yet text stays
+   * crisp. (End Screen "final scene" mode.) */
+  scrim: Buffer;
 }
 
 export async function renderCtaCardLayers(
@@ -324,13 +329,38 @@ export async function renderCtaCardLayers(
 </svg>`
       : null;
 
-    const [background, cta, underline, brandBuf] = await Promise.all([
+    // ── Scrim: darken the footage toward the edges/bottom (legibility) + a soft
+    //    brand-tinted centre glow so the CTA reads and the frame feels lit. Kept
+    //    transparent so the blurred footage shows through the middle. ───────────
+    const scrimSvg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="glow2" cx="50%" cy="50%" r="58%">
+      <stop offset="0%" stop-color="${accent}" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="${accent}" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="wash" cx="50%" cy="47%" r="80%">
+      <stop offset="0%" stop-color="#05070d" stop-opacity="0.34"/>
+      <stop offset="55%" stop-color="#05070d" stop-opacity="0.46"/>
+      <stop offset="100%" stop-color="#05070d" stop-opacity="0.82"/>
+    </radialGradient>
+    <linearGradient id="floor" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="60%" stop-color="#05070d" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#05070d" stop-opacity="0.55"/>
+    </linearGradient>
+  </defs>
+  <rect width="${width}" height="${height}" fill="url(#wash)"/>
+  <ellipse cx="${cx}" cy="${Math.round(height * 0.5)}" rx="${Math.round(width * 0.42)}" ry="${Math.round(blockHeight * 0.9 + ctaFont)}" fill="url(#glow2)"/>
+  <rect width="${width}" height="${height}" fill="url(#floor)"/>
+</svg>`;
+
+    const [background, cta, underline, brandBuf, scrim] = await Promise.all([
       sharp(Buffer.from(backgroundSvg)).png().toBuffer(),
       sharp(Buffer.from(ctaSvg)).png().toBuffer(),
       sharp(Buffer.from(underlineSvg)).png().toBuffer(),
       brandSvg ? sharp(Buffer.from(brandSvg)).png().toBuffer() : Promise.resolve(null),
+      sharp(Buffer.from(scrimSvg)).png().toBuffer(),
     ]);
-    return { background, cta, underline, brand: brandBuf };
+    return { background, cta, underline, brand: brandBuf, scrim };
   } catch {
     // Fail-safe: the composer falls back to the static renderCtaCard card.
     return null;
