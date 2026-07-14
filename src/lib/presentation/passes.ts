@@ -144,7 +144,15 @@ export const typographyLayoutPass: PresentationPass = {
           if (widest <= safeWidth) break;
           mult = Math.max(1, +(mult - 0.06).toFixed(2));
         }
-        return { ...b, role, layout: { ...(b.layout ?? {}), fontMult: mult } };
+        // "Big OR coloured, not both" — a genuinely enlarged hero beat lets SIZE
+        // carry the emphasis (Apple-style), so drop its keyword colour. A hero
+        // that overflow-clamped back to ~base keeps its accent (it isn't actually
+        // big). This variety is what stops emphasis feeling formulaic.
+        const keywordByLine =
+          role === "hero" && mult >= 1.3 && b.keywordByLine
+            ? b.keywordByLine.map(() => null)
+            : b.keywordByLine;
+        return { ...b, role, keywordByLine, layout: { ...(b.layout ?? {}), fontMult: mult } };
       }),
     };
   },

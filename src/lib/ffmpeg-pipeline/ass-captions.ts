@@ -543,8 +543,20 @@ export function renderAnimatedAss(
                   if (!stagger && !isKw) return `{\\${kTag}${run}}${escapeAssText(w)}`;
                   const popFrom = isKw ? KEYWORD_POP : SUPPORT_POP;
                   const wf = isKw ? wordFade + 40 : wordFade; // keyword settles slower
+                  // Kinetic V3 — OVERSHOOT settle (scale eases PAST target, then
+                  // relaxes back: a spring that reads "designed", not a linear pop)
+                  // + a focus-pull on the keyword only (brief \blur that resolves,
+                  // like a rack focus). Two \t segments = anticipation/overshoot/
+                  // follow-through that libass' single-exponent \t can't do alone.
+                  const OS = 5;        // overshoot %
+                  const SETTLE = 90;   // ms to relax from overshoot back to target
+                  const over = target + OS;
+                  const blurIn = isKw ? `\\blur${preset.blur + 6}` : "";
+                  const blurTo = isKw ? `\\blur${preset.blur}` : "";
                   const scale = stagger
-                    ? `\\fscx${popFrom}\\fscy${popFrom}\\t(${off},${off + wf},${accelStr}\\fscx${target}\\fscy${target})`
+                    ? `\\fscx${popFrom}\\fscy${popFrom}${blurIn}` +
+                      `\\t(${off},${off + wf},${accelStr}\\fscx${over}\\fscy${over}${blurTo})` +
+                      `\\t(${off + wf},${off + wf + SETTLE},\\fscx${target}\\fscy${target})`
                     : isKw
                       ? `\\fscx${KS}\\fscy${KS}`
                       : "";
