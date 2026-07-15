@@ -17,6 +17,7 @@ import { FONT } from "./typography";
 import { runPresentationEngine } from "../presentation";
 import { applyStyle } from "../presentation/styles/core";
 import { getStyleFamily } from "../presentation/styles/registry";
+import { place, posTag, type Archetype } from "../presentation/primitives/layout";
 
 // ─── Style header ──────────────────────────────────────────────────────────
 // Numbers are ASS conventions:
@@ -548,8 +549,20 @@ export function renderAnimatedAss(
       // the opacity fade + glow. Non-stagger presets are UNCHANGED (byte-identical).
       // Hold beats set stagger 0 → no per-word entrance (still, fade only).
       const stagger = preset.smartGroup && preset.staggerMs && !sig.hold ? sig.staggerMs : 0;
+      // V5 Composition Engine — PLACE the beat with the Layout primitive (\an\pos)
+      // instead of auto-centered \an5, so beats sit in deliberate positions (hero
+      // upper-middle, stat centred, etc.) — the #1 fix for the "centered subtitle"
+      // tell. Only when a style is active; fail-safe → no \pos (current centring).
+      let placeTag = "";
+      if (styleType) {
+        try {
+          const archetype = ((beat?.layout as { archetype?: string } | undefined)?.archetype ??
+            "centered") as Archetype;
+          placeTag = posTag(place(archetype, 0, 1, { width, height }));
+        } catch { placeTag = ""; }
+      }
       const entrance =
-        beatFs + beatTrack +
+        placeTag + beatFs + beatTrack +
         `\\fad(${sig.fadeInMs ?? preset.fadeInMs},${preset.fadeOutMs})` +
         (!stagger && !sig.hold && preset.popMs > 0 && preset.popFromPct !== 100
           ? `\\fscx${preset.popFromPct}\\fscy${preset.popFromPct}\\t(0,${preset.popMs},\\fscx100\\fscy100)`

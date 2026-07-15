@@ -41,7 +41,13 @@ export function applyStyle(style: StyleFamily, beats: Beat[], frame: { width: nu
     return beats.map((b) => {
       const treatment = asTreatment(b.treatment);
       const totalWords = b.lines.reduce((a, l) => a + l.words.length, 0);
-      const role = style.roleByTreatment[treatment] ?? "body";
+      const archetype = chooseArchetype(style, treatment, totalWords);
+      // Layout ↔ Typography coupling: a hero LAYOUT implies a hero SIZE. A 1-word
+      // beat becomes a single-word hero (biggest); a 2-word beat a display. So a
+      // short beat commands the frame regardless of its narrative treatment.
+      let role = style.roleByTreatment[treatment] ?? "body";
+      if (archetype === "single-word-hero") role = "hero";
+      else if (archetype === "dual-word-hero") role = "display";
       const rt = style.type[role] ?? style.type.body;
       // Typography Engine OWNS fit: start at the role's size, shrink until the
       // widest line fits the safe band, keeping tracking proportional. So a big
@@ -55,7 +61,6 @@ export function applyStyle(style: StyleFamily, beats: Beat[], frame: { width: nu
         fontPx -= step;
         trackingPx = Math.round(rt.trackingPct * fontPx);
       }
-      const archetype = chooseArchetype(style, treatment, totalWords);
       const motion = style.motionByTreatment[treatment] ?? style.motionByTreatment.statement;
       return {
         ...b,
