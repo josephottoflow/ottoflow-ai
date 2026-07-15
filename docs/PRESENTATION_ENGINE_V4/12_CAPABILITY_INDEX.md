@@ -85,6 +85,22 @@ cannot animate `\pos`/`\org`, so continuous *translation* is impossible mid-even
 | `blurPulse` | `blurPulse(atMs, durMs?, amp?)` | 2×`\t` `\blur` | soft attention throb on a word | 06 |
 | `sway` | `sway(w, amp?)` | 3×`\t` `\frz` | gentle pendulum (playful/broadcast) | 06 |
 
+## E · Transition primitives (`src/lib/presentation/primitives/transition.ts`)
+
+*How a beat LEAVES + how two beats hand off (beat→beat continuity). Reveal=entrance,
+motion=hold, this=EXIT/cut. Timed relative to the OUTGOING line's start (`atMs` ≈ its
+end − durMs). Positional exits use one-shot `\move` (replaces `\pos`); fade/scale/blur/
+wipe compose with `\pos`. **All render-verified** (transition probe, this session).*
+
+| Recipe key | Signature | Emits | Reads as | Source |
+|---|---|---|---|---|
+| `exitFade` | `exitFade(atMs, durMs?)` | `\t` `\alpha` | soft dismiss | 09 |
+| `exitScaleDown` | `exitScaleDown(atMs, durMs?, toPct?)` | `\t` scale+`\alpha` | recede away | 09 |
+| `exitBlur` | `exitBlur(atMs, durMs?, amp?)` | `\t` `\blur`+`\alpha` | rack-focus out | 09 |
+| `exitSlide` | `exitSlide(p, dir, atMs, durMs, W, H)` | `\an\move` (replaces `\pos`) | slide off-frame | 09 |
+| `wipeOut` | `wipeOut(box, atMs, durMs, dir?)` | collapsing `\clip` | reverse mask hide | 09 |
+| `crossPush` | `crossPush(p, dir, outAtMs, inDurMs, W, H)` → `{out,in}` | paired `\move` | pushed-by-next handoff | 09 |
+
 ---
 
 ## Recipe grammar
@@ -117,7 +133,9 @@ animation — it looks up the keys and composes the emitted fragments.
 
 - ~~**Motion module (`motion.ts`)**~~ ✅ done — `drift`/`hold`/`punch`/`breathe`/
   `settleRotate`/`blurPulse`/`sway` shipped as pure primitives (Section D).
-- **Transitions** — `crossPush`, `wipeHandoff`, `maskCarry` (beat→beat continuity).
+- ~~**Transitions**~~ ✅ done — `exitFade`/`exitScaleDown`/`exitBlur`/`exitSlide`/
+  `wipeOut`/`crossPush` shipped (Section E). Still to add: `maskCarry` (shared element
+  persisting across a cut — needs compositor support, deferred).
 - **Reveals** — `splitReveal`, `unmaskDown`, `charScramble`, `countUp` (numeric roll).
 - **Decoration** — `bracketPair` (auto tl+tr/bl+br), `ticksRule`, `boxDraw`, `highlightSweep`.
 - **Layout** — `ruleOfThirds`, `magazineGrid`, `diagonalStack`.
