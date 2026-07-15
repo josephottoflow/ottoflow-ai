@@ -56,3 +56,40 @@ export function maskWipe(
 export function drawOn(t: RevealTiming, box: { x1: number; y1: number; x2: number; y2: number }): string {
   return maskWipe(t, box, "lr");
 }
+
+/**
+ * WORD-AS-IMAGE (expressive typography) — a word whose MOTION expresses its MEANING
+ * (Research doc 11). Per-word-safe categories only (scale/rotate/shake/stretch/fade);
+ * translation categories (fall/rise/split) need single-word placement and are handled
+ * by the compiler with `\move`. Returns override tags (no braces); "" for non-express.
+ */
+export function express(category: string, t: RevealTiming): string {
+  const acc2 = acc(t.accel);
+  const seg = `${t.offMs},${t.offMs + t.durMs}`;
+  switch (category) {
+    case "grow":    return `\\fscx45\\fscy45\\t(${seg},${acc2}\\fscx100\\fscy100)`;
+    case "shrink":  return `\\fscx175\\fscy175\\t(${seg},${acc2}\\fscx100\\fscy100)`;
+    case "stretch": return `\\fscx40\\t(${seg},${acc2}\\fscx100)`;
+    case "spin":    return `\\frz-90\\t(${seg},${acc2}\\frz0)`;
+    case "shake":   return `\\t(${t.offMs},${t.offMs + 80},\\frz5)\\t(${t.offMs + 80},${t.offMs + 170},\\frz-5)\\t(${t.offMs + 170},${t.offMs + 260},\\frz0)`;
+    case "fade":    return `\\alpha&HFF&\\t(${seg},${acc2}\\alpha&H00&)`;
+    default:        return "";
+  }
+}
+
+/**
+ * LETTER CASCADE (animated-typeface principle, Research doc 11) — build a word
+ * letter-by-letter: each character scales + fades in, staggered by `perCharMs`.
+ * Returns the word as per-char override runs (compose into event text). Expensive
+ * per char → reserve for hero / single-word beats.
+ */
+export function letterCascade(word: string, t: RevealTiming, perCharMs: number): string {
+  const acc2 = acc(t.accel);
+  return word
+    .split("")
+    .map((ch, i) => {
+      const off = t.offMs + i * perCharMs;
+      return `{\\fscx55\\fscy55\\alpha&HFF&\\t(${off},${off + t.durMs},${acc2}\\fscx100\\fscy100\\alpha&H00&)}${ch}`;
+    })
+    .join("");
+}

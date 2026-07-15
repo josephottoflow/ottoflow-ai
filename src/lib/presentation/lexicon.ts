@@ -51,6 +51,24 @@ export const POWER_VERBS = new Set([
 /** Priority #6 — contrast pivots: emphasise the word AFTER these. */
 export const CONTRAST_PIVOTS = new Set(["but", "instead", "until", "without", "yet"]);
 
+/** "Word as Image" — words whose MOTION can express their MEANING (expressive
+ * typography). Maps a word → a motion category the `reveal.express` primitive
+ * renders. A rare, high-craft accent (fires only on an emphasis word), never every
+ * word. Research doc 11. */
+export const EXPRESSIVE = new Map<string, string>([
+  ["grow", "grow"], ["expand", "grow"], ["bigger", "grow"], ["boost", "grow"], ["more", "grow"], ["scale", "grow"],
+  ["shrink", "shrink"], ["smaller", "shrink"], ["less", "shrink"], ["tiny", "shrink"], ["reduce", "shrink"],
+  ["spin", "spin"], ["rotate", "spin"], ["turn", "spin"], ["flip", "spin"],
+  ["shake", "shake"], ["nervous", "shake"], ["panic", "shake"], ["chaos", "shake"], ["messy", "shake"], ["stress", "shake"],
+  ["stretch", "stretch"], ["extend", "stretch"], ["longer", "stretch"],
+  ["fade", "fade"], ["vanish", "fade"], ["disappear", "fade"], ["gone", "fade"], ["lost", "fade"],
+]);
+
+/** Expressive-motion category for a word ("none" = not expressive). */
+export function expressiveCategory(word: string): string {
+  return EXPRESSIVE.get(norm(word)) ?? "none";
+}
+
 /** Trim surrounding punctuation, lower-case, keep currency/percent glyphs. */
 export function norm(w: string): string {
   return w.toLowerCase().replace(/^[^\p{L}\p{N}$£€%]+|[^\p{L}\p{N}$£€%]+$/gu, "");
