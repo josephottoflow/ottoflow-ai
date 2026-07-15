@@ -101,6 +101,23 @@ wipe compose with `\pos`. **All render-verified** (transition probe, this sessio
 | `wipeOut` | `wipeOut(box, atMs, durMs, dir?)` | collapsing `\clip` | reverse mask hide | 09 |
 | `crossPush` | `crossPush(p, dir, outAtMs, inDurMs, W, H)` → `{out,in}` | paired `\move` | pushed-by-next handoff | 09 |
 
+## F · Attention primitives (`src/lib/presentation/primitives/attention.ts`)
+
+*Direct the EYE within a beat — WHERE the viewer looks (attention choreography, doc 06).
+Emphasis is created by DIFFERENCE: the focal word lifts while SUPPORT words recede
+(dim/thin/tighten). Applied per-run by the compiler (focal vs. rest); each has a `*Reset`
+companion so emphasis doesn't leak to the next run. **Render-verified** (attention probe,
+this session — "emphasis by difference" reads instantly).*
+
+| Recipe key | Signature | Emits | Reads as | Source |
+|---|---|---|---|---|
+| `dim` / `undim` | `dim(level?)` · `undim()` | `\1a` | support recedes / restore | 06 |
+| `focusPop` / `focusReset` | `focusPop(col, scalePct?)` · `focusReset(pri)` | `\1c`+scale | focal lift / restore | 06 |
+| `weightThin` / `weightRestore` | `weightThin()` · `weightRestore()` | `\b0`/`\b1` | thin support vs. bold focal | 06 |
+| `tighten` / `tightenReset` | `tighten(px?)` · `tightenReset()` | `\fsp` | pull support spacing in | 06 |
+| `spotlightIn` | `spotlightIn(offMs, durMs?, fromLevel?)` | `\1a`+`\t` | focal brightens into emphasis | 06 |
+| `isolateSupport` / `isolateReset` | `isolateSupport(dimLevel?)` · `isolateReset(pri)` | dim+thin+tighten | strongest "all recede but one" | 06 |
+
 ---
 
 ## Recipe grammar
@@ -139,7 +156,8 @@ animation — it looks up the keys and composes the emitted fragments.
 - **Reveals** — `splitReveal`, `unmaskDown`, `charScramble`, `countUp` (numeric roll).
 - **Decoration** — `bracketPair` (auto tl+tr/bl+br), `ticksRule`, `boxDraw`, `highlightSweep`.
 - **Layout** — `ruleOfThirds`, `magazineGrid`, `diagonalStack`.
-- **Attention** — colour-pop isolation, size-jump hierarchy, negative-space framing.
+- ~~**Attention**~~ ✅ done — `dim`/`focusPop`/`weightThin`/`tighten`/`spotlightIn`/
+  `isolateSupport` shipped (Section F). Still to add: negative-space framing (layout-level).
 - Then: migrate reveal+motion **selection** fully onto the recipe, and author config-only
   philosophies (Documentary / Editorial / Broadcast) with **no engine change**.
 
