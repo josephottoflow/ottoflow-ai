@@ -17,7 +17,7 @@ import { FONT } from "./typography";
 import { runPresentationEngine } from "../presentation";
 import { applyStyle } from "../presentation/styles/core";
 import { getStyleFamily } from "../presentation/styles/registry";
-import { place, posTag, type Archetype } from "../presentation/primitives/layout";
+import { place, posTag, moveIn, type Archetype } from "../presentation/primitives/layout";
 
 // ─── Style header ──────────────────────────────────────────────────────────
 // Numbers are ASS conventions:
@@ -558,7 +558,16 @@ export function renderAnimatedAss(
         try {
           const archetype = ((beat?.layout as { archetype?: string } | undefined)?.archetype ??
             "centered") as Archetype;
-          placeTag = posTag(place(archetype, 0, 1, { width, height }));
+          const placement = place(archetype, 0, 1, { width, height });
+          // Motion Engine — kinetic RISE-into-place (a designed slide-up reveal)
+          // unless the beat HOLDS (still beats stay put). Rise distance scales with
+          // type size; duration matches the entrance fade. Composes the layout
+          // primitive; `\move` replaces `\pos`.
+          const risePx = Math.round(Math.max(28, styleType.fontPx * 0.32));
+          const riseMs = sig.fadeInMs ?? preset.fadeInMs;
+          placeTag = sig.hold
+            ? posTag(placement)
+            : moveIn(placement, risePx, riseMs);
         } catch { placeTag = ""; }
       }
       const entrance =

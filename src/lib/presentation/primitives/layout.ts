@@ -63,6 +63,17 @@ export function posTag(p: Placement): string {
   return `\\an${p.an}\\pos(${p.x},${p.y})`;
 }
 
+/**
+ * Kinetic RISE-into-place — the line \move's up from `fromDy` px below its
+ * placement over [0,durMs] then holds. A designed slide-up reveal (a Motion-Engine
+ * entrance) instead of appearing statically. \move is linear (libass can't ease
+ * position); pair with a fade so the linearity reads as intentional. \move and
+ * \pos are mutually exclusive — this REPLACES posTag when a rise is wanted.
+ */
+export function moveIn(p: Placement, fromDy: number, durMs: number): string {
+  return `\\an${p.an}\\move(${p.x},${p.y + fromDy},${p.x},${p.y},0,${Math.round(durMs)})`;
+}
+
 /** Estimate a line's on-screen width (px) for mask-wipe boxes / centering.
  * Conservative average advance ≈ 0.56em (matches the rest of the engine). */
 export function lineWidthPx(text: string, fontPx: number, trackingPx = 0): number {
