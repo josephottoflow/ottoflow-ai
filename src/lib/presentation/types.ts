@@ -45,8 +45,20 @@ export interface Beat {
   treatment?: string;
   /** Pass 5 — opaque motion spec (compiled to ASS by a later step). */
   motion?: Record<string, unknown>;
-  /** Passes 6–7 — layout/fit annotations (fitted size, wrap, clamp). */
+  /** Passes 6–7 — layout/fit annotations (fitted size, wrap, clamp). Layout Engine
+   * (V5) writes `archetype` + `align` here for the compiler. */
   layout?: Record<string, unknown>;
+  /** V5 Typography Engine — the DECIDED type spec (style resolves role → look).
+   * The compiler serializes this; it never re-derives size/weight/tracking. */
+  type?: {
+    role: string;
+    fontPx: number;
+    weight: number;
+    /** Letter-spacing in px (\fsp). */
+    trackingPx: number;
+    leadingMult: number;
+    case: "sentence" | "upper" | "title";
+  };
 }
 
 /** Tunable engine config (data, not logic). */
