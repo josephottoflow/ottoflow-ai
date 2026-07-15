@@ -11,6 +11,7 @@
  * result and serializes it — it makes no design decisions.
  */
 import type { Beat } from "../types";
+import { estimateWidthPx } from "../grouping";
 import type { StyleFamily, TreatmentId, LayoutArchetype } from "./types";
 
 const TREATMENTS: TreatmentId[] = ["hook", "stat", "turn", "question", "cta", "statement"];
@@ -32,21 +33,35 @@ function chooseArchetype(style: StyleFamily, treatment: TreatmentId, totalWords:
  * fraction-of-height sizes into px. Fail-safe: returns the input beats unchanged
  * on any error so a style can never break a render.
  */
-export function applyStyle(style: StyleFamily, beats: Beat[], frameHeight: number): Beat[] {
+export function applyStyle(style: StyleFamily, beats: Beat[], frame: { width: number; height: number }): Beat[] {
   try {
+    const safeWidth = Math.round(frame.width * 0.84);
+    const minPx = Math.round(0.042 * frame.height); // never smaller than a readable caption
+    const step = Math.max(2, Math.round(0.004 * frame.height));
     return beats.map((b) => {
       const treatment = asTreatment(b.treatment);
       const totalWords = b.lines.reduce((a, l) => a + l.words.length, 0);
       const role = style.roleByTreatment[treatment] ?? "body";
       const rt = style.type[role] ?? style.type.body;
-      const fontPx = Math.round(rt.sizePct * frameHeight);
-      const trackingPx = Math.round(rt.trackingPct * fontPx);
+      // Typography Engine OWNS fit: start at the role's size, shrink until the
+      // widest line fits the safe band, keeping tracking proportional. So a big
+      // hero/statistic size is used when it fits (short beats) and steps down
+      // gracefully on longer lines — no clipping, hierarchy where there's room.
+      let fontPx = Math.round(rt.sizePct * frame.height);
+      let trackingPx = Math.round(rt.trackingPct * fontPx);
+      const widest = () =>
+        Math.max(...b.lines.map((l) => estimateWidthPx(l.words.join(" "), fontPx, Math.max(0, trackingPx))));
+      while (fontPx > minPx && widest() > safeWidth) {
+        fontPx -= step;
+        trackingPx = Math.round(rt.trackingPct * fontPx);
+      }
       const archetype = chooseArchetype(style, treatment, totalWords);
       const motion = style.motionByTreatment[treatment] ?? style.motionByTreatment.statement;
       return {
         ...b,
         role,
         type: { role, fontPx, weight: rt.weight, trackingPx, leadingMult: rt.leadingMult, case: rt.case },
+        // (fontPx/trackingPx are post-overflow-guard — the compiler uses them as-is)
         layout: { ...(b.layout ?? {}), archetype, align: 5 },
         motion: { ...(b.motion ?? {}), ...motion },
       };

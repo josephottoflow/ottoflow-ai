@@ -15,6 +15,8 @@
 import type { TimedCaption } from "./types";
 import { FONT } from "./typography";
 import { runPresentationEngine } from "../presentation";
+import { applyStyle } from "../presentation/styles/core";
+import { getStyleFamily } from "../presentation/styles/registry";
 
 // ─── Style header ──────────────────────────────────────────────────────────
 // Numbers are ASS conventions:
@@ -250,6 +252,11 @@ interface AnimatedPreset {
   /** \t acceleration for the scale-pop: <1 = ease-out (premium), 1 = linear.
    * Omitted → linear (V3, unchanged). */
   easeAccel?: number;
+  /** V5 — Motion Typography style-family id. When set, the Presentation Core
+   * (applyStyle) decides per-beat typography/layout/motion and the compiler
+   * serializes that IR (semantic roles, real hierarchy) instead of the preset
+   * constants. Omitted → the preset drives everything (V4 behaviour). */
+  styleId?: string;
 }
 
 const ANIMATED_PRESETS: Record<CoreCaptionPreset, AnimatedPreset> = {
@@ -258,12 +265,12 @@ const ANIMATED_PRESETS: Record<CoreCaptionPreset, AnimatedPreset> = {
   classic:      { font: "DejaVu Sans", sizePct: 74 / PLAY_RES_Y, bold: 1, primary: "#FFFFFF", secondary: "#B0B0B0", outlinePx: 5, shadowPx: 3, boxOpacity: 0, blur: 0, fadeInMs: 150, fadeOutMs: 150, popFromPct: 108, popMs: 160, karaoke: true,  case: "sentence", spacing: 0.5, karaokeFill: true },
   // Punchy creator ("Hormozi") look: UPPERCASE, large, bold, yellow active word, thick stroke + subtle glow + pronounced pop.
   // V2: thicker stroke + heavier shadow for max legibility, tighter fades, letter spacing for punch.
-  bold_creator: { font: FONT.SORA, sizePct: 100 / PLAY_RES_Y, bold: 1, primary: "#FFD400", secondary: "#FFFFFF", outlinePx: 7, shadowPx: 5, boxOpacity: 0, blur: 1, fadeInMs: 70,  fadeOutMs: 90,  popFromPct: 120, popMs: 190, karaoke: true,  case: "upper", spacing: 1.5, smartGroup: true, maxWordsPerLine: 3, keywordScalePct: 126, staggerMs: 40, wordFadeMs: 120, easeAccel: 0.5, emphasisMaxTier: 6 },
+  bold_creator: { font: FONT.SORA, sizePct: 100 / PLAY_RES_Y, bold: 1, primary: "#FFD400", secondary: "#FFFFFF", outlinePx: 7, shadowPx: 5, boxOpacity: 0, blur: 1, fadeInMs: 70,  fadeOutMs: 90,  popFromPct: 120, popMs: 190, karaoke: true,  case: "upper", spacing: 1.5, smartGroup: true, maxWordsPerLine: 3, keywordScalePct: 126, staggerMs: 40, wordFadeMs: 120, easeAccel: 0.5, emphasisMaxTier: 6, styleId: "viral.hormozi" },
   // Restrained: smaller, no bold, thin stroke, clean fade only (no karaoke, no pop). Kept deliberately clean.
   minimal:      { font: "DejaVu Sans", sizePct: 64 / PLAY_RES_Y, bold: 0, primary: "#FFFFFF", secondary: "#FFFFFF", outlinePx: 2, shadowPx: 1, boxOpacity: 0, blur: 0, fadeInMs: 220, fadeOutMs: 200, popFromPct: 100, popMs: 0,   karaoke: false, case: "sentence", spacing: 0 },
   // Polished/professional: sentence case, bold, white active from a cool-grey unsung, moderate stroke, subtle pop.
   // V2: a bit larger + stronger stroke for premium commercial feel.
-  corporate:    { font: FONT.JAKARTA, sizePct: 104 / PLAY_RES_Y, bold: 1, primary: "#FFFFFF", secondary: "#9FB6C4", outlinePx: 5, shadowPx: 3, boxOpacity: 0, blur: 0, fadeInMs: 180, fadeOutMs: 160, popFromPct: 105, popMs: 180, karaoke: true,  case: "sentence", spacing: 0.5, karaokeFill: true, smartGroup: true, maxWordsPerLine: 3, keywordScalePct: 118, staggerMs: 45, wordFadeMs: 150, easeAccel: 0.5, emphasisMaxTier: 5 },
+  corporate:    { font: FONT.JAKARTA, sizePct: 104 / PLAY_RES_Y, bold: 1, primary: "#FFFFFF", secondary: "#9FB6C4", outlinePx: 5, shadowPx: 3, boxOpacity: 0, blur: 0, fadeInMs: 180, fadeOutMs: 160, popFromPct: 105, popMs: 180, karaoke: true,  case: "sentence", spacing: 0.5, karaokeFill: true, smartGroup: true, maxWordsPerLine: 3, keywordScalePct: 118, staggerMs: 45, wordFadeMs: 150, easeAccel: 0.5, emphasisMaxTier: 5, styleId: "luxury.apple" },
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -489,6 +496,11 @@ export function renderAnimatedAss(
         accentColor,
         config: { smartGroup: true, maxWordsPerLine: preset.maxWordsPerLine ?? 3, baseFontPx: baseSize, emphasisMaxTier: preset.emphasisMaxTier },
       }).model.beats;
+      // V5 — Presentation Core: a style family decides per-beat typography (semantic
+      // role → size/weight/tracking/case), layout archetype, and motion. The render
+      // loop below serializes that IR; when absent it falls back to the preset (V4).
+      const style = getStyleFamily(preset.styleId);
+      if (style && engineBeats) engineBeats = applyStyle(style, engineBeats, { width, height });
     } catch {
       engineBeats = null;
     }
@@ -499,12 +511,21 @@ export function renderAnimatedAss(
       const beat = preset.smartGroup ? engineBeats?.[ci] : undefined;
       // Per-beat hierarchy: hooks/short beats render larger (fontMult>1). Only
       // added when it differs from the base so most beats are unchanged.
+      // V5 — the Typography Engine's decided spec (semantic role → size/tracking/
+      // case), overflow-guarded upstream. When present it OWNS size + tracking; the
+      // compiler just serializes it. Absent → the V4 fontMult behaviour (byte-identical).
+      const styleType = beat?.type as
+        | { fontPx: number; trackingPx: number; case: "sentence" | "upper" | "title" }
+        | undefined;
       const fontMult = (beat?.layout?.fontMult as number | undefined) ?? 1;
-      const beatFs = fontMult !== 1 ? `\\fs${Math.round(baseSize * fontMult)}` : "";
+      const beatFs = styleType
+        ? `\\fs${styleType.fontPx}`
+        : fontMult !== 1 ? `\\fs${Math.round(baseSize * fontMult)}` : "";
       // Optical tracking: large display type reads premium with slightly TIGHTER
-      // letter-spacing (negative \fsp). Only on hero/headline beats; ordinary
-      // reads keep the preset's Spacing. Deterministic, Modern smart presets only.
-      const beatTrack = fontMult >= 1.4 ? "\\fsp-3" : fontMult >= 1.2 ? "\\fsp-2" : "";
+      // letter-spacing (negative \fsp). V5: from the type spec; else V4 heuristic.
+      const beatTrack = styleType
+        ? (styleType.trackingPx !== 0 ? `\\fsp${styleType.trackingPx}` : "")
+        : fontMult >= 1.4 ? "\\fsp-3" : fontMult >= 1.2 ? "\\fsp-2" : "";
 
       // Motion Graphics V1 — per-beat treatment → motion signature. Each narrative
       // beat animates in its own way (hook explodes, question drifts, stat pops,
@@ -512,7 +533,15 @@ export function renderAnimatedAss(
       // moves) so the moving beats own the frame. Deterministic; smart presets only.
       const treatment = (beat?.treatment as string | undefined) ?? (ci === 0 ? "hook" : "statement");
       const effTreatment = treatment === "statement" && ci % 3 === 2 ? "hold" : treatment;
-      const sig = MOTION_SIGNATURES[effTreatment] ?? MOTION_SIGNATURES.statement;
+      // V5: the style's per-treatment motion signature (on beat.motion) wins; a
+      // hold beat still overrides to stillness; else the built-in signature table.
+      const styleMotion = beat?.motion as MotionSig | undefined;
+      const sig: MotionSig =
+        effTreatment === "hold"
+          ? MOTION_SIGNATURES.hold
+          : styleMotion && typeof styleMotion.supportPop === "number"
+            ? styleMotion
+            : MOTION_SIGNATURES[effTreatment] ?? MOTION_SIGNATURES.statement;
 
       // V4 Phase 4 — per-word staggered reveal (smart presets): the whole-caption
       // scale-pop is replaced by per-word scale-in below, so the event keeps only
@@ -544,7 +573,7 @@ export function renderAnimatedAss(
           ? beat.keywordByLine.map((k) => (k == null ? -1 : k))
           : grouped.map((lw) => selectKeywordIndex(lw));
         const casedWords = grouped.map((lw) =>
-          applyCase(lw.join(" "), preset.case).split(/\s+/).filter(Boolean),
+          applyCase(lw.join(" "), styleType?.case ?? preset.case).split(/\s+/).filter(Boolean),
         );
         if (preset.karaoke) {
           const flat = casedWords.flat();
