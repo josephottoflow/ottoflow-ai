@@ -47,9 +47,9 @@ export interface MotionSpec {
 
 /** A complete presentation language as data. */
 export interface StyleFamily {
-  id: string;          // "luxury.apple"
-  group: string;       // "Luxury"
-  label: string;       // "Apple"
+  id: string;          // OttoFlow-native slug, e.g. "premium" (never a brand name)
+  group: string;       // "OttoFlow"
+  label: string;       // "Premium"
   /** Bundled font family names (must exist in assets/fonts + fontsdir). */
   fonts: { display: string; body: string; mono: string };
   /** How each semantic role looks in this style. */

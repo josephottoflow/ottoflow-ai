@@ -1,20 +1,23 @@
 /**
- * Luxury · Apple — restraint, obvious size hierarchy, sparse colour, calm motion.
- * Data only. Lineage: the proven `corporate` preset (Plus Jakarta Sans, white on
- * cool-grey unsung, brand-accent keyword) — evolved to the semantic role system.
+ * OttoFlow · Premium — a presentation PHILOSOPHY, not a brand: restraint, obvious
+ * size hierarchy, sparse colour, calm confident motion. Data only.
+ *
+ * Principles were extracted from the best luxury/editorial motion typography in the
+ * industry and then made OttoFlow-native — no external visual identity is reproduced
+ * or exposed. This is OttoFlow's own default premium language.
  */
 import type { StyleFamily } from "./types";
 
 const CALM = { easeAccel: 0.5 };
 
-export const APPLE: StyleFamily = {
-  id: "luxury.apple",
-  group: "Luxury",
-  label: "Apple",
+export const PREMIUM: StyleFamily = {
+  id: "premium",
+  group: "OttoFlow",
+  label: "Premium",
   fonts: { display: "Plus Jakarta Sans", body: "Plus Jakarta Sans", mono: "IBM Plex Mono" },
-  // Sizes as fraction of 1920. Body ≈ 104px (current corporate); hero/statistic
-  // are a real modular step up (≥1.5×) so hierarchy is OBVIOUS, tracking tightens
-  // with size (Apple optical), leading tightens for stacked display.
+  // Sizes as fraction of 1920. Body ≈ 104px; hero/statistic a real modular step up
+  // (≥1.5×) so hierarchy is OBVIOUS; tracking tightens with size (optical); leading
+  // tightens for stacked display.
   type: {
     hero:      { sizePct: 0.078, weight: 700, trackingPct: -0.02,  leadingMult: 1.05, case: "sentence" },
     display:   { sizePct: 0.068, weight: 700, trackingPct: -0.015, leadingMult: 1.08, case: "sentence" },

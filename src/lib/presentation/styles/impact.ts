@@ -1,18 +1,22 @@
 /**
- * Viral · Hormozi — big, uppercase, punchy; yellow active word, thick stroke.
- * Data only. Lineage: the proven `bold_creator` preset (Sora, yellow active,
- * uppercase, pronounced pop) — evolved to the semantic role system.
+ * OttoFlow · Impact — a presentation PHILOSOPHY, not a brand: big, uppercase,
+ * punchy; high-energy attention with an active-word highlight and thick stroke.
+ * Data only.
+ *
+ * Principles were extracted from the highest-retention viral/creator editing in the
+ * industry and then made OttoFlow-native — no external visual identity is reproduced
+ * or exposed. This is OttoFlow's own high-energy language.
  */
 import type { StyleFamily } from "./types";
 
 const PUNCH = { easeAccel: 0.5 };
 
-export const HORMOZI: StyleFamily = {
-  id: "viral.hormozi",
-  group: "Viral",
-  label: "Alex Hormozi",
+export const IMPACT: StyleFamily = {
+  id: "impact",
+  group: "OttoFlow",
+  label: "Impact",
   fonts: { display: "Sora", body: "Sora", mono: "IBM Plex Mono" },
-  // Bigger, heavier, uppercase — the creator/selling look. Body ≈ 108px.
+  // Bigger, heavier, uppercase — the high-energy selling look. Body ≈ 108px.
   type: {
     hero:      { sizePct: 0.092, weight: 800, trackingPct: -0.01, leadingMult: 1.02, case: "upper" },
     display:   { sizePct: 0.080, weight: 800, trackingPct: -0.01, leadingMult: 1.04, case: "upper" },

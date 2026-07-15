@@ -108,6 +108,15 @@ breaks; when an engine owns a field, delete the inline fallback. Legacy path
 
 ## 4. Motion Typography Engine (style families)
 
+> **Naming (2026-07-16 pivot):** shipped styles are **OttoFlow-native philosophies**
+> with OttoFlow-native ids — currently **Premium** (`premium`) and **Impact**
+> (`impact`) — never named after external brands/creators. Any brand/creator names
+> below (Apple, Rolex, MrBeast, …) are **research references only**: study them,
+> extract deterministic principles, discard their identity. The roster categories
+> to build toward are OttoFlow's own: Signature · Premium · Editorial · Impact ·
+> Authority · Broadcast · Story · Documentary · Dynamic · Focus · Momentum ·
+> Precision · Pulse · Cinematic · Minimal · Custom.
+
 A **StyleFamily** is a data object that parameterises engines 4–9. NOT just fonts — it
 defines the whole presentation language:
 
