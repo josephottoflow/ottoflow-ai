@@ -592,6 +592,13 @@ export function renderAnimatedAss(
           // stagger — so a hook explodes, a question drifts, a stat detonates.
           const SUPPORT_POP = sig.supportPop; // support word scale-in start-% (→ 100)
           const KEYWORD_POP = sig.keyPop;     // keyword dip (→ its scale)
+          // V5 Layout Engine — NUMBER layout ("large-number screen"): the figure
+          // DOMINATES and the support words recede, so a stat reads as a designed
+          // metric moment, not a flat line. Uses the existing per-word scale (no
+          // re-grouping → keyword indices stay in sync). Other layouts unchanged.
+          const numberLayout = (beat?.layout as { archetype?: string } | undefined)?.archetype === "number";
+          const kwTargetScale = numberLayout ? 172 : KS;
+          const supTargetScale = numberLayout ? 78 : 100;
           let k = 0;
           let gi = 0; // global word index for the stagger offset
           text = casedWords
@@ -601,7 +608,7 @@ export function renderAnimatedAss(
                   const run = runs[k++];
                   const isKw = wi === kwIdx[li];
                   const isNum = isKw && isNumberish(w);
-                  const target = isKw ? KS : 100; // keyword animates to its scale
+                  const target = isKw ? kwTargetScale : supTargetScale; // number layout → figure dominates
                   const off = gi * stagger;
                   gi++;
                   // Non-stagger + non-keyword → EXACT V3 output (byte-identical).
