@@ -17,7 +17,8 @@ import { FONT } from "./typography";
 import { runPresentationEngine } from "../presentation";
 import { applyStyle } from "../presentation/styles/core";
 import { getStyleFamily } from "../presentation/styles/registry";
-import { place, posTag, moveIn, type Archetype } from "../presentation/primitives/layout";
+import { place, posTag, moveIn, lineWidthPx, type Archetype } from "../presentation/primitives/layout";
+import { accentLine } from "../presentation/primitives/decoration";
 
 // ─── Style header ──────────────────────────────────────────────────────────
 // Numbers are ASS conventions:
@@ -516,8 +517,13 @@ export function renderAnimatedAss(
       // case), overflow-guarded upstream. When present it OWNS size + tracking; the
       // compiler just serializes it. Absent → the V4 fontMult behaviour (byte-identical).
       const styleType = beat?.type as
-        | { fontPx: number; trackingPx: number; case: "sentence" | "upper" | "title" }
+        | { role: string; fontPx: number; trackingPx: number; case: "sentence" | "upper" | "title" }
         | undefined;
+      // Composition placement is reused by the entrance (\move/\pos) AND the
+      // decoration line below, so resolve it once here.
+      const bArchetype = ((beat?.layout as { archetype?: string } | undefined)?.archetype ??
+        "centered") as Archetype;
+      const placement = styleType ? place(bArchetype, 0, 1, { width, height }) : null;
       const fontMult = (beat?.layout?.fontMult as number | undefined) ?? 1;
       const beatFs = styleType
         ? `\\fs${styleType.fontPx}`
@@ -554,22 +560,20 @@ export function renderAnimatedAss(
       // upper-middle, stat centred, etc.) — the #1 fix for the "centered subtitle"
       // tell. Only when a style is active; fail-safe → no \pos (current centring).
       let placeTag = "";
-      if (styleType) {
+      if (styleType && placement) {
         try {
-          const archetype = ((beat?.layout as { archetype?: string } | undefined)?.archetype ??
-            "centered") as Archetype;
-          const placement = place(archetype, 0, 1, { width, height });
           // Motion Engine — kinetic RISE-into-place (a designed slide-up reveal)
           // unless the beat HOLDS (still beats stay put). Rise distance scales with
           // type size; duration matches the entrance fade. Composes the layout
           // primitive; `\move` replaces `\pos`.
           const risePx = Math.round(Math.max(28, styleType.fontPx * 0.32));
           const riseMs = sig.fadeInMs ?? preset.fadeInMs;
-          placeTag = sig.hold
-            ? posTag(placement)
-            : moveIn(placement, risePx, riseMs);
+          placeTag = sig.hold ? posTag(placement) : moveIn(placement, risePx, riseMs);
         } catch { placeTag = ""; }
       }
+      // V5 Decoration Engine — captured for the sparse accent line (built after the
+      // grouped lines are known, at the return).
+      let decoLines: string[][] | null = null;
       const entrance =
         placeTag + beatFs + beatTrack +
         `\\fad(${sig.fadeInMs ?? preset.fadeInMs},${preset.fadeOutMs})` +
@@ -597,6 +601,7 @@ export function renderAnimatedAss(
         const casedWords = grouped.map((lw) =>
           applyCase(lw.join(" "), styleType?.case ?? preset.case).split(/\s+/).filter(Boolean),
         );
+        decoLines = casedWords; // for the Decoration Engine accent line (below)
         if (preset.karaoke) {
           const flat = casedWords.flat();
           const runs = karaokeRuns(flat, c.startMs, c.endMs);
@@ -688,7 +693,25 @@ export function renderAnimatedAss(
           text = cased.map((l) => escapeAssText(l)).join(" \\N ");
         }
       }
-      return `Dialogue: 0,${fmt(c.startMs)},${fmt(c.endMs)},Caption,,0,0,0,,{${entrance}}${text}`;
+      const mainEvent = `Dialogue: 0,${fmt(c.startMs)},${fmt(c.endMs)},Caption,,0,0,0,,{${entrance}}${text}`;
+      // V5 Decoration Engine — a SPARSE drawn accent line under KEY beats (hero /
+      // statistic / cta roles), drawing on L→R: a "minimal line motion graphics"
+      // geometric element that reads as designed, not a subtitle. Emitted as a second
+      // Dialogue event. Only when a style is active + a brand accent exists.
+      let decoEvent = "";
+      if (styleType && placement && decoLines && accentColor &&
+          (styleType.role === "hero" || styleType.role === "statistic" || styleType.role === "cta")) {
+        const fpx = styleType.fontPx;
+        const blockH = decoLines.length * fpx * 1.12;
+        const lineY = placement.y + Math.round(blockH / 2) + Math.round(fpx * 0.32);
+        const widest = Math.max(...decoLines.map((lw) => lineWidthPx(lw.join(" "), fpx)));
+        const lw2 = Math.round(Math.min(widest * 0.6, width * 0.42));
+        const lh2 = Math.max(3, Math.round(fpx * 0.045));
+        const t = { offMs: (sig.fadeInMs ?? preset.fadeInMs) + 140, durMs: 340, accel: 0.6 };
+        decoEvent = "\n" + `Dialogue: 0,${fmt(c.startMs)},${fmt(c.endMs)},Caption,,0,0,0,,` +
+          accentLine(width / 2, lineY, lw2, lh2, assColorTag(accentColor), t);
+      }
+      return mainEvent + decoEvent;
     })
     .join("\n");
   return buildAnimatedHeader(preset, width, height) + events + "\n";
