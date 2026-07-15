@@ -67,16 +67,23 @@
 | `cornerBracket` | `cornerBracket(x, y, len, th, col, corner?)` | two `\p` arms | editorial/broadcast framing | 09 §B4 |
 | `progressLine` | `progressLine(cx, y, w, h, col, durMs)` | `\p` + whole-beat `\clip` | time-bar / momentum cue | 09 §B4 |
 
-## D · Motion / continuous primitives
+## D · Motion / continuous primitives (`src/lib/presentation/primitives/motion.ts`)
 
-*Continuous life during HOLD (not just entrance). Currently expressed inline in the compiler
-via `\t` drift/hold; extraction to a `motion.ts` module is the next library task (see Backlog).*
+*Continuous life during the HOLD (after the entrance), spanning a `MotionWindow`
+`{startMs,endMs}`. Distinct from reveal.ts entrances. **libass constraint:** `\t`
+cannot animate `\pos`/`\org`, so continuous *translation* is impossible mid-event —
+"float/drift" is expressed as scale / micro-rotation, never x/y. **All render-verified**
+(motion probe, this session). Emit `\t`-based fragments (no braces).*
 
-| Recipe key | Status | Reads as | Source |
-|---|---|---|---|
-| `drift` | inline (compiler) | slow settle-scale during hold | 06 |
-| `hold` | inline (compiler) | intentional stillness | 06 |
-| `punch` | inline (compiler) | aggressive snap-in | 06 |
+| Recipe key | Signature | Emits | Reads as | Source |
+|---|---|---|---|---|
+| `drift` | `drift(w, fromPct?, toPct?, accel?)` | `\fscx/\fscy` + `\t` | Ken-Burns push-in during hold | 06 |
+| `hold` | `hold()` | `""` (nothing) | declared intentional stillness | 06 |
+| `punch` | `punch(atMs, durMs?, amp?)` | 2×`\t` scale bump | emphasis "hit" mid-hold | 06 |
+| `breathe` | `breathe(w, amp?)` | 2×`\t` scale oscillation | subtlest "alive" cue | 06 |
+| `settleRotate` | `settleRotate(w, fromDeg?, toDeg?, accel?)` | `\frz` + `\t` | micro relax-to-level (handmade) | 06 |
+| `blurPulse` | `blurPulse(atMs, durMs?, amp?)` | 2×`\t` `\blur` | soft attention throb on a word | 06 |
+| `sway` | `sway(w, amp?)` | 3×`\t` `\frz` | gentle pendulum (playful/broadcast) | 06 |
 
 ---
 
@@ -108,8 +115,8 @@ animation — it looks up the keys and composes the emitted fragments.
 
 ## Backlog (next capabilities to distil)
 
-- **Motion module (`motion.ts`)** — extract `drift`/`hold`/`punch` from the compiler into
-  named pure primitives; add `float`, `parallaxDrift`, `breathe`, `settleRotate`.
+- ~~**Motion module (`motion.ts`)**~~ ✅ done — `drift`/`hold`/`punch`/`breathe`/
+  `settleRotate`/`blurPulse`/`sway` shipped as pure primitives (Section D).
 - **Transitions** — `crossPush`, `wipeHandoff`, `maskCarry` (beat→beat continuity).
 - **Reveals** — `splitReveal`, `unmaskDown`, `charScramble`, `countUp` (numeric roll).
 - **Decoration** — `bracketPair` (auto tl+tr/bl+br), `ticksRule`, `boxDraw`, `highlightSweep`.
