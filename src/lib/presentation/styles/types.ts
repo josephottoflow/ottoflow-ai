@@ -45,6 +45,26 @@ export interface MotionSpec {
   hold?: boolean; fadeInMs?: number;
 }
 
+/**
+ * A philosophy RECIPE — declares WHICH primitives the style composes, by name.
+ * A philosophy contains NO animation code; it only references primitives. The
+ * compiler reads the recipe and executes the referenced primitives. This is how one
+ * deterministic architecture expresses dozens of philosophies (Design doc 09/10).
+ * Tokens must name BUILT primitives (unknown tokens are ignored, never error).
+ */
+export interface StyleRecipe {
+  /** Reveal primitives, in preference order (e.g. ["maskWipe","blurResolve"]). */
+  reveal: string[];
+  /** Motion primitives (e.g. ["drift","hold"]). */
+  motion: string[];
+  /** Decoration primitives (e.g. ["accentLine"]); empty = no decoration. */
+  decoration: string[];
+  /** Preferred layout family (informational; Layout Engine still fits per beat). */
+  layout: string;
+  /** Timing feel: "calm" | "aggressive" | "minimal" | … (informational for now). */
+  timing: string;
+}
+
 /** A complete presentation language as data. */
 export interface StyleFamily {
   id: string;          // OttoFlow-native slug, e.g. "premium" (never a brand name)
@@ -70,4 +90,7 @@ export interface StyleFamily {
   colour: { primary: string; secondary: string; accentSource: "brand" | "fixed"; accentFixed?: string };
   /** Stroke/shadow/glow (libass). */
   fx: { outlinePx: number; shadowPx: number; blur: number };
+  /** The primitive RECIPE this philosophy composes (V5 recipe system). Optional
+   * during migration; when present the compiler reads it to select primitives. */
+  recipe?: StyleRecipe;
 }

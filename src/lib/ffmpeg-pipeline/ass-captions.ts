@@ -508,6 +508,9 @@ export function renderAnimatedAss(
     }
   }
 
+  // V5 — the active style (recipe source of truth). The compiler reads the recipe to
+  // decide which primitives to compose; the philosophy contains no animation code.
+  const activeStyle = preset.smartGroup ? getStyleFamily(preset.styleId) : null;
   const events = captions
     .map((c, ci) => {
       const beat = preset.smartGroup ? engineBeats?.[ci] : undefined;
@@ -699,7 +702,8 @@ export function renderAnimatedAss(
       // geometric element that reads as designed, not a subtitle. Emitted as a second
       // Dialogue event. Only when a style is active + a brand accent exists.
       let decoEvent = "";
-      if (styleType && placement && decoLines && accentColor &&
+      const recipeWantsAccentLine = activeStyle?.recipe?.decoration?.includes("accentLine") ?? true;
+      if (styleType && placement && decoLines && accentColor && recipeWantsAccentLine &&
           (styleType.role === "hero" || styleType.role === "statistic" || styleType.role === "cta")) {
         const fpx = styleType.fontPx;
         const blockH = decoLines.length * fpx * 1.12;

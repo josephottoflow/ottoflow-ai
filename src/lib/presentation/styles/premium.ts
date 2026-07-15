@@ -51,4 +51,12 @@ export const PREMIUM: StyleFamily = {
   rhythm: { maxWordsPerLine: 3, holdEvery: 3 },
   colour: { primary: "#FFFFFF", secondary: "#9FB6C4", accentSource: "brand" },
   fx: { outlinePx: 5, shadowPx: 3, blur: 0 },
+  // The recipe: Premium composes calm, restrained motion graphics.
+  recipe: {
+    reveal: ["riseFade", "blurResolve"],
+    motion: ["drift", "hold"],
+    decoration: ["accentLine"],
+    layout: "editorial",
+    timing: "calm",
+  },
 };

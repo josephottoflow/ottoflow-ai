@@ -50,4 +50,12 @@ export const IMPACT: StyleFamily = {
   rhythm: { maxWordsPerLine: 3, holdEvery: 4 },
   colour: { primary: "#FFD400", secondary: "#FFFFFF", accentSource: "brand" },
   fx: { outlinePx: 7, shadowPx: 5, blur: 1 },
+  // The recipe: Impact composes fast, punchy motion graphics.
+  recipe: {
+    reveal: ["pop", "scatter"],
+    motion: ["punch"],
+    decoration: ["accentLine"],
+    layout: "hero",
+    timing: "aggressive",
+  },
 };
