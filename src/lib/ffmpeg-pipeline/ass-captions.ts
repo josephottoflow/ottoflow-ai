@@ -20,6 +20,7 @@ import { getStyleFamily } from "../presentation/styles/registry";
 import { place, posTag, moveIn, lineWidthPx, type Archetype } from "../presentation/primitives/layout";
 import { accentLine } from "../presentation/primitives/decoration";
 import { renderComposedBeat } from "../presentation/render/compose-beat";
+import { decidePresentation } from "../presentation/intelligence/decide";
 
 // ─── Style header ──────────────────────────────────────────────────────────
 // Numbers are ASS conventions:
@@ -657,13 +658,19 @@ export function renderAnimatedAss(
         // compositionByTreatment (e.g. Premium) + a resolved type spec — every existing
         // preset (no compositionByTreatment) falls through to the per-word path below,
         // BYTE-IDENTICAL. The philosophy owns the design; the compiler only executes it.
-        const compId =
-          styleType && activeStyle?.compositionByTreatment
-            ? activeStyle.compositionByTreatment[treatment as keyof typeof activeStyle.compositionByTreatment]
-            : undefined;
-        if (compId && styleType) {
+        // V3 Presentation INTELLIGENCE — the philosophy is now an OUTPUT: the engine reads
+        // the beat's signals, derives a presentation intent, scores candidate compositions
+        // and DECIDES (decidePresentation). The philosophy's treatment default + recipe
+        // compositions are passed as a BIAS, not a rule — strong content (a real statistic,
+        // a quote, a contrast) overrides the style's habit; ambiguous beats keep its voice.
+        const usesIntel =
+          !!styleType && !!activeStyle && ((activeStyle.recipe?.composition?.length ?? 0) > 0 || !!activeStyle.compositionByTreatment);
+        if (usesIntel && styleType) {
+          const fallbackComp = activeStyle!.compositionByTreatment?.[treatment as keyof NonNullable<typeof activeStyle.compositionByTreatment>];
+          const prefs = Array.from(new Set([fallbackComp, ...(activeStyle!.recipe?.composition ?? [])].filter(Boolean))) as string[];
+          const decision = decidePresentation(casedWords, kwIdx, { width, height }, styleType.fontPx, prefs);
           return renderComposedBeat({
-            compositionId: compId,
+            compositionId: decision.compositionId,
             lines: casedWords.map((lw) => lw.join(" ")),
             keywordByLine: kwIdx,
             frame: { width, height },
