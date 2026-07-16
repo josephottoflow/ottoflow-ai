@@ -10,8 +10,9 @@
  * philosophy owns structure (composition), emphasis (role×emphasis), reveal, exit, colour.
  */
 import { compose, type CompDecorAnchor, type CompContext } from "../primitives/composition";
-import { posTag } from "../primitives/layout";
+import { posTag, lineWidthPx } from "../primitives/layout";
 import { accentLine, cardBacking, cornerBracket, dot, divider, rect } from "../primitives/decoration";
+import { maskWipe } from "../primitives/reveal";
 import { trackingTag } from "../primitives/typography";
 import { drift } from "../primitives/motion";
 import { resolveTiming } from "../primitives/timing";
@@ -57,6 +58,17 @@ function fitFont(text: string, fontPx: number, maxWidthPx: number): number {
   return Math.max(24, Math.floor(fontPx * (maxWidthPx / est)));
 }
 /** Available width (px) for a slot, from its alignment/anchor + frame safe margins. */
+/** Absolute bounding box of a placed line (for the maskWipe clip). Vertical anchor: an≥7
+ * is top-anchored, 4–6 middle-anchored. */
+function lineBoxFor(p: { an: number; x: number; y: number }, widthPx: number, fontPx: number): { x1: number; y1: number; x2: number; y2: number } {
+  const h = Math.round(fontPx * 1.34);
+  let x1: number;
+  if (p.an === 4 || p.an === 7 || p.an === 1) x1 = p.x;
+  else if (p.an === 6 || p.an === 9 || p.an === 3) x1 = p.x - widthPx;
+  else x1 = Math.round(p.x - widthPx / 2);
+  const y1 = p.an >= 7 ? p.y : Math.round(p.y - h / 2);
+  return { x1: Math.round(x1) - 6, y1, x2: Math.round(x1 + widthPx) + 6, y2: y1 + h };
+}
 function slotMaxWidth(an: number, x: number, frameW: number): number {
   const side = frameW * SIDE_FRAC;
   if (an === 4 || an === 7) return frameW - side - x;        // left-anchored → to right margin
@@ -190,10 +202,16 @@ export function renderComposedBeat(inp: ComposeBeatInput): string {
     // Rack focus (defocus→sharp) — a PREMIUM calm-reveal touch on the focus slot; only for
     // riseFade/blurResolve (a blur would fight a pop or a broadcast slide).
     const rack = (inp.reveal === "riseFade" && s.line === focusLine) || inp.reveal === "blurResolve" ? `\\blur7\\t(${off},${off + inp.fadeInMs},\\blur0)` : "";
+    // MASK WIPE (Cinematic/Documentary signature) — text revealed behind an animated clip
+    // edge sweeping L→R. Static position (the clip can't follow a \move), so it composes
+    // with posTag entrance. The most "designed" reveal in the library.
+    const wipe = inp.reveal === "maskWipe"
+      ? maskWipe({ offMs: off, durMs: inp.fadeInMs, accel: timing.easeAccel }, lineBoxFor(s.placement, lineWidthPx(line, fontPx), fontPx), "lr")
+      : "";
     // Continuous-hold motion — near-imperceptible push-in keeps the beat alive (Premium
     // "drift"); "hold"/"punch"/absent = no continuous drift (Impact punches on entry).
     const motionTag = inp.motion === "drift" && timing.driftPct > 100 ? drift({ startMs: off + inp.fadeInMs, endMs: durMs }, 100, timing.driftPct) : "";
-    const head = `{${ent}\\fs${fontPx}${track}${alpha}${pop}${rack}${motionTag}}`;
+    const head = `{${ent}\\fs${fontPx}${track}${alpha}${pop}${rack}${wipe}${motionTag}}`;
 
     // Attention: emphasise the focal word on the focus slot (accent colour), else plain.
     let text: string;

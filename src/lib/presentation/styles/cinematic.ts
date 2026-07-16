@@ -62,7 +62,7 @@ export const CINEMATIC: StyleFamily = {
     typography: ["opticalTracking", "wideTracking"],
     hierarchy: "gentle-step",
     readingRhythm: "slow",
-    reveal: ["blurResolve"],
+    reveal: ["maskWipe", "blurResolve"],   // signature: text revealed behind a clip edge
     motion: ["drift", "hold"],
     decoration: ["divider"],
     exit: ["dissolve"],
