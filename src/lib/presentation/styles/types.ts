@@ -46,22 +46,45 @@ export interface MotionSpec {
 }
 
 /**
- * A philosophy RECIPE — declares WHICH primitives the style composes, by name.
- * A philosophy contains NO animation code; it only references primitives. The
- * compiler reads the recipe and executes the referenced primitives. This is how one
- * deterministic architecture expresses dozens of philosophies (Design doc 09/10).
- * Tokens must name BUILT primitives (unknown tokens are ignored, never error).
+ * A philosophy RECIPE — the complete PRESENTATION LANGUAGE a philosophy composes,
+ * declared by NAME. A philosophy contains NO animation code; it only references
+ * capabilities (primitives + compositions) by token. The compiler reads the recipe and
+ * executes the referenced capabilities — it never makes a design decision. This is how
+ * one deterministic architecture expresses every philosophy (Design doc 09/10): adding a
+ * philosophy = authoring ONE config, no compiler/engine change. Unknown tokens are
+ * ignored (never error) so the language can grow ahead of the compiler.
+ *
+ * `reveal`/`motion`/`decoration`/`layout`/`timing` are load-bearing today; the remaining
+ * fields declare the philosophy's full stance (a motion designer's playbook) and are
+ * consumed by the compiler as each engine is unfrozen. Per-beat COMPOSITION selection
+ * lives on `StyleFamily.compositionByTreatment` (structured, like layoutByTreatment).
  */
 export interface StyleRecipe {
+  /** Attention stance: how the eye is directed (e.g. "singleFocus"|"isolate"|"spotlight"). */
+  attention?: string;
+  /** Composition preference order (CompositionId tokens); Layout picks per beat/treatment. */
+  composition?: string[];
   /** Reveal primitives, in preference order (e.g. ["maskWipe","blurResolve"]). */
   reveal: string[];
   /** Motion primitives (e.g. ["drift","hold"]). */
   motion: string[];
   /** Decoration primitives (e.g. ["accentLine"]); empty = no decoration. */
   decoration: string[];
+  /** Beat EXIT primitives (e.g. ["dissolve"]|["slide"]|["wipeOut"]). */
+  exit?: string[];
+  /** CTA treatment token (e.g. "underlineReveal"). */
+  cta?: string;
+  /** Final-scene treatment token (e.g. "cinematicHold"). */
+  finalScene?: string;
+  /** Typography stance tokens (e.g. ["heroHierarchy","opticalTracking"]). */
+  typography?: string[];
+  /** Hierarchy stance (e.g. "obvious-modular-step"|"flat"). */
+  hierarchy?: string;
+  /** Reading-rhythm stance (e.g. "calm"|"driving"|"staccato"). */
+  readingRhythm?: string;
   /** Preferred layout family (informational; Layout Engine still fits per beat). */
   layout: string;
-  /** Timing feel: "calm" | "aggressive" | "minimal" | … (informational for now). */
+  /** Timing feel: "calm" | "aggressive" | "minimal" | … */
   timing: string;
 }
 
@@ -79,6 +102,10 @@ export interface StyleFamily {
   /** Layout Engine: treatment → archetype (Layout Engine may still override for
    * word-count, e.g. a 1-word beat → single-word-hero). */
   layoutByTreatment: Record<TreatmentId, LayoutArchetype>;
+  /** Composition Engine: treatment → CompositionId (composition.ts). The philosophy's
+   * per-beat spatial structure. Optional during migration; when present the compiler
+   * lays the beat out via `compose(id, ctx)` instead of the single-line archetype. */
+  compositionByTreatment?: Record<TreatmentId, string>;
   /** Motion Engine: treatment → signature. */
   motionByTreatment: Record<TreatmentId, MotionSpec>;
   /** Emphasis Engine. maxTier gates which words may be highlighted (1 number …
