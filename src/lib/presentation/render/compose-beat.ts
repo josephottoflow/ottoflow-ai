@@ -10,7 +10,7 @@
  * philosophy owns structure (composition), emphasis (role×emphasis), reveal, exit, colour.
  */
 import { compose, type CompDecorAnchor, type CompContext } from "../primitives/composition";
-import { posTag, moveIn } from "../primitives/layout";
+import { posTag } from "../primitives/layout";
 import { accentLine, cardBacking, cornerBracket, dot, divider, rect } from "../primitives/decoration";
 import { trackingTag } from "../primitives/typography";
 import { drift } from "../primitives/motion";
@@ -66,18 +66,15 @@ function esc(s: string): string {
   return s.replace(/[{}\\]/g, "");
 }
 
-/** Entrance override for a slot, per the philosophy's reveal token. */
-function entranceTag(reveal: string, placement: { an: number; x: number; y: number }, fontPx: number, fadeInMs: number): string {
-  const rise = Math.round(Math.max(24, fontPx * 0.3));
-  switch (reveal) {
-    case "riseFade":
-      return moveIn(placement, rise, fadeInMs);
-    case "blurResolve":
-      // rise + a rack-focus resolve; \move replaces \pos, \blur added by caller via reveal2
-      return moveIn(placement, rise, fadeInMs);
-    default:
-      return posTag(placement);
+/** Entrance placement for a slot, per the reveal token, staggered by `offMs`. Position-
+ * only reveals (riseFade/blurResolve) rise into place over [offMs, offMs+fadeInMs] via a
+ * one-shot \move (replaces \pos); others hold static at the placement. */
+function entranceTag(reveal: string, p: { an: number; x: number; y: number }, fontPx: number, fadeInMs: number, offMs: number): string {
+  if (reveal === "riseFade" || reveal === "blurResolve") {
+    const rise = Math.round(Math.max(24, fontPx * 0.3));
+    return `\\an${p.an}\\move(${p.x},${p.y + rise},${p.x},${p.y},${offMs},${offMs + fadeInMs})`;
   }
+  return posTag(p);
 }
 
 /** Draw one decoration anchor as a full Dialogue event body. */
@@ -132,24 +129,31 @@ export function renderComposedBeat(inp: ComposeBeatInput): string {
     if (body) events.push(`Dialogue: 0,${start},${end},${inp.styleName},,0,0,0,,${body}`);
   }
 
-  // One event per text slot.
-  for (const s of c.slots) {
+  // One event per text slot. Slots enter STAGGERED (presentation rhythm) — a beat that
+  // reveals all at once reads mechanical; leading the kicker then the hero reads authored.
+  const durMs = Math.max(inp.fadeInMs + 300, inp.endMs - inp.startMs);
+  const STAGGER = 90; // ms per slot (calm); the compiler's timing token could scale this
+  for (let si = 0; si < c.slots.length; si++) {
+    const s = c.slots[si];
     const line = inp.lines[s.line];
     if (line == null) continue;
     const wanted = rnd(inp.baseFontPx * s.emphasis);
     const maxW = slotMaxWidth(s.placement.an, s.placement.x, inp.frame.width);
     const fontPx = fitFont(line, wanted, maxW); // overflow guard — never wrap/collide
-    const ent = entranceTag(inp.reveal, s.placement, fontPx, inp.fadeInMs);
-    const blur = inp.reveal === "blurResolve" ? `\\blur6\\t(0,${inp.fadeInMs},\\blur0)` : "";
+    const off = si * STAGGER;
+    const ent = entranceTag(inp.reveal, s.placement, fontPx, inp.fadeInMs, off);
     // Optical tracking (Typography Engine) — size-relative letter-spacing per slot.
     const track = trackingTag(fontPx, inp.frame.height);
-    // Continuous-hold motion — a near-imperceptible push-in keeps the beat alive (Premium
-    // "drift"); "hold"/absent = deliberate stillness. \t is 0-based within the event.
-    const motionTag =
-      inp.motion === "drift"
-        ? drift({ startMs: inp.fadeInMs, endMs: Math.max(inp.fadeInMs + 200, inp.endMs - inp.startMs) }, 100, 102)
-        : "";
-    const head = `{${ent}\\fs${fontPx}${track}\\fad(${inp.fadeInMs},${inp.fadeOutMs})${blur}${motionTag}}`;
+    // Alpha fade IN at the slot's stagger offset + fade OUT at the beat's end (replaces
+    // \fad so the entrance can be offset per slot).
+    const fadeOutStart = Math.max(off + inp.fadeInMs + 120, durMs - inp.fadeOutMs);
+    const alpha = `\\alpha&HFF&\\t(${off},${off + inp.fadeInMs},\\alpha&H00&)\\t(${rnd(fadeOutStart)},${rnd(durMs)},\\alpha&HFF&)`;
+    // Rack focus (blurResolve) on the FOCUS slot — a premium defocus→sharp resolve.
+    const rack = s.line === focusLine || inp.reveal === "blurResolve" ? `\\blur7\\t(${off},${off + inp.fadeInMs},\\blur0)` : "";
+    // Continuous-hold motion — near-imperceptible push-in keeps the beat alive (Premium
+    // "drift"); "hold"/absent = deliberate stillness.
+    const motionTag = inp.motion === "drift" ? drift({ startMs: off + inp.fadeInMs, endMs: durMs }, 100, 102) : "";
+    const head = `{${ent}\\fs${fontPx}${track}${alpha}${rack}${motionTag}}`;
 
     // Attention: emphasise the focal word on the focus slot (accent colour), else plain.
     let text: string;
