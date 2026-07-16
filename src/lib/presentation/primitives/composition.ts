@@ -374,15 +374,17 @@ function poster(ctx: CompContext): Composed {
   };
 }
 
-/** SPLIT — two blocks divided by a full-width rule (before/after, two ideas). */
+/** SPLIT — before/after divided by a rule. The two states sit CLOSE to the divider (a
+ * tight, paired comparison, not two floating lines) with before→after hierarchy: the
+ * "before" recedes above, the resolved "after" leads below. */
 function split(ctx: CompContext): Composed {
   const { frame } = ctx, cx = r(frame.width / 2), midY = r(frame.height * 0.5);
-  const slots: CompSlot[] = [{ line: 0, placement: { an: 5, x: cx, y: r(frame.height * 0.40) }, emphasis: 0.9, align: "c", role: "support" }];
-  if (ctx.lineCount >= 2) slots.push({ line: 1, placement: { an: 5, x: cx, y: r(frame.height * 0.60) }, emphasis: 1, align: "c", role: "hero" });
+  const slots: CompSlot[] = [{ line: 0, placement: { an: 5, x: cx, y: r(frame.height * 0.44) }, emphasis: 0.78, align: "c", role: "support" }];
+  if (ctx.lineCount >= 2) slots.push({ line: 1, placement: { an: 5, x: cx, y: r(frame.height * 0.56) }, emphasis: 1, align: "c", role: "hero" });
   return {
     id: "split",
     slots,
-    decor: [{ kind: "divider", x: cx, y: midY, w: r(frame.width * (1 - 2 * SIDE)), h: 3 }],
+    decor: [{ kind: "divider", x: cx, y: midY, w: r(frame.width * 0.52), h: 3 }],
     focusSlot: slots.length - 1,
   };
 }
