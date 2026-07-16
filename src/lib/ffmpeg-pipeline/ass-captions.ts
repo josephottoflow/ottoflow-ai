@@ -19,6 +19,7 @@ import { applyStyle } from "../presentation/styles/core";
 import { getStyleFamily } from "../presentation/styles/registry";
 import { place, posTag, moveIn, lineWidthPx, type Archetype } from "../presentation/primitives/layout";
 import { accentLine } from "../presentation/primitives/decoration";
+import { renderComposedBeat } from "../presentation/render/compose-beat";
 
 // ─── Style header ──────────────────────────────────────────────────────────
 // Numbers are ASS conventions:
@@ -605,6 +606,35 @@ export function renderAnimatedAss(
           applyCase(lw.join(" "), styleType?.case ?? preset.case).split(/\s+/).filter(Boolean),
         );
         decoLines = casedWords; // for the Decoration Engine accent line (below)
+        // V5 Composition Engine — when the philosophy declares a per-beat COMPOSITION,
+        // the compiler DELEGATES layout to it (the "pure recipe executor" path):
+        // renderComposedBeat places every line per the composition + emphasis, reveals
+        // per the recipe, emphasises the focal word, and draws the composition's
+        // decoration anchors. Gated on a smart preset whose active style has
+        // compositionByTreatment (e.g. Premium) + a resolved type spec — every existing
+        // preset (no compositionByTreatment) falls through to the per-word path below,
+        // BYTE-IDENTICAL. The philosophy owns the design; the compiler only executes it.
+        const compId =
+          styleType && activeStyle?.compositionByTreatment
+            ? activeStyle.compositionByTreatment[treatment as keyof typeof activeStyle.compositionByTreatment]
+            : undefined;
+        if (compId && styleType) {
+          return renderComposedBeat({
+            compositionId: compId,
+            lines: casedWords.map((lw) => lw.join(" ")),
+            keywordByLine: kwIdx,
+            frame: { width, height },
+            startMs: c.startMs,
+            endMs: c.endMs,
+            baseFontPx: styleType.fontPx,
+            accentColorAss: accentColor ? assColorTag(accentColor) : "",
+            styleName: "Caption",
+            reveal: activeStyle?.recipe?.reveal?.[0] ?? "riseFade",
+            exit: activeStyle?.recipe?.exit?.[0] ?? "dissolve",
+            fadeInMs: sig.fadeInMs ?? preset.fadeInMs,
+            fadeOutMs: preset.fadeOutMs,
+          });
+        }
         if (preset.karaoke) {
           const flat = casedWords.flat();
           const runs = karaokeRuns(flat, c.startMs, c.endMs);

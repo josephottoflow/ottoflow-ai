@@ -44,7 +44,10 @@ export const PREMIUM: StyleFamily = {
   // quote card, CTAs a single hero; ordinary statements stay a deliberate centre-focus.
   compositionByTreatment: {
     hook: "editorial-stack",
-    stat: "statistic-card",
+    // stat → center-focus (robust): emphasises the number word wherever grouping puts it.
+    // statistic-card stays in the library for STRUCTURED [label,number,unit] data, which
+    // free narration grouping doesn't guarantee.
+    stat: "center-focus",
     turn: "single-hero",
     question: "center-focus",
     cta: "single-hero",

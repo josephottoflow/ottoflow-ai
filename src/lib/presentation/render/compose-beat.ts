@@ -143,14 +143,14 @@ export function renderComposedBeat(inp: ComposeBeatInput): string {
     let text: string;
     const kw = inp.keywordByLine[s.line] ?? -1;
     if (s.line === focusLine && kw >= 0 && inp.accentColorAss) {
+      // Sparse accent: colour ONLY the explicit focal word (never a whole line — that
+      // would read as loud, not premium). Beats with no focal word stay monochrome.
       const words = line.split(/\s+/);
       text = words
         .map((w, i) =>
           i === kw ? `{\\1c${inp.accentColorAss}}${esc(w)}{\\1c&HFFFFFF&}` : esc(w),
         )
         .join(" ");
-    } else if ((s.role === "stat" || s.role === "hero") && s.line === focusLine && inp.accentColorAss) {
-      text = `{\\1c${inp.accentColorAss}}${esc(line)}{\\1c&HFFFFFF&}`;
     } else {
       text = esc(line);
     }
