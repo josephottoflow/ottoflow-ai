@@ -172,9 +172,20 @@ deterministic (no AI/LLM).*
   intent + the philosophy's prefs, scores each, applies the style as a small BIAS (+4),
   picks the best. Strong content overrides the style's habit; ambiguous beats keep its voice.
 
+- **goals.ts** — the layers between intent and presentation: `communicationGoal` (proof/
+  persuade/authority/trust/curiosity/urgency/transformation/impact/educate/resolution),
+  `attentionStrategy` (largeNumber/singleFocus/negativeSpace/maskReveal/stillness/
+  motionBurst/splitContrast/editorialFrame — decided BEFORE animation; drives motion via
+  `motionForAttention`), `presentationFeel` (premium/calm/authoritative/energetic/…).
+
+**Full decision pipeline** (decide.ts): signals → intent → goal → attention → feel →
+composition + motion + decoration, with **self-evaluation** (confidence = best score; <68
+auto-escalates to the safe clean center-focus) and **explainability** (structured
+`reasoning` per beat, debug-only, never rendered).
+
 Wired in `ass-captions.ts` (replaces the static compositionByTreatment lookup). Render-
 verified: one philosophy auto-selected quote-card / split / single-hero / editorial-stack
-across four beats by content alone.
+across four beats by content alone; stat settles for authority, cta bursts for urgency.
 
 ## Recipe grammar
 
