@@ -64,7 +64,10 @@ export const PREMIUM: StyleFamily = {
   emphasis: { maxTier: 5, colour: "accent" },
   rhythm: { maxWordsPerLine: 3, holdEvery: 3 },
   colour: { primary: "#FFFFFF", secondary: "#9FB6C4", accentSource: "brand" },
-  fx: { outlinePx: 5, shadowPx: 3, blur: 0 },
+  // Premium legibility = a crisp edge, NOT a drop shadow. A hard offset \shad reads like a
+  // caption template; a clean tight outline with no shadow reads premium (and still separates
+  // text from footage). Impact/Broadcast keep their heavier treatment.
+  fx: { outlinePx: 3, shadowPx: 0, blur: 0 },
   // The recipe: Premium's complete presentation language — a motion designer's playbook.
   // Restraint, obvious hierarchy, sparse colour, calm confident motion. Every design
   // decision is declared here; the compiler only executes it.
