@@ -22,9 +22,11 @@ export function opticalTracking(fontPx: number, frameH: number): number {
   return 0;
 }
 
-/** The `\fsp` fragment for an optical-tracking value (empty when neutral). */
-export function trackingTag(fontPx: number, frameH: number): string {
-  const fsp = opticalTracking(fontPx, frameH);
+/** The `\fsp` fragment for a slot's letter-spacing: the size-based optical baseline plus a
+ * philosophy BIAS (fraction of font size). A positive bias yields the wide, letterspaced
+ * title look (Cinematic "wideTracking"); 0 = pure optical. Empty string when neutral. */
+export function trackingTag(fontPx: number, frameH: number, biasFrac = 0): string {
+  const fsp = opticalTracking(fontPx, frameH) + Math.round(biasFrac * fontPx);
   return fsp !== 0 ? `\\fsp${fsp}` : "";
 }
 

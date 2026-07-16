@@ -42,6 +42,9 @@ export interface ComposeBeatInput {
   /** The philosophy's timing token (calm|slow|minimal|steady|driving|aggressive) — drives
    * stagger/drift/ease/settle/rise via the Timing library. Absent → "calm". */
   timing?: string;
+  /** Letter-spacing bias (fraction of font size) added to optical tracking — positive for
+   * a philosophy that declares "wideTracking" (Cinematic). Default 0 (pure optical). */
+  trackingBias?: number;
   fadeInMs: number;
   fadeOutMs: number;
   /** Estimated on-screen width per line (px) for card/underline sizing. */
@@ -50,12 +53,17 @@ export interface ComposeBeatInput {
 
 const rnd = Math.round;
 const SIDE_FRAC = 0.11;
-/** Overflow guard (Typography Engine): shrink fontPx so `text` fits `maxWidthPx`.
- * Average advance ≈ 0.56em, matching the rest of the engine. Never enlarges. */
-function fitFont(text: string, fontPx: number, maxWidthPx: number): number {
-  const est = text.length * fontPx * 0.56;
-  if (est <= maxWidthPx || maxWidthPx <= 0) return fontPx;
-  return Math.max(24, Math.floor(fontPx * (maxWidthPx / est)));
+/** Overflow guard (Typography Engine): shrink fontPx so `text` fits `maxWidthPx`. Average
+ * advance ≈ 0.56em PLUS any positive tracking bias (wide-tracking titles are wider than
+ * their glyphs). Ratio-based, so shrinking keeps the proportion. Never enlarges. */
+function fitFont(text: string, fontPx: number, maxWidthPx: number, biasFrac = 0): number {
+  // 0.60 base advance (uppercase-safe) + positive tracking; target 92% of the box for a
+  // safety headroom so wide-tracked TITLE CAPS never clip at the frame edge.
+  const adv = fontPx * (0.66 + Math.max(0, biasFrac));
+  const est = text.length * adv;
+  const target = maxWidthPx * 0.92;
+  if (est <= target || maxWidthPx <= 0) return fontPx;
+  return Math.max(24, Math.floor(fontPx * (target / est)));
 }
 /** Available width (px) for a slot, from its alignment/anchor + frame safe margins. */
 /** Absolute bounding box of a placed line (for the maskWipe clip). Vertical anchor: an≥7
@@ -182,11 +190,12 @@ export function renderComposedBeat(inp: ComposeBeatInput): string {
     if (line == null) continue;
     const wanted = rnd(inp.baseFontPx * s.emphasis);
     const maxW = slotMaxWidth(s.placement.an, s.placement.x, inp.frame.width);
-    const fontPx = fitFont(line, wanted, maxW); // overflow guard — never wrap/collide
+    const fontPx = fitFont(line, wanted, maxW, inp.trackingBias ?? 0); // overflow guard
     const off = si * STAGGER;
     const ent = entranceTag(inp.reveal, s.placement, fontPx, inp.fadeInMs, off, timing.riseFrac);
-    // Optical tracking (Typography Engine) — size-relative letter-spacing per slot.
-    const track = trackingTag(fontPx, inp.frame.height);
+    // Optical tracking (Typography Engine) — size-relative letter-spacing per slot + the
+    // philosophy's tracking bias (wideTracking → letterspaced title look).
+    const track = trackingTag(fontPx, inp.frame.height, inp.trackingBias ?? 0);
     // Alpha fade IN at the slot's stagger offset + fade OUT at the beat's end (replaces
     // \fad so the entrance can be offset per slot).
     const fadeOutStart = Math.max(off + inp.fadeInMs + 120, durMs - inp.fadeOutMs);
@@ -205,8 +214,10 @@ export function renderComposedBeat(inp: ComposeBeatInput): string {
     // MASK WIPE (Cinematic/Documentary signature) — text revealed behind an animated clip
     // edge sweeping L→R. Static position (the clip can't follow a \move), so it composes
     // with posTag entrance. The most "designed" reveal in the library.
+    // Generous clip box (over-wide is harmless for a reveal mask; too-narrow would
+    // permanently crop the edge glyphs, esp. wide/uppercase fonts).
     const wipe = inp.reveal === "maskWipe"
-      ? maskWipe({ offMs: off, durMs: inp.fadeInMs, accel: timing.easeAccel }, lineBoxFor(s.placement, lineWidthPx(line, fontPx), fontPx), "lr")
+      ? maskWipe({ offMs: off, durMs: inp.fadeInMs, accel: timing.easeAccel }, lineBoxFor(s.placement, Math.round(lineWidthPx(line, fontPx) * 1.3) + fontPx, fontPx), "lr")
       : "";
     // Continuous-hold motion — near-imperceptible push-in keeps the beat alive (Premium
     // "drift"); "hold"/"punch"/absent = no continuous drift (Impact punches on entry).

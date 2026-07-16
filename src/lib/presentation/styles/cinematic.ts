@@ -52,7 +52,8 @@ export const CINEMATIC: StyleFamily = {
     statement: { supportPop: 86, keyPop: 80, overshoot: 0, wordFadeMs: 240, staggerMs: 52, fadeInMs: 280, ...SLOW },
   },
   emphasis: { maxTier: 4, colour: "accent" },
-  rhythm: { maxWordsPerLine: 4, holdEvery: 2 },
+  // Short title lines — cinematic titles breathe; ≤2 words/line keeps wide tracking elegant.
+  rhythm: { maxWordsPerLine: 2, holdEvery: 2 },
   colour: { primary: "#F5F3EE", secondary: "#A69F92", accentSource: "brand" },
   fx: { outlinePx: 2, shadowPx: 5, blur: 0 },
   recipe: {

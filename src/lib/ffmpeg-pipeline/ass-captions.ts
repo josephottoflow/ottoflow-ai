@@ -677,6 +677,7 @@ export function renderAnimatedAss(
             motion: sig.hold ? "hold" : activeStyle?.recipe?.motion?.[0] ?? "hold",
             decoration: activeStyle?.recipe?.decoration,
             timing: activeStyle?.recipe?.timing,
+            trackingBias: (activeStyle?.recipe?.typography ?? []).includes("wideTracking") ? 0.05 : 0,
             fadeInMs: sig.fadeInMs ?? preset.fadeInMs,
             fadeOutMs: preset.fadeOutMs,
           });
