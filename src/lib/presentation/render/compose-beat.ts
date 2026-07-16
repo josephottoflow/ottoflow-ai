@@ -119,6 +119,19 @@ export function renderComposedBeat(inp: ComposeBeatInput): string {
     keywordLine: firstKw >= 0 ? firstKw : undefined,
   };
   const c = compose(inp.compositionId, ctx);
+  // Coverage safety net — a composition may emit fewer slots than the beat has lines
+  // (e.g. single-hero + a 2-line beat). NEVER drop content: append any uncovered line as a
+  // centred support slot stacked below the composition's lowest slot.
+  const covered = new Set(c.slots.map((s) => s.line));
+  if (covered.size < inp.lines.length) {
+    let maxY = Math.max(inp.frame.height * 0.42, ...c.slots.map((s) => s.placement.y));
+    const gap = rnd(inp.baseFontPx * 0.85);
+    for (let li = 0; li < inp.lines.length; li++) {
+      if (covered.has(li)) continue;
+      maxY += gap;
+      c.slots.push({ line: li, placement: { an: 5, x: rnd(inp.frame.width / 2), y: rnd(maxY) }, emphasis: 0.66, align: "c", role: "support" });
+    }
+  }
   const start = fmt(inp.startMs), end = fmt(inp.endMs);
   const focusLine = c.slots[c.focusSlot]?.line ?? -1;
   const events: string[] = [];
@@ -148,12 +161,18 @@ export function renderComposedBeat(inp: ComposeBeatInput): string {
     // \fad so the entrance can be offset per slot).
     const fadeOutStart = Math.max(off + inp.fadeInMs + 120, durMs - inp.fadeOutMs);
     const alpha = `\\alpha&HFF&\\t(${off},${off + inp.fadeInMs},\\alpha&H00&)\\t(${rnd(fadeOutStart)},${rnd(durMs)},\\alpha&HFF&)`;
-    // Rack focus (blurResolve) on the FOCUS slot — a premium defocus→sharp resolve.
-    const rack = s.line === focusLine || inp.reveal === "blurResolve" ? `\\blur7\\t(${off},${off + inp.fadeInMs},\\blur0)` : "";
+    // POP reveal (Impact) — a scale-in with a slight overshoot; the punchy entrance.
+    const isPop = inp.reveal === "pop" || inp.reveal === "scatter";
+    const pop = isPop
+      ? `\\fscx58\\fscy58\\t(${off},${off + inp.fadeInMs},\\fscx104\\fscy104)\\t(${off + inp.fadeInMs},${off + inp.fadeInMs + 80},\\fscx100\\fscy100)`
+      : "";
+    // Rack focus (blurResolve) — premium defocus→sharp on the focus slot; only for the
+    // calm reveals, never with a pop (a blur would fight a punch).
+    const rack = !isPop && (s.line === focusLine || inp.reveal === "blurResolve") ? `\\blur7\\t(${off},${off + inp.fadeInMs},\\blur0)` : "";
     // Continuous-hold motion — near-imperceptible push-in keeps the beat alive (Premium
-    // "drift"); "hold"/absent = deliberate stillness.
+    // "drift"); "hold"/"punch"/absent = no continuous drift (Impact punches on entry).
     const motionTag = inp.motion === "drift" ? drift({ startMs: off + inp.fadeInMs, endMs: durMs }, 100, 102) : "";
-    const head = `{${ent}\\fs${fontPx}${track}${alpha}${rack}${motionTag}}`;
+    const head = `{${ent}\\fs${fontPx}${track}${alpha}${pop}${rack}${motionTag}}`;
 
     // Attention: emphasise the focal word on the focus slot (accent colour), else plain.
     let text: string;
