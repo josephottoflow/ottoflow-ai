@@ -30,6 +30,11 @@ export interface ComposeBeatInput {
   baseFontPx: number;
   /** Focal accent colour as &Hbbggrr& (no alpha). Empty = no accent (mono premium). */
   accentColorAss: string;
+  /** Secondary/recede colour as &Hbbggrr&. Used when attention="isolate" to push support
+   * words back (emphasis by difference). Absent → support stays primary white. */
+  secondaryColorAss?: string;
+  /** Attention stance ("isolate" dims support to secondary; else just the focal accent). */
+  attention?: string;
   /** ASS style name to render text with (e.g. "Caption"). */
   styleName: string;
   reveal: string;
@@ -233,13 +238,16 @@ export function renderComposedBeat(inp: ComposeBeatInput): string {
     let text: string;
     const kw = inp.keywordByLine[s.line] ?? -1;
     if (s.line === accentLineIdx && kw >= 0 && inp.accentColorAss) {
-      // Sparse accent: colour ONLY the explicit focal word (never a whole line — that
-      // would read as loud, not premium). Beats with no focal word stay monochrome.
+      // Sparse accent: colour ONLY the explicit focal word. When the philosophy's attention
+      // is "isolate", also push the SUPPORT words back to the secondary colour so the focal
+      // word truly pops (emphasis by DIFFERENCE); "singleFocus" leaves support at primary.
+      const isolate = inp.attention === "isolate" && !!inp.secondaryColorAss;
       const words = line.split(/\s+/);
       text = words
-        .map((w, i) =>
-          i === kw ? `{\\1c${inp.accentColorAss}}${esc(w)}{\\1c&HFFFFFF&}` : esc(w),
-        )
+        .map((w, i) => {
+          if (i === kw) return `{\\1c${inp.accentColorAss}}${esc(w)}{\\1c&HFFFFFF&}`;
+          return isolate ? `{\\1c${inp.secondaryColorAss}}${esc(w)}{\\1c&HFFFFFF&}` : esc(w);
+        })
         .join(" ");
     } else {
       text = esc(line);

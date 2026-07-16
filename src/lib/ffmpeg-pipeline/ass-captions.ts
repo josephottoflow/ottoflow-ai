@@ -671,6 +671,8 @@ export function renderAnimatedAss(
             endMs: c.endMs,
             baseFontPx: styleType.fontPx,
             accentColorAss: accentColor ? assColorTag(accentColor) : "",
+            secondaryColorAss: assColorTag(preset.secondary),
+            attention: activeStyle?.recipe?.attention,
             styleName: "Caption",
             reveal: activeStyle?.recipe?.reveal?.[0] ?? "riseFade",
             exit: activeStyle?.recipe?.exit?.[0] ?? "dissolve",
