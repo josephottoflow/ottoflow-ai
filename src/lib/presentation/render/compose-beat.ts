@@ -74,6 +74,11 @@ function entranceTag(reveal: string, p: { an: number; x: number; y: number }, fo
     const rise = Math.round(Math.max(24, fontPx * 0.3));
     return `\\an${p.an}\\move(${p.x},${p.y + rise},${p.x},${p.y},${offMs},${offMs + fadeInMs})`;
   }
+  if (reveal === "slide") {
+    // Broadcast slide-in from the left (from the anchor side) into place.
+    const dist = Math.round(fontPx * 2.4);
+    return `\\an${p.an}\\move(${p.x - dist},${p.y},${p.x},${p.y},${offMs},${offMs + fadeInMs})`;
+  }
   return posTag(p);
 }
 
@@ -166,9 +171,9 @@ export function renderComposedBeat(inp: ComposeBeatInput): string {
     const pop = isPop
       ? `\\fscx58\\fscy58\\t(${off},${off + inp.fadeInMs},\\fscx104\\fscy104)\\t(${off + inp.fadeInMs},${off + inp.fadeInMs + 80},\\fscx100\\fscy100)`
       : "";
-    // Rack focus (blurResolve) — premium defocus→sharp on the focus slot; only for the
-    // calm reveals, never with a pop (a blur would fight a punch).
-    const rack = !isPop && (s.line === focusLine || inp.reveal === "blurResolve") ? `\\blur7\\t(${off},${off + inp.fadeInMs},\\blur0)` : "";
+    // Rack focus (defocus→sharp) — a PREMIUM calm-reveal touch on the focus slot; only for
+    // riseFade/blurResolve (a blur would fight a pop or a broadcast slide).
+    const rack = (inp.reveal === "riseFade" && s.line === focusLine) || inp.reveal === "blurResolve" ? `\\blur7\\t(${off},${off + inp.fadeInMs},\\blur0)` : "";
     // Continuous-hold motion — near-imperceptible push-in keeps the beat alive (Premium
     // "drift"); "hold"/"punch"/absent = no continuous drift (Impact punches on entry).
     const motionTag = inp.motion === "drift" ? drift({ startMs: off + inp.fadeInMs, endMs: durMs }, 100, 102) : "";
