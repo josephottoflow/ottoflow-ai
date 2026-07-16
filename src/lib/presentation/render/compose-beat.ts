@@ -166,6 +166,11 @@ export function renderComposedBeat(inp: ComposeBeatInput): string {
   }
   const start = fmt(inp.startMs), end = fmt(inp.endMs);
   const focusLine = c.slots[c.focusSlot]?.line ?? -1;
+  // Exactly ONE accent per beat (sparse), on the best available keyword line: the focus
+  // line if it carries a keyword, else the first line that does. So a number/pain word on
+  // a non-focus line (e.g. a kicker) still gets the accent instead of being missed.
+  const accentLineIdx =
+    inp.keywordByLine[focusLine] >= 0 ? focusLine : inp.keywordByLine.findIndex((k) => k >= 0);
   const events: string[] = [];
 
   // Decoration first (drawn UNDER the text; earlier events render lower). An empty
@@ -227,7 +232,7 @@ export function renderComposedBeat(inp: ComposeBeatInput): string {
     // Attention: emphasise the focal word on the focus slot (accent colour), else plain.
     let text: string;
     const kw = inp.keywordByLine[s.line] ?? -1;
-    if (s.line === focusLine && kw >= 0 && inp.accentColorAss) {
+    if (s.line === accentLineIdx && kw >= 0 && inp.accentColorAss) {
       // Sparse accent: colour ONLY the explicit focal word (never a whole line — that
       // would read as loud, not premium). Beats with no focal word stay monochrome.
       const words = line.split(/\s+/);
