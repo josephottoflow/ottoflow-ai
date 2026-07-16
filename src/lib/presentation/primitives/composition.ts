@@ -186,9 +186,11 @@ function statisticCard(ctx: CompContext): Composed {
   const hasLabel = ctx.lineCount >= 2;
   const statLine = hasLabel ? 1 : 0;
   const slots: CompSlot[] = [];
-  if (hasLabel) slots.push({ line: 0, placement: { an: 5, x: cx, y: r(cy - ctx.fontPx * 1.35) }, emphasis: 0.45, align: "c", role: "label" });
-  slots.push({ line: statLine, placement: { an: 5, x: cx, y: cy }, emphasis: 1.9, align: "c", role: "stat" });
-  if (ctx.lineCount >= 3) slots.push({ line: 2, placement: { an: 5, x: cx, y: r(cy + ctx.fontPx * 1.7) }, emphasis: 0.5, align: "c", role: "unit" });
+  // emphasis is RELATIVE to the beat's primary (statistic) role size, so the stat slot is
+  // ~1.0 (already large by role) and label/unit recede. Avoids double-applied sizing.
+  if (hasLabel) slots.push({ line: 0, placement: { an: 5, x: cx, y: r(cy - ctx.fontPx * 1.55) }, emphasis: 0.4, align: "c", role: "label" });
+  slots.push({ line: statLine, placement: { an: 5, x: cx, y: cy }, emphasis: 1.15, align: "c", role: "stat" });
+  if (ctx.lineCount >= 3) slots.push({ line: 2, placement: { an: 5, x: cx, y: r(cy + ctx.fontPx * 1.55) }, emphasis: 0.44, align: "c", role: "unit" });
   const cardW = r(Math.min(frame.width * 0.72, Math.max(widthOf(ctx, statLine, 6) * 1.9, frame.width * 0.5)));
   const cardH = r(ctx.fontPx * 3.2);
   return {
