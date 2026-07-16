@@ -44,6 +44,11 @@ export interface PresentationDecision {
   compositionId: string;
   intent: PresentationIntent;
   score: PresentationScore;
+  /** Whether decoration HELPS this beat (false = remove it; dense beats stay clean). */
+  decorate: boolean;
+  /** Should this beat MOVE or settle? Moments animate; dense statements settle; a rhythm
+   * hold every 3rd static beat gives the sequence cadence. */
+  motion: "animate" | "settle";
   reason: string;
 }
 
@@ -61,6 +66,7 @@ export function decidePresentation(
   frame: { width: number; height: number },
   fontPx: number,
   philosophyPrefs: string[] = [],
+  beatIndex = 0,
 ): PresentationDecision {
   const s = analyzeBeat(lines, keywordByLine);
   const intent = deriveIntent(s);
@@ -82,10 +88,18 @@ export function decidePresentation(
     const adj = sc.total + (philosophyPrefs.includes(id) ? 4 : 0);
     if (adj > bestAdj) { bestAdj = adj; bestId = id; bestScore = sc; }
   }
+  // Decoration: remove on dense beats (reduce visual noise); keep otherwise.
+  const decorate = s.wordCount <= 8 && s.lineCount <= 3;
+  // Motion: moments MOVE (title/cta/statistic/contrast/short); dense statements settle, and
+  // every 3rd static beat holds so the sequence has cadence instead of constant motion.
+  const dynamic = intent === "title" || intent === "cta" || intent === "statistic" || intent === "contrast" || s.isShort;
+  const motion: "animate" | "settle" = dynamic && beatIndex % 3 !== 2 ? "animate" : dynamic ? "settle" : beatIndex % 3 === 2 ? "settle" : "animate";
   return {
     compositionId: bestId,
     intent,
     score: bestScore,
-    reason: `${intent}→${bestId} (${bestScore.total}${philosophyPrefs.includes(bestId) ? "·style" : ""})`,
+    decorate,
+    motion,
+    reason: `${intent}→${bestId} (${bestScore.total}${philosophyPrefs.includes(bestId) ? "·style" : ""}${decorate ? "" : "·clean"}·${motion})`,
   };
 }

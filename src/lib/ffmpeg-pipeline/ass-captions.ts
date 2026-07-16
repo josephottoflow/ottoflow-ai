@@ -668,7 +668,11 @@ export function renderAnimatedAss(
         if (usesIntel && styleType) {
           const fallbackComp = activeStyle!.compositionByTreatment?.[treatment as keyof NonNullable<typeof activeStyle.compositionByTreatment>];
           const prefs = Array.from(new Set([fallbackComp, ...(activeStyle!.recipe?.composition ?? [])].filter(Boolean))) as string[];
-          const decision = decidePresentation(casedWords, kwIdx, { width, height }, styleType.fontPx, prefs);
+          const decision = decidePresentation(casedWords, kwIdx, { width, height }, styleType.fontPx, prefs, ci);
+          // Intelligence also decides MOTION (move vs settle) and DECORATION (keep vs remove
+          // to control visual noise) per beat — not just composition.
+          const decidedMotion = decision.motion === "settle" ? "hold" : activeStyle?.recipe?.motion?.[0] ?? "hold";
+          const decidedDecoration = decision.decorate ? activeStyle?.recipe?.decoration : [];
           return renderComposedBeat({
             compositionId: decision.compositionId,
             lines: casedWords.map((lw) => lw.join(" ")),
@@ -683,8 +687,8 @@ export function renderAnimatedAss(
             styleName: "Caption",
             reveal: activeStyle?.recipe?.reveal?.[0] ?? "riseFade",
             exit: activeStyle?.recipe?.exit?.[0] ?? "dissolve",
-            motion: sig.hold ? "hold" : activeStyle?.recipe?.motion?.[0] ?? "hold",
-            decoration: activeStyle?.recipe?.decoration,
+            motion: sig.hold ? "hold" : decidedMotion,
+            decoration: decidedDecoration,
             timing: activeStyle?.recipe?.timing,
             trackingBias: (activeStyle?.recipe?.typography ?? []).includes("wideTracking") ? 0.05 : 0,
             fadeInMs: sig.fadeInMs ?? preset.fadeInMs,
