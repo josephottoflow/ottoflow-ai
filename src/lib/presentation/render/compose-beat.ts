@@ -14,6 +14,7 @@ import { posTag } from "../primitives/layout";
 import { accentLine, cardBacking, cornerBracket, dot, divider, rect } from "../primitives/decoration";
 import { trackingTag } from "../primitives/typography";
 import { drift } from "../primitives/motion";
+import { resolveTiming } from "../primitives/timing";
 
 export interface ComposeBeatInput {
   compositionId: string;
@@ -37,6 +38,9 @@ export interface ComposeBeatInput {
   /** The philosophy's decoration tokens. An EMPTY array suppresses ALL composition decor
    * (e.g. Minimal); undefined = draw the composition's decor (default). */
   decoration?: string[];
+  /** The philosophy's timing token (calm|slow|minimal|steady|driving|aggressive) — drives
+   * stagger/drift/ease/settle/rise via the Timing library. Absent → "calm". */
+  timing?: string;
   fadeInMs: number;
   fadeOutMs: number;
   /** Estimated on-screen width per line (px) for card/underline sizing. */
@@ -72,14 +76,14 @@ function esc(s: string): string {
 /** Entrance placement for a slot, per the reveal token, staggered by `offMs`. Position-
  * only reveals (riseFade/blurResolve) rise into place over [offMs, offMs+fadeInMs] via a
  * one-shot \move (replaces \pos); others hold static at the placement. */
-function entranceTag(reveal: string, p: { an: number; x: number; y: number }, fontPx: number, fadeInMs: number, offMs: number): string {
+function entranceTag(reveal: string, p: { an: number; x: number; y: number }, fontPx: number, fadeInMs: number, offMs: number, riseFrac: number): string {
   if (reveal === "riseFade" || reveal === "blurResolve") {
-    const rise = Math.round(Math.max(24, fontPx * 0.3));
+    const rise = Math.round(Math.max(20, fontPx * riseFrac));
     return `\\an${p.an}\\move(${p.x},${p.y + rise},${p.x},${p.y},${offMs},${offMs + fadeInMs})`;
   }
   if (reveal === "slide") {
-    // Broadcast slide-in from the left (from the anchor side) into place.
-    const dist = Math.round(fontPx * 2.4);
+    // Broadcast slide-in from the anchor side into place (distance scales with rhythm).
+    const dist = Math.round(fontPx * (2 + riseFrac * 2));
     return `\\an${p.an}\\move(${p.x - dist},${p.y},${p.x},${p.y},${offMs},${offMs + fadeInMs})`;
   }
   return posTag(p);
@@ -155,8 +159,11 @@ export function renderComposedBeat(inp: ComposeBeatInput): string {
 
   // One event per text slot. Slots enter STAGGERED (presentation rhythm) — a beat that
   // reveals all at once reads mechanical; leading the kicker then the hero reads authored.
+  // The stagger/drift/ease/settle/rise all come from the philosophy's TIMING token, so a
+  // "calm" philosophy breathes and an "aggressive" one snaps (Timing library).
+  const timing = resolveTiming(inp.timing);
   const durMs = Math.max(inp.fadeInMs + 300, inp.endMs - inp.startMs);
-  const STAGGER = 90; // ms per slot (calm); the compiler's timing token could scale this
+  const STAGGER = timing.staggerMs;
   for (let si = 0; si < c.slots.length; si++) {
     const s = c.slots[si];
     const line = inp.lines[s.line];
@@ -165,24 +172,27 @@ export function renderComposedBeat(inp: ComposeBeatInput): string {
     const maxW = slotMaxWidth(s.placement.an, s.placement.x, inp.frame.width);
     const fontPx = fitFont(line, wanted, maxW); // overflow guard — never wrap/collide
     const off = si * STAGGER;
-    const ent = entranceTag(inp.reveal, s.placement, fontPx, inp.fadeInMs, off);
+    const ent = entranceTag(inp.reveal, s.placement, fontPx, inp.fadeInMs, off, timing.riseFrac);
     // Optical tracking (Typography Engine) — size-relative letter-spacing per slot.
     const track = trackingTag(fontPx, inp.frame.height);
     // Alpha fade IN at the slot's stagger offset + fade OUT at the beat's end (replaces
     // \fad so the entrance can be offset per slot).
     const fadeOutStart = Math.max(off + inp.fadeInMs + 120, durMs - inp.fadeOutMs);
     const alpha = `\\alpha&HFF&\\t(${off},${off + inp.fadeInMs},\\alpha&H00&)\\t(${rnd(fadeOutStart)},${rnd(durMs)},\\alpha&HFF&)`;
-    // POP reveal (Impact) — a scale-in with a slight overshoot; the punchy entrance.
+    // POP reveal (Impact) — a scale-in with an overshoot then settle; the settle window is
+    // the philosophy's timing (aggressive settles harder). Eased per the timing token.
     const isPop = inp.reveal === "pop" || inp.reveal === "scatter";
+    const ease = timing.easeAccel !== 1 ? `${timing.easeAccel},` : "";
+    const settle = Math.max(1, timing.settleMs);
     const pop = isPop
-      ? `\\fscx58\\fscy58\\t(${off},${off + inp.fadeInMs},\\fscx104\\fscy104)\\t(${off + inp.fadeInMs},${off + inp.fadeInMs + 80},\\fscx100\\fscy100)`
+      ? `\\fscx58\\fscy58\\t(${off},${off + inp.fadeInMs},${ease}\\fscx104\\fscy104)\\t(${off + inp.fadeInMs},${off + inp.fadeInMs + settle},\\fscx100\\fscy100)`
       : "";
     // Rack focus (defocus→sharp) — a PREMIUM calm-reveal touch on the focus slot; only for
     // riseFade/blurResolve (a blur would fight a pop or a broadcast slide).
     const rack = (inp.reveal === "riseFade" && s.line === focusLine) || inp.reveal === "blurResolve" ? `\\blur7\\t(${off},${off + inp.fadeInMs},\\blur0)` : "";
     // Continuous-hold motion — near-imperceptible push-in keeps the beat alive (Premium
     // "drift"); "hold"/"punch"/absent = no continuous drift (Impact punches on entry).
-    const motionTag = inp.motion === "drift" ? drift({ startMs: off + inp.fadeInMs, endMs: durMs }, 100, 102) : "";
+    const motionTag = inp.motion === "drift" && timing.driftPct > 100 ? drift({ startMs: off + inp.fadeInMs, endMs: durMs }, 100, timing.driftPct) : "";
     const head = `{${ent}\\fs${fontPx}${track}${alpha}${pop}${rack}${motionTag}}`;
 
     // Attention: emphasise the focal word on the focus slot (accent colour), else plain.

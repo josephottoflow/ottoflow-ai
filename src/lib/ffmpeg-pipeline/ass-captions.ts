@@ -676,6 +676,7 @@ export function renderAnimatedAss(
             exit: activeStyle?.recipe?.exit?.[0] ?? "dissolve",
             motion: sig.hold ? "hold" : activeStyle?.recipe?.motion?.[0] ?? "hold",
             decoration: activeStyle?.recipe?.decoration,
+            timing: activeStyle?.recipe?.timing,
             fadeInMs: sig.fadeInMs ?? preset.fadeInMs,
             fadeOutMs: preset.fadeOutMs,
           });
