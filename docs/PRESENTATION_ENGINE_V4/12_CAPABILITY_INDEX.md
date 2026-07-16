@@ -154,6 +154,28 @@ session); all 20 emit valid geometry. Anchor contract documented on `CompDecorAn
 
 ---
 
+## H · Presentation Intelligence (`src/lib/presentation/intelligence/`)
+
+*The philosophy is now an OUTPUT. The engine reads a beat and DECIDES how to present it —
+Creative-Director-style — instead of executing a static treatment→composition map. Pure/
+deterministic (no AI/LLM).*
+
+- **signals.ts** `analyzeBeat(lines, keywordByLine) → BeatSignals` — content analysis
+  (wordCount, lineCount, hasNumber, numberIsStructured, isQuote, hasContrast, hasPain,
+  hasCTA, isQuestion, isShort, keywordLine).
+- **score.ts** — Presentation QA: `scoreFit`/`scoreReadability`/`scoreFocus`/`scoreNoise`
+  → `scorePresentation(compId, signals, composed?) → {fit,readability,focus,noise,total}`
+  (fit-weighted 0.55 so content match dominates).
+- **decide.ts** `deriveIntent(signals) → PresentationIntent` (title|statistic|quote|
+  contrast|cta|question|list|statement) + `decidePresentation(lines, kw, frame, fontPx,
+  philosophyPrefs) → {compositionId, intent, score, reason}`. Generates candidates per
+  intent + the philosophy's prefs, scores each, applies the style as a small BIAS (+4),
+  picks the best. Strong content overrides the style's habit; ambiguous beats keep its voice.
+
+Wired in `ass-captions.ts` (replaces the static compositionByTreatment lookup). Render-
+verified: one philosophy auto-selected quote-card / split / single-hero / editorial-stack
+across four beats by content alone.
+
 ## Recipe grammar
 
 A `StyleRecipe` (`styles/types.ts`) references the keys above:
