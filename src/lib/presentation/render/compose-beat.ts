@@ -34,6 +34,9 @@ export interface ComposeBeatInput {
   exit: string;
   /** Continuous-hold motion token (e.g. "drift"|"hold"); absent/"hold" = stillness. */
   motion?: string;
+  /** The philosophy's decoration tokens. An EMPTY array suppresses ALL composition decor
+   * (e.g. Minimal); undefined = draw the composition's decor (default). */
+  decoration?: string[];
   fadeInMs: number;
   fadeOutMs: number;
   /** Estimated on-screen width per line (px) for card/underline sizing. */
@@ -141,8 +144,11 @@ export function renderComposedBeat(inp: ComposeBeatInput): string {
   const focusLine = c.slots[c.focusSlot]?.line ?? -1;
   const events: string[] = [];
 
-  // Decoration first (drawn UNDER the text; earlier events render lower).
-  for (const d of c.decor) {
+  // Decoration first (drawn UNDER the text; earlier events render lower). An empty
+  // recipe.decoration suppresses ALL composition decor (the philosophy is authoritative —
+  // e.g. Minimal draws nothing).
+  const drawDecor = !(inp.decoration && inp.decoration.length === 0);
+  for (const d of drawDecor ? c.decor : []) {
     const body = decorEvent(d, inp.accentColorAss || "&HFFFFFF&", inp.baseFontPx, inp.fadeInMs + 120);
     if (body) events.push(`Dialogue: 0,${start},${end},${inp.styleName},,0,0,0,,${body}`);
   }

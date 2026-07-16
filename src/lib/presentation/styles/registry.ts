@@ -11,12 +11,20 @@ import { PREMIUM } from "./premium";
 import { IMPACT } from "./impact";
 import { EDITORIAL } from "./editorial";
 import { BROADCAST } from "./broadcast";
+import { DOCUMENTARY } from "./documentary";
+import { SIGNATURE } from "./signature";
+import { MINIMAL } from "./minimal";
+import { CINEMATIC } from "./cinematic";
 
 export const STYLE_FAMILIES: Record<string, StyleFamily> = {
   [PREMIUM.id]: PREMIUM,
   [IMPACT.id]: IMPACT,
   [EDITORIAL.id]: EDITORIAL,
   [BROADCAST.id]: BROADCAST,
+  [DOCUMENTARY.id]: DOCUMENTARY,
+  [SIGNATURE.id]: SIGNATURE,
+  [MINIMAL.id]: MINIMAL,
+  [CINEMATIC.id]: CINEMATIC,
 };
 
 /** Resolve a style by id; null when unknown (caller falls back to preset path). */
