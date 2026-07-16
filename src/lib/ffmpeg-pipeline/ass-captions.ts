@@ -138,7 +138,10 @@ export function renderAss(
    * the composer supplies marigold only as a fallback). */
   profile?: {
     captionEngine?: "static" | "animated";
-    captionStyle?: CoreCaptionPreset;
+    /** A core preset name ("corporate"/"bold_creator"/…) OR any registered philosophy id
+     * ("premium"/"impact"/"editorial"/"broadcast"/…) — the latter derives a smart preset
+     * from the philosophy so all 12 are selectable without a new preset each. */
+    captionStyle?: CoreCaptionPreset | string;
     accentColor?: string | null;
   },
 ): string {
@@ -149,10 +152,13 @@ export function renderAss(
   // break a render. Rollback is a single flag: CAPTION_ENGINE=static.
   if (resolveCaptionEngine(profile?.captionEngine) === "animated") {
     try {
+      // A philosophy id (premium/impact/editorial/…) derives a smart preset from its
+      // StyleFamily; otherwise fall back to the 4 core caption presets.
+      const philosophyPreset = presetForPhilosophy(profile?.captionStyle);
       return renderAnimatedAss(
         captions,
         dims,
-        ANIMATED_PRESETS[resolveCaptionStyle(profile?.captionStyle)],
+        philosophyPreset ?? ANIMATED_PRESETS[resolveCaptionStyle(profile?.captionStyle as CoreCaptionPreset)],
         profile?.accentColor ?? undefined,
       );
     } catch {
@@ -275,6 +281,43 @@ const ANIMATED_PRESETS: Record<CoreCaptionPreset, AnimatedPreset> = {
   // V2: a bit larger + stronger stroke for premium commercial feel.
   corporate:    { font: FONT.JAKARTA, sizePct: 104 / PLAY_RES_Y, bold: 1, primary: "#FFFFFF", secondary: "#9FB6C4", outlinePx: 5, shadowPx: 3, boxOpacity: 0, blur: 0, fadeInMs: 180, fadeOutMs: 160, popFromPct: 105, popMs: 180, karaoke: true,  case: "sentence", spacing: 0.5, karaokeFill: true, smartGroup: true, maxWordsPerLine: 3, keywordScalePct: 118, staggerMs: 45, wordFadeMs: 150, easeAccel: 0.5, emphasisMaxTier: 5, styleId: "premium" },
 };
+
+/**
+ * Derive a smart AnimatedPreset from a registered PHILOSOPHY id (premium/impact/editorial/
+ * broadcast/documentary/signature/minimal/cinematic/precision/momentum/pulse/custom). This
+ * is what makes all 12 philosophies selectable WITHOUT authoring a preset each — the
+ * philosophy's StyleFamily supplies fonts/colours/sizes/case and the composition path owns
+ * the rest. Returns null for non-philosophy names (caller uses the core presets). */
+function presetForPhilosophy(id?: string): AnimatedPreset | null {
+  const fam = getStyleFamily(id);
+  if (!fam) return null;
+  return {
+    font: fam.fonts.display,
+    sizePct: fam.type.body.sizePct,
+    bold: fam.type.body.weight >= 700 ? 1 : 0,
+    primary: fam.colour.primary,
+    secondary: fam.colour.secondary,
+    outlinePx: fam.fx.outlinePx,
+    shadowPx: fam.fx.shadowPx,
+    boxOpacity: 0,
+    blur: fam.fx.blur,
+    fadeInMs: 200,
+    fadeOutMs: 180,
+    popFromPct: 100,
+    popMs: 0,
+    karaoke: false,
+    case: fam.type.body.case,
+    spacing: 0,
+    smartGroup: true,
+    maxWordsPerLine: fam.rhythm.maxWordsPerLine,
+    keywordScalePct: 112,
+    staggerMs: 42,
+    wordFadeMs: 150,
+    easeAccel: 0.5,
+    emphasisMaxTier: fam.emphasis.maxTier,
+    styleId: fam.id,
+  };
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Motion Graphics V1 — per-beat MOTION SIGNATURES. Each narrative treatment
