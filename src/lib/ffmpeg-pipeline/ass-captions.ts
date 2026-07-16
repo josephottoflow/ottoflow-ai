@@ -144,13 +144,20 @@ export function renderAss(
      * from the philosophy so all 12 are selectable without a new preset each. */
     captionStyle?: CoreCaptionPreset | string;
     accentColor?: string | null;
+    /** Presentation-engine selector (rollback lever). "motion" (default) = the OttoFlow
+     * Motion Typography Engine (composition/intelligence); "classic-modern" = the previous
+     * Modern caption engine (per-word karaoke). Absent → env PRESENTATION_ENGINE → "motion".
+     * Instantly reverts Modern to the old engine with NO code change. */
+    presentationEngine?: "motion" | "classic-modern";
   },
 ): string {
-  // Sprint B — Caption Engine V1. Animated captions are opt-in and fully
-  // isolated behind CAPTION_ENGINE=animated (+ CAPTION_STYLE). When unset or
-  // "static" the byte-identical Legacy generator below runs unchanged. Any error
-  // in the animated path degrades to Legacy here — a caption effect can never
-  // break a render. Rollback is a single flag: CAPTION_ENGINE=static.
+  // Animated captions are opt-in and fully isolated behind CAPTION_ENGINE=animated
+  // (+ CAPTION_STYLE). When unset or "static" the byte-identical Legacy generator below
+  // runs unchanged. Any error in the animated path degrades to Legacy here — a caption
+  // effect can never break a render. TWO rollback levers, both code-change-free:
+  //   • CAPTION_ENGINE=static          → all the way back to Legacy static captions.
+  //   • PRESENTATION_ENGINE=classic-modern → keep Modern, but revert it from the Motion
+  //     Typography Engine to the previous per-word caption engine.
   if (resolveCaptionEngine(profile?.captionEngine) === "animated") {
     try {
       // A philosophy id (premium/impact/editorial/…) derives a smart preset from its
@@ -161,6 +168,7 @@ export function renderAss(
         dims,
         philosophyPreset ?? ANIMATED_PRESETS[resolveCaptionStyle(profile?.captionStyle as CoreCaptionPreset)],
         profile?.accentColor ?? undefined,
+        resolvePresentationEngine(profile?.presentationEngine),
       );
     } catch {
       /* fall through to the Legacy static generator */
@@ -458,6 +466,16 @@ function resolveCaptionEngine(explicit?: "static" | "animated"): "static" | "ani
   return env === "animated" ? "animated" : "static";
 }
 
+/** Presentation engine selector (rollback lever). Per-render flag (explicit) wins; else
+ * env PRESENTATION_ENGINE; else "motion" (the OttoFlow Motion Typography Engine). Setting
+ * PRESENTATION_ENGINE=classic-modern instantly reverts every Modern render to the previous
+ * per-word caption engine with NO code change. Legacy/Classic/Minimal are unaffected. */
+function resolvePresentationEngine(explicit?: "motion" | "classic-modern"): "motion" | "classic-modern" {
+  if (explicit === "motion" || explicit === "classic-modern") return explicit;
+  const env = (process.env.PRESENTATION_ENGINE ?? "").trim().toLowerCase();
+  return env === "classic-modern" || env === "legacy-modern" || env === "classic" ? "classic-modern" : "motion";
+}
+
 /** Caption preset. Per-render flag (explicit) wins; else the CAPTION_STYLE dev
  * override; else "classic". Accepts spacing/hyphen variants ("Bold Creator"). */
 function resolveCaptionStyle(explicit?: CoreCaptionPreset): CoreCaptionPreset {
@@ -525,6 +543,9 @@ export function renderAnimatedAss(
   /** V3 — brand accent "#RRGGBB" for keyword emphasis. undefined → scale-only
    * (Phase-2 behaviour). Supplied by the composer (brand palette → marigold). */
   accentColor?: string,
+  /** V5 — presentation engine: "motion" (Motion Typography Engine, default) or
+   * "classic-modern" (previous per-word caption engine, the rollback path). */
+  engine: "motion" | "classic-modern" = "motion",
 ): string {
   const width = dims?.width ?? 1080;
   const height = dims?.height ?? 1920;
@@ -663,8 +684,10 @@ export function renderAnimatedAss(
         // and DECIDES (decidePresentation). The philosophy's treatment default + recipe
         // compositions are passed as a BIAS, not a rule — strong content (a real statistic,
         // a quote, a contrast) overrides the style's habit; ambiguous beats keep its voice.
+        // Rollback lever: "classic-modern" bypasses the Motion Typography Engine entirely
+        // and runs the previous per-word caption path below (byte-identical to before).
         const usesIntel =
-          !!styleType && !!activeStyle && ((activeStyle.recipe?.composition?.length ?? 0) > 0 || !!activeStyle.compositionByTreatment);
+          engine === "motion" && !!styleType && !!activeStyle && ((activeStyle.recipe?.composition?.length ?? 0) > 0 || !!activeStyle.compositionByTreatment);
         if (usesIntel && styleType) {
           const fallbackComp = activeStyle!.compositionByTreatment?.[treatment as keyof NonNullable<typeof activeStyle.compositionByTreatment>];
           const prefs = Array.from(new Set([fallbackComp, ...(activeStyle!.recipe?.composition ?? [])].filter(Boolean))) as string[];
