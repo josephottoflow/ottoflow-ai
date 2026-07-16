@@ -12,6 +12,10 @@
 import { compose, type CompContext, type Composed } from "../primitives/composition";
 import { analyzeBeat, type BeatSignals } from "./signals";
 import { scorePresentation, type PresentationScore } from "./score";
+import {
+  communicationGoal, attentionStrategy, presentationFeel, motionForAttention,
+  type CommunicationGoal, type AttentionStrategy, type PresentationFeel,
+} from "./goals";
 
 export type PresentationIntent =
   | "title" | "statistic" | "quote" | "contrast" | "cta" | "question" | "list" | "statement";
@@ -43,12 +47,21 @@ const CANDIDATES: Record<PresentationIntent, string[]> = {
 export interface PresentationDecision {
   compositionId: string;
   intent: PresentationIntent;
+  /** What the beat is trying to accomplish. */
+  goal: CommunicationGoal;
+  /** How the eye should move (decided before animation). */
+  attention: AttentionStrategy;
+  /** How the beat should feel (a nudge on the philosophy's base voice). */
+  feel: PresentationFeel;
   score: PresentationScore;
+  /** Self-evaluation: 0–100 confidence in this presentation (the best candidate's score). */
+  confidence: number;
   /** Whether decoration HELPS this beat (false = remove it; dense beats stay clean). */
   decorate: boolean;
-  /** Should this beat MOVE or settle? Moments animate; dense statements settle; a rhythm
-   * hold every 3rd static beat gives the sequence cadence. */
+  /** Should this beat MOVE or settle? */
   motion: "animate" | "settle";
+  /** Structured, debug-only reasoning (never shown to users). */
+  reasoning: Record<string, string | number | boolean>;
   reason: string;
 }
 
@@ -88,18 +101,46 @@ export function decidePresentation(
     const adj = sc.total + (philosophyPrefs.includes(id) ? 4 : 0);
     if (adj > bestAdj) { bestAdj = adj; bestId = id; bestScore = sc; }
   }
+  // ── the decision layers (goal → attention → feel) ──────────────────────────
+  const goal = communicationGoal(s, intent);
+  const attention = attentionStrategy(s, intent);
+  const feel = presentationFeel(goal);
+
   // Decoration: remove on dense beats (reduce visual noise); keep otherwise.
-  const decorate = s.wordCount <= 8 && s.lineCount <= 3;
-  // Motion: moments MOVE (title/cta/statistic/contrast/short); dense statements settle, and
-  // every 3rd static beat holds so the sequence has cadence instead of constant motion.
+  let decorate = s.wordCount <= 8 && s.lineCount <= 3;
+  // Motion: the attention strategy decides FIRST (stillness/largeNumber/frame → settle;
+  // burst/mask → animate); else moments move and every 3rd static beat holds for cadence.
   const dynamic = intent === "title" || intent === "cta" || intent === "statistic" || intent === "contrast" || s.isShort;
-  const motion: "animate" | "settle" = dynamic && beatIndex % 3 !== 2 ? "animate" : dynamic ? "settle" : beatIndex % 3 === 2 ? "settle" : "animate";
+  const rhythmMotion: "animate" | "settle" = dynamic && beatIndex % 3 !== 2 ? "animate" : dynamic ? "settle" : beatIndex % 3 === 2 ? "settle" : "animate";
+  let motion: "animate" | "settle" = motionForAttention(attention) ?? rhythmMotion;
+
+  // ── self-evaluation: low confidence → escalate to the safe, clean presentation ──
+  let confidence = bestScore.total;
+  let escalated = false;
+  if (confidence < 68) {
+    bestId = "center-focus";
+    decorate = false;      // strip risk/noise
+    motion = "settle";
+    escalated = true;
+    const safe = safeCompose(bestId, ctx);
+    bestScore = scorePresentation(bestId, s, safe ?? undefined);
+    confidence = Math.max(confidence, bestScore.total);
+  }
+
+  // ── explainability (debug-only; never rendered/shown) ──────────────────────
+  const reasoning: Record<string, string | number | boolean> = {
+    intent, goal, attention, feel, composition: bestId,
+    motion, decorate, confidence, fit: bestScore.fit, readability: bestScore.readability,
+    escalated,
+  };
   return {
     compositionId: bestId,
-    intent,
+    intent, goal, attention, feel,
     score: bestScore,
+    confidence,
     decorate,
     motion,
-    reason: `${intent}→${bestId} (${bestScore.total}${philosophyPrefs.includes(bestId) ? "·style" : ""}${decorate ? "" : "·clean"}·${motion})`,
+    reasoning,
+    reason: `${goal}/${attention}→${bestId} (${confidence}${escalated ? "·esc" : philosophyPrefs.includes(bestId) ? "·style" : ""}${decorate ? "" : "·clean"}·${motion})`,
   };
 }
