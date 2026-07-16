@@ -9,10 +9,12 @@
 import type { StyleFamily } from "./types";
 import { PREMIUM } from "./premium";
 import { IMPACT } from "./impact";
+import { EDITORIAL } from "./editorial";
 
 export const STYLE_FAMILIES: Record<string, StyleFamily> = {
   [PREMIUM.id]: PREMIUM,
   [IMPACT.id]: IMPACT,
+  [EDITORIAL.id]: EDITORIAL,
 };
 
 /** Resolve a style by id; null when unknown (caller falls back to preset path). */
