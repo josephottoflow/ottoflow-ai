@@ -631,6 +631,7 @@ export function renderAnimatedAss(
             styleName: "Caption",
             reveal: activeStyle?.recipe?.reveal?.[0] ?? "riseFade",
             exit: activeStyle?.recipe?.exit?.[0] ?? "dissolve",
+            motion: sig.hold ? "hold" : activeStyle?.recipe?.motion?.[0] ?? "hold",
             fadeInMs: sig.fadeInMs ?? preset.fadeInMs,
             fadeOutMs: preset.fadeOutMs,
           });

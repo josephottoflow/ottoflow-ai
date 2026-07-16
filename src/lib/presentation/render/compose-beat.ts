@@ -12,6 +12,8 @@
 import { compose, type CompDecorAnchor, type CompContext } from "../primitives/composition";
 import { posTag, moveIn } from "../primitives/layout";
 import { accentLine, cardBacking, cornerBracket, dot, divider, rect } from "../primitives/decoration";
+import { trackingTag } from "../primitives/typography";
+import { drift } from "../primitives/motion";
 
 export interface ComposeBeatInput {
   compositionId: string;
@@ -30,6 +32,8 @@ export interface ComposeBeatInput {
   styleName: string;
   reveal: string;
   exit: string;
+  /** Continuous-hold motion token (e.g. "drift"|"hold"); absent/"hold" = stillness. */
+  motion?: string;
   fadeInMs: number;
   fadeOutMs: number;
   /** Estimated on-screen width per line (px) for card/underline sizing. */
@@ -137,7 +141,15 @@ export function renderComposedBeat(inp: ComposeBeatInput): string {
     const fontPx = fitFont(line, wanted, maxW); // overflow guard — never wrap/collide
     const ent = entranceTag(inp.reveal, s.placement, fontPx, inp.fadeInMs);
     const blur = inp.reveal === "blurResolve" ? `\\blur6\\t(0,${inp.fadeInMs},\\blur0)` : "";
-    const head = `{${ent}\\fs${fontPx}\\fad(${inp.fadeInMs},${inp.fadeOutMs})${blur}}`;
+    // Optical tracking (Typography Engine) — size-relative letter-spacing per slot.
+    const track = trackingTag(fontPx, inp.frame.height);
+    // Continuous-hold motion — a near-imperceptible push-in keeps the beat alive (Premium
+    // "drift"); "hold"/absent = deliberate stillness. \t is 0-based within the event.
+    const motionTag =
+      inp.motion === "drift"
+        ? drift({ startMs: inp.fadeInMs, endMs: Math.max(inp.fadeInMs + 200, inp.endMs - inp.startMs) }, 100, 102)
+        : "";
+    const head = `{${ent}\\fs${fontPx}${track}\\fad(${inp.fadeInMs},${inp.fadeOutMs})${blur}${motionTag}}`;
 
     // Attention: emphasise the focal word on the focus slot (accent colour), else plain.
     let text: string;
