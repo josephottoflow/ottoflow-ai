@@ -186,13 +186,14 @@ function statisticCard(ctx: CompContext): Composed {
   const hasLabel = ctx.lineCount >= 2;
   const statLine = hasLabel ? 1 : 0;
   const slots: CompSlot[] = [];
-  // emphasis is RELATIVE to the beat's primary (statistic) role size, so the stat slot is
-  // ~1.0 (already large by role) and label/unit recede. Avoids double-applied sizing.
-  if (hasLabel) slots.push({ line: 0, placement: { an: 5, x: cx, y: r(cy - ctx.fontPx * 1.55) }, emphasis: 0.4, align: "c", role: "label" });
-  slots.push({ line: statLine, placement: { an: 5, x: cx, y: cy }, emphasis: 1.15, align: "c", role: "stat" });
-  if (ctx.lineCount >= 3) slots.push({ line: 2, placement: { an: 5, x: cx, y: r(cy + ctx.fontPx * 1.55) }, emphasis: 0.44, align: "c", role: "unit" });
-  const cardW = r(Math.min(frame.width * 0.72, Math.max(widthOf(ctx, statLine, 6) * 1.9, frame.width * 0.5)));
-  const cardH = r(ctx.fontPx * 3.2);
+  // The FIGURE commands — a stat card exists to make the number hit hard, so the stat slot
+  // is much larger than the label/unit (strong hierarchy). Emphasis is relative to the
+  // statistic role size; the number-bearing line is usually short so it won't overflow.
+  if (hasLabel) slots.push({ line: 0, placement: { an: 5, x: cx, y: r(cy - ctx.fontPx * 1.62) }, emphasis: 0.36, align: "c", role: "label" });
+  slots.push({ line: statLine, placement: { an: 5, x: cx, y: cy }, emphasis: 1.42, align: "c", role: "stat" });
+  if (ctx.lineCount >= 3) slots.push({ line: 2, placement: { an: 5, x: cx, y: r(cy + ctx.fontPx * 1.62) }, emphasis: 0.4, align: "c", role: "unit" });
+  const cardW = r(Math.min(frame.width * 0.74, Math.max(widthOf(ctx, statLine, 6) * 2.0, frame.width * 0.52)));
+  const cardH = r(ctx.fontPx * 3.9);
   return {
     id: "statistic-card",
     slots,
