@@ -118,6 +118,40 @@ this session — "emphasis by difference" reads instantly).*
 | `spotlightIn` | `spotlightIn(offMs, durMs?, fromLevel?)` | `\1a`+`\t` | focal brightens into emphasis | 06 |
 | `isolateSupport` / `isolateReset` | `isolateSupport(dimLevel?)` · `isolateReset(pri)` | dim+thin+tighten | strongest "all recede but one" | 06 |
 
+## G · Composition library (`src/lib/presentation/primitives/composition.ts`) — WHERE ATTENTION LIVES
+
+*The highest-leverage layer: a composition arranges a WHOLE beat (every line's position,
+alignment, relative emphasis + the decoration anchors that frame it). Reveal/motion decide
+WHEN; composition decides the STRUCTURE the eye reads — "designed motion graphics" vs.
+"centered subtitles". Pure `(CompContext) => Composed`; philosophies reference by name via
+the `COMPOSITIONS` registry (compiler does a lookup — **no switch statements**). Unknown id
+→ `center-focus` (safe restrained default). **6 render-verified** (composition montage, this
+session); all 20 emit valid geometry. Anchor contract documented on `CompDecorAnchor`.*
+
+`compose(id, ctx)` returns `{ id, slots[{line,placement,emphasis,align,role}], decor[], focusSlot }`.
+
+| Composition id | Structure |
+|---|---|
+| `single-hero` | one commanding line, upper-middle + accent line |
+| `dual-hero` | small kicker over a big hero line |
+| `triple-hero` | three stacked lines, middle emphasised |
+| `editorial-stack` | left-aligned kicker→headline→support, tight leading + accent tick |
+| `magazine-cover` | grand centred headline, kicker rule, 4 corner brackets |
+| `statistic-card` | figure dominates on a card backing, label above / unit below |
+| `quote-card` | centred quote, accent line + divider + attribution |
+| `offset-left` / `offset-right` | block hugs one side + vertical accent bar |
+| `lower-third` | broadcast title+subtitle low-left on a bar + tick + underline |
+| `sidebar` | full-height accent rail + centred main text |
+| `corner-label` | small index/label pinned to a corner + centred hero |
+| `dynamic-grid` | lines at loose grid nodes (energetic), up to 4 |
+| `floating-caption` | off-centre lower-left in negative space + bullet dot |
+| `center-focus` | refined centred stack, focal line enlarges (default) |
+| `poster` | oversized top-aligned headline + baseline rule |
+| `split` | two blocks divided by a full-width rule |
+| `timeline` | steps along a baseline + connecting rule + dots |
+| `feature-callout` | small label + big value + corner bracket + leader |
+| `comparison` | two labelled columns split by a vertical divider |
+
 ---
 
 ## Recipe grammar
