@@ -4,13 +4,16 @@ import { cn } from "@/lib/utils";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import type { DbRenderJob } from "@/lib/types";
+import { phaseOf, type RenderPhase } from "@/lib/render-phase";
 import { Video, Clock, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 
-const statusConfig = {
-  rendering: { label: "Rendering", variant: "info" as const, icon: Loader2, spin: true },
-  queued: { label: "Queued", variant: "warning" as const, icon: Clock, spin: false },
-  done: { label: "Done", variant: "success" as const, icon: CheckCircle2, spin: false },
-  failed: { label: "Failed", variant: "destructive" as const, icon: XCircle, spin: false },
+// Keyed by derived phase, not by render_jobs.status — the async render path
+// never advances `status` out of "queued" (see lib/render-phase.ts).
+const statusConfig: Record<RenderPhase, { label: string; variant: "info" | "warning" | "success" | "destructive"; icon: typeof Loader2; spin: boolean }> = {
+  working: { label: "Rendering", variant: "info", icon: Loader2, spin: true },
+  queued: { label: "Queued", variant: "warning", icon: Clock, spin: false },
+  ready: { label: "Done", variant: "success", icon: CheckCircle2, spin: false },
+  failed: { label: "Failed", variant: "destructive", icon: XCircle, spin: false },
 };
 
 interface Props {
@@ -28,7 +31,8 @@ export function RenderQueue({ jobs, className }: Props) {
   return (
     <div className={cn("space-y-2", className)}>
       {jobs.map((job) => {
-        const cfg = statusConfig[job.status] ?? statusConfig.queued;
+        const phase = phaseOf(job);
+        const cfg = statusConfig[phase] ?? statusConfig.queued;
         const Icon = cfg.icon;
         return (
           <div
@@ -55,7 +59,7 @@ export function RenderQueue({ jobs, className }: Props) {
                 </Badge>
               </div>
               <p className="text-3xs text-white/30 mb-1.5">{job.template}</p>
-              {job.status === "rendering" && (
+              {phase === "working" && (
                 <Progress value={job.progress} className="h-1" />
               )}
             </div>
