@@ -31,6 +31,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { captureFallback } from "@/lib/observability";
 import type { DbRenderJob } from "@/lib/types";
+import { phaseOf } from "@/lib/render-phase";
 import { toAppMediaUrl } from "@/lib/media-url";
 
 interface Props {
@@ -50,13 +51,6 @@ function timeAgo(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
-type Phase = "ready" | "working" | "failed" | "queued";
-function phaseOf(job: DbRenderJob): Phase {
-  if (job.merge_status === "done" && job.merged_video_url) return "ready";
-  if (job.status === "failed" || job.merge_status === "failed") return "failed";
-  if (job.merge_status === "merging" || job.merge_status === "pending" || job.status === "rendering") return "working";
-  return "queued";
-}
 function statusBadge(job: DbRenderJob) {
   const p = phaseOf(job);
   if (p === "ready") return <Badge variant="success" className="text-3xs">Ready</Badge>;

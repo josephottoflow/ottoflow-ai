@@ -6,6 +6,7 @@ import { KPICard } from "@/components/KPICard";
 import { RenderQueue } from "@/components/RenderQueue";
 import { formatNumber } from "@/lib/utils";
 import { toAppMediaUrl } from "@/lib/media-url";
+import { phaseOf, isInFlight } from "@/lib/render-phase";
 import type { DbRenderJob, KPISummary } from "@/lib/types";
 import {
   Video,
@@ -63,9 +64,11 @@ interface Props {
 }
 
 export function VideoPageClient({ renderJobs, kpis }: Props) {
-  const activeJobs = renderJobs.filter((j) => j.status === "rendering").length;
-  const pendingJobs = renderJobs.filter((j) => j.status !== "done").length;
-  const completedJobs = renderJobs.filter((j) => j.status === "done");
+  // Derived from the columns the worker actually writes (merge_status /
+  // merged_video_url) — `status` alone never leaves "queued" on the async path.
+  const activeJobs = renderJobs.filter((j) => phaseOf(j) === "working").length;
+  const pendingJobs = renderJobs.filter(isInFlight).length;
+  const completedJobs = renderJobs.filter((j) => phaseOf(j) === "ready");
 
   return (
     <div className="p-6 max-w-[1400px] mx-auto">

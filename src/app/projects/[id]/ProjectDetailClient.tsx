@@ -8,6 +8,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ActivityFeed } from "@/components/ActivityFeed";
 import { formatRelative, formatNumber } from "@/lib/utils";
 import { toAppMediaUrl } from "@/lib/media-url";
+import { phaseOf, type RenderPhase } from "@/lib/render-phase";
 import type { DbProject, DbContentItem, DbRenderJob, DbActivityItem } from "@/lib/types";
 import {
   ArrowLeft, Video, FileText, MoreHorizontal, Play, Download,
@@ -15,6 +16,13 @@ import {
   BarChart3, Clock, Zap, TrendingUp, CheckCircle2, Eye,
   Image, Film, Mic, Plus, Settings2,
 } from "lucide-react";
+
+const PHASE_BADGE: Record<RenderPhase, { label: string; variant: "success" | "info" | "destructive" | "warning" }> = {
+  ready: { label: "done", variant: "success" },
+  working: { label: "rendering", variant: "info" },
+  failed: { label: "failed", variant: "destructive" },
+  queued: { label: "queued", variant: "warning" },
+};
 
 const platformIcons: Record<string, React.ElementType> = {
   linkedin: Linkedin, facebook: Facebook, instagram: Globe,
@@ -310,7 +318,7 @@ export function ProjectDetailClient({ project, content, renderJobs, activity }: 
                     <div className="aspect-video flex items-center justify-center relative"
                       style={{ background: "linear-gradient(135deg, rgba(233,134,59,0.15), rgba(6,182,212,0.08))" }}>
                       <Video size={20} className="text-[#F2A863]/40" />
-                      {job.status === "done" && (
+                      {phaseOf(job) === "ready" && (
                         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                           style={{ background: "rgba(0,0,0,0.5)" }}>
                           <div className="w-9 h-9 rounded-full flex items-center justify-center"
@@ -320,9 +328,9 @@ export function ProjectDetailClient({ project, content, renderJobs, activity }: 
                         </div>
                       )}
                       <Badge
-                        variant={job.status === "done" ? "success" : job.status === "rendering" ? "info" : "warning"}
+                        variant={PHASE_BADGE[phaseOf(job)].variant}
                         className="absolute top-2 right-2 text-3xs">
-                        {job.status}
+                        {PHASE_BADGE[phaseOf(job)].label}
                       </Badge>
                     </div>
                     <div className="p-2.5">

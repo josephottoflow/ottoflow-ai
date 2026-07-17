@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { formatRelative, formatNumber } from "@/lib/utils";
 import { getKPISummary, getProjects, getActivity, getRenderJobs, getAnalyticsData, getCreativeCount } from "@/lib/db";
 import { listBrands } from "@/lib/db-brands";
+import { isInFlight } from "@/lib/render-phase";
 import {
   FileText,
   Video,
@@ -40,7 +41,7 @@ export default async function DashboardPage() {
   const firstName = user?.firstName?.trim() || "";
 
   const activeProjects = projects.filter((p) => p.status === "active");
-  const pendingJobs = renderJobs.filter((j) => j.status !== "done").length;
+  const pendingJobs = renderJobs.filter(isInFlight).length;
 
   // ─── First-run onboarding state ─────────────────────────────────────────────
   // Guide brand-new users through the core loop (research → idea → post). We
