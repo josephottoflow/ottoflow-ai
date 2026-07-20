@@ -47,6 +47,13 @@ export interface CreativeOsFlags {
    * → byte-identical behaviour.
    */
   motion: boolean;
+  /**
+   * Layout Engine capability (Phase 4). Same contract as the above: a capability
+   * toggle for the token-driven Layout Engine (safe zones, density). Changes no
+   * render on its own — activation is via the Render Profile mechanism, and no
+   * shipping profile consumes it. Off (default) → byte-identical behaviour.
+   */
+  layout: boolean;
 }
 
 /**
@@ -67,7 +74,8 @@ export function resolveCreativeOsFlags(
     enabled && env.CREATIVE_OS_QA_MODE === "report_only" ? "report_only" : "off";
   const typography = enabled && env.CREATIVE_OS_TYPOGRAPHY === "true";
   const motion = enabled && env.CREATIVE_OS_MOTION === "true";
-  return { enabled, qaMode, typography, motion };
+  const layout = enabled && env.CREATIVE_OS_LAYOUT === "true";
+  return { enabled, qaMode, typography, motion, layout };
 }
 
 /** True only when the Creative OS master gate is explicitly enabled. */
@@ -95,4 +103,10 @@ export function isTypographyEngineEnabled(): boolean {
  * gate). A capability toggle only — activation is via a Render Profile. */
 export function isMotionEngineEnabled(): boolean {
   return resolveCreativeOsFlags().motion;
+}
+
+/** True only when the Layout Engine capability is enabled (requires the master
+ * gate). A capability toggle only — activation is via a Render Profile. */
+export function isLayoutEngineEnabled(): boolean {
+  return resolveCreativeOsFlags().layout;
 }

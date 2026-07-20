@@ -17,6 +17,7 @@ test("defaults OFF when the environment is empty", () => {
   assert.equal(f.qaMode, "off");
   assert.equal(f.typography, false);
   assert.equal(f.motion, false);
+  assert.equal(f.layout, false);
 });
 
 test("master gate is fail-closed — only the exact string 'true' enables it", () => {
@@ -102,6 +103,18 @@ test("motion and typography are independent capabilities", () => {
   const onlyMotion = resolveCreativeOsFlags({ CREATIVE_OS_ENABLED: "true", CREATIVE_OS_MOTION: "true" });
   assert.equal(onlyMotion.motion, true);
   assert.equal(onlyMotion.typography, false);
+});
+
+test("layout capability requires the master gate + exact 'true', independent of others", () => {
+  assert.equal(resolveCreativeOsFlags({ CREATIVE_OS_LAYOUT: "true" }).layout, false); // gate off
+  assert.equal(
+    resolveCreativeOsFlags({ CREATIVE_OS_ENABLED: "true", CREATIVE_OS_LAYOUT: "on" }).layout,
+    false, // fail-closed
+  );
+  const only = resolveCreativeOsFlags({ CREATIVE_OS_ENABLED: "true", CREATIVE_OS_LAYOUT: "true" });
+  assert.equal(only.layout, true);
+  assert.equal(only.motion, false);
+  assert.equal(only.typography, false);
 });
 
 test("resolveCreativeOsFlags is pure — it does not read or mutate process.env", () => {
