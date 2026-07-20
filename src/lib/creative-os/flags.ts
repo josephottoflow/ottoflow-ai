@@ -39,6 +39,14 @@ export interface CreativeOsFlags {
    * behaviour is byte-identical.
    */
   typography: boolean;
+  /**
+   * Motion Engine capability (Phase 3). Same contract as `typography`: a
+   * capability toggle that lets the token-driven Motion Engine be composed into a
+   * presentation pipeline. It changes no render on its own — activation is via the
+   * Render Profile mechanism, and no shipping profile consumes it. Off (default)
+   * → byte-identical behaviour.
+   */
+  motion: boolean;
 }
 
 /**
@@ -58,7 +66,8 @@ export function resolveCreativeOsFlags(
   const qaMode: QaMode =
     enabled && env.CREATIVE_OS_QA_MODE === "report_only" ? "report_only" : "off";
   const typography = enabled && env.CREATIVE_OS_TYPOGRAPHY === "true";
-  return { enabled, qaMode, typography };
+  const motion = enabled && env.CREATIVE_OS_MOTION === "true";
+  return { enabled, qaMode, typography, motion };
 }
 
 /** True only when the Creative OS master gate is explicitly enabled. */
@@ -80,4 +89,10 @@ export function isQaReportOnly(): boolean {
  * master gate). A capability toggle only — activation is via a Render Profile. */
 export function isTypographyEngineEnabled(): boolean {
   return resolveCreativeOsFlags().typography;
+}
+
+/** True only when the Motion Engine capability is enabled (requires the master
+ * gate). A capability toggle only — activation is via a Render Profile. */
+export function isMotionEngineEnabled(): boolean {
+  return resolveCreativeOsFlags().motion;
 }
