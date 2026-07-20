@@ -19,6 +19,7 @@ test("defaults OFF when the environment is empty", () => {
   assert.equal(f.motion, false);
   assert.equal(f.layout, false);
   assert.equal(f.caption, false);
+  assert.equal(f.register, false);
 });
 
 test("master gate is fail-closed — only the exact string 'true' enables it", () => {
@@ -126,6 +127,20 @@ test("caption capability requires the master gate + exact 'true', independent of
   );
   const only = resolveCreativeOsFlags({ CREATIVE_OS_ENABLED: "true", CREATIVE_OS_CAPTION: "true" });
   assert.equal(only.caption, true);
+  assert.equal(only.layout, false);
+  assert.equal(only.motion, false);
+  assert.equal(only.typography, false);
+});
+
+test("register capability requires the master gate + exact 'true', independent of others", () => {
+  assert.equal(resolveCreativeOsFlags({ CREATIVE_OS_REGISTER: "true" }).register, false); // gate off
+  assert.equal(
+    resolveCreativeOsFlags({ CREATIVE_OS_ENABLED: "true", CREATIVE_OS_REGISTER: "on" }).register,
+    false, // fail-closed
+  );
+  const only = resolveCreativeOsFlags({ CREATIVE_OS_ENABLED: "true", CREATIVE_OS_REGISTER: "true" });
+  assert.equal(only.register, true);
+  assert.equal(only.caption, false);
   assert.equal(only.layout, false);
   assert.equal(only.motion, false);
   assert.equal(only.typography, false);

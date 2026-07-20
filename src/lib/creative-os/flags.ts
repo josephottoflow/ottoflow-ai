@@ -61,6 +61,14 @@ export interface CreativeOsFlags {
    * and no shipping profile consumes it. Off (default) → byte-identical behaviour.
    */
   caption: boolean;
+  /**
+   * Register Engine capability (Phase 6) — the orchestration layer that composes
+   * the typography/motion/layout/caption engines into one register voice. Same
+   * contract: a capability toggle that changes no render on its own; activation is
+   * via the Render Profile mechanism, and no shipping profile consumes it. Off
+   * (default) → byte-identical behaviour.
+   */
+  register: boolean;
 }
 
 /**
@@ -83,7 +91,8 @@ export function resolveCreativeOsFlags(
   const motion = enabled && env.CREATIVE_OS_MOTION === "true";
   const layout = enabled && env.CREATIVE_OS_LAYOUT === "true";
   const caption = enabled && env.CREATIVE_OS_CAPTION === "true";
-  return { enabled, qaMode, typography, motion, layout, caption };
+  const register = enabled && env.CREATIVE_OS_REGISTER === "true";
+  return { enabled, qaMode, typography, motion, layout, caption, register };
 }
 
 /** True only when the Creative OS master gate is explicitly enabled. */
@@ -123,4 +132,10 @@ export function isLayoutEngineEnabled(): boolean {
  * gate). A capability toggle only — activation is via a Render Profile. */
 export function isCaptionEngineEnabled(): boolean {
   return resolveCreativeOsFlags().caption;
+}
+
+/** True only when the Register Engine capability is enabled (requires the master
+ * gate). A capability toggle only — activation is via a Render Profile. */
+export function isRegisterEngineEnabled(): boolean {
+  return resolveCreativeOsFlags().register;
 }
