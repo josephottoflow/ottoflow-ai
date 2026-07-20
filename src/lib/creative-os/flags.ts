@@ -54,6 +54,13 @@ export interface CreativeOsFlags {
    * shipping profile consumes it. Off (default) → byte-identical behaviour.
    */
   layout: boolean;
+  /**
+   * Caption Engine capability (Phase 5). Same contract as the above: a capability
+   * toggle for the token-driven Caption Engine (personalities, reading rhythm).
+   * Changes no render on its own — activation is via the Render Profile mechanism,
+   * and no shipping profile consumes it. Off (default) → byte-identical behaviour.
+   */
+  caption: boolean;
 }
 
 /**
@@ -75,7 +82,8 @@ export function resolveCreativeOsFlags(
   const typography = enabled && env.CREATIVE_OS_TYPOGRAPHY === "true";
   const motion = enabled && env.CREATIVE_OS_MOTION === "true";
   const layout = enabled && env.CREATIVE_OS_LAYOUT === "true";
-  return { enabled, qaMode, typography, motion, layout };
+  const caption = enabled && env.CREATIVE_OS_CAPTION === "true";
+  return { enabled, qaMode, typography, motion, layout, caption };
 }
 
 /** True only when the Creative OS master gate is explicitly enabled. */
@@ -109,4 +117,10 @@ export function isMotionEngineEnabled(): boolean {
  * gate). A capability toggle only — activation is via a Render Profile. */
 export function isLayoutEngineEnabled(): boolean {
   return resolveCreativeOsFlags().layout;
+}
+
+/** True only when the Caption Engine capability is enabled (requires the master
+ * gate). A capability toggle only — activation is via a Render Profile. */
+export function isCaptionEngineEnabled(): boolean {
+  return resolveCreativeOsFlags().caption;
 }
