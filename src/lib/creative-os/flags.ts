@@ -30,6 +30,15 @@ export interface CreativeOsFlags {
   enabled: boolean;
   /** QA mode. Never "blocking" — no blocking gate exists yet (fail-closed). */
   qaMode: QaMode;
+  /**
+   * Typography Engine capability (Phase 2). When true, the token-driven
+   * Typography Engine MAY be composed into a presentation pipeline. This flag is
+   * a capability toggle only — it does not, by itself, change any render: the
+   * engine is consumed solely through the Render Profile mechanism (a later
+   * cycle), and no shipping profile consumes it yet. With this off (the default),
+   * behaviour is byte-identical.
+   */
+  typography: boolean;
 }
 
 /**
@@ -48,7 +57,8 @@ export function resolveCreativeOsFlags(
   const enabled = env.CREATIVE_OS_ENABLED === "true";
   const qaMode: QaMode =
     enabled && env.CREATIVE_OS_QA_MODE === "report_only" ? "report_only" : "off";
-  return { enabled, qaMode };
+  const typography = enabled && env.CREATIVE_OS_TYPOGRAPHY === "true";
+  return { enabled, qaMode, typography };
 }
 
 /** True only when the Creative OS master gate is explicitly enabled. */
@@ -64,4 +74,10 @@ export function qaMode(): QaMode {
 /** True only when QA advisory report-only mode is active (never blocking). */
 export function isQaReportOnly(): boolean {
   return resolveCreativeOsFlags().qaMode === "report_only";
+}
+
+/** True only when the Typography Engine capability is enabled (requires the
+ * master gate). A capability toggle only — activation is via a Render Profile. */
+export function isTypographyEngineEnabled(): boolean {
+  return resolveCreativeOsFlags().typography;
 }

@@ -15,6 +15,7 @@ test("defaults OFF when the environment is empty", () => {
   const f = resolveCreativeOsFlags({});
   assert.equal(f.enabled, false);
   assert.equal(f.qaMode, "off");
+  assert.equal(f.typography, false);
 });
 
 test("master gate is fail-closed — only the exact string 'true' enables it", () => {
@@ -56,6 +57,31 @@ test("QA mode is fail-closed — 'blocking' (or any stray value) can never be pr
     }).qaMode,
     "off",
   );
+});
+
+test("typography capability requires the master gate + exact 'true'", () => {
+  // Requested but master gate off → still off.
+  assert.equal(resolveCreativeOsFlags({ CREATIVE_OS_TYPOGRAPHY: "true" }).typography, false);
+  // Master on but non-exact value → off (fail-closed).
+  assert.equal(
+    resolveCreativeOsFlags({ CREATIVE_OS_ENABLED: "true", CREATIVE_OS_TYPOGRAPHY: "on" }).typography,
+    false,
+  );
+  assert.equal(
+    resolveCreativeOsFlags({ CREATIVE_OS_ENABLED: "true", CREATIVE_OS_TYPOGRAPHY: "1" }).typography,
+    false,
+  );
+  // Both on → enabled.
+  assert.equal(
+    resolveCreativeOsFlags({ CREATIVE_OS_ENABLED: "true", CREATIVE_OS_TYPOGRAPHY: "true" }).typography,
+    true,
+  );
+});
+
+test("typography does not disturb the other flags", () => {
+  const f = resolveCreativeOsFlags({ CREATIVE_OS_ENABLED: "true", CREATIVE_OS_TYPOGRAPHY: "true" });
+  assert.equal(f.enabled, true);
+  assert.equal(f.qaMode, "off"); // typography must not imply QA
 });
 
 test("resolveCreativeOsFlags is pure — it does not read or mutate process.env", () => {
