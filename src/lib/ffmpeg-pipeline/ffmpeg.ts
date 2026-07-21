@@ -30,6 +30,7 @@ import { join as pathJoin } from "node:path";
 import { spawn } from "node:child_process";
 import { renderAss, type CaptionStyle } from "./ass-captions";
 import { resolveRenderFlagsForJob } from "./render-profile";
+import { resolveComposeOverrides } from "./creative-os-bridge";
 
 /**
  * V3 Phase 3 — locate the bundled premium fonts (assets/fonts) for libass
@@ -741,6 +742,15 @@ export async function composeMultiPass(input: MultiPassInput): Promise<void> {
   const clampedCaptions = captions
     .filter((c) => c.startMs < scenesEndMs)
     .map((c) => ({ ...c, endMs: Math.min(c.endMs, scenesEndMs) }));
+  // ── Creative OS activation bridge (Stage 0 — DORMANT) ──────────────────────
+  // Resolves to null while the Creative OS flags are OFF (the only production
+  // state today) and no register is threaded, so the renderAss call below is
+  // byte-identical. Stage 1 (separately approved) will thread a register id and
+  // merge these overrides into the caption profile + presentation passes.
+  const creativeOverrides = resolveComposeOverrides({ frame: { width: W, height: H } });
+  if (creativeOverrides) {
+    // Stage 1 merge point — unreachable in Stage 0 (creativeOverrides is null).
+  }
   await fs.writeFile(
     input.assPath,
     renderAss(clampedCaptions, input.captionStyle, { width: W, height: H }, {
