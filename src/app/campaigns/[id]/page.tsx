@@ -1,4 +1,4 @@
-import { CampaignDetailClient } from "./CampaignDetailClient";
+import { CampaignWorkspace } from "./CampaignWorkspace";
 
 export const dynamic = "force-dynamic";
 
@@ -8,5 +8,5 @@ export default async function CampaignDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  return <CampaignDetailClient campaignId={id} />;
+  return <CampaignWorkspace campaignId={id} />;
 }
