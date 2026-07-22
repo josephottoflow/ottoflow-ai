@@ -321,7 +321,17 @@ export interface DbCreativeVariation {
 // Campaign QA snapshot (src/lib/creative/campaign-execution.ts). Assets link
 // back via content_creatives.campaign_id.
 
-export type CampaignStatus = "planning" | "generating" | "review" | "ready" | "failed";
+// Execution-engine statuses (migration 030 — set by the campaign-execution worker).
+export type CampaignExecutionStatus = "planning" | "generating" | "review" | "ready" | "failed";
+// Workspace lifecycle statuses (Campaign Workspace V1 — migration 033). Operator-
+// facing; the mission-control lifecycle. `planning` and `review` are shared.
+export type CampaignWorkspaceStatus =
+  | "planning" | "research" | "in_progress" | "review" | "scheduled" | "live" | "completed" | "archived";
+// The full set a campaign.status may hold. A superset of both — nothing that read
+// the old five breaks, and the new workspace states are additive.
+export type CampaignStatus = CampaignExecutionStatus | CampaignWorkspaceStatus;
+
+export type CampaignPriority = "low" | "medium" | "high" | "urgent";
 
 export interface DbCampaign {
   id: string;
@@ -339,6 +349,31 @@ export interface DbCampaign {
   error: string | null;
   created_at: string;
   updated_at: string;
+
+  // ── Campaign Workspace V1 (migration 033, additive) ──────────────────────
+  // All optional so existing inserts/rows (which predate the migration) remain
+  // valid; the DB supplies defaults for the NOT NULL ones (priority/channels/
+  // tags/is_favorite/is_archived).
+  /** Operator-facing display name (falls back to title || prompt in the UI). */
+  name?: string | null;
+  description?: string | null;
+  objective?: string | null;
+  owner?: string | null;
+  priority?: CampaignPriority | string;
+  target_audience?: string | null;
+  channels?: string[];
+  tags?: string[];
+  primary_cta?: string | null;
+  success_metrics?: string | null;
+  notes?: string | null;
+  /** Accent hex for the campaign chip/header, e.g. "#F2A863". */
+  color?: string | null;
+  /** lucide-react icon name, e.g. "Megaphone". */
+  icon?: string | null;
+  is_favorite?: boolean;
+  is_archived?: boolean;
+  start_date?: string | null;
+  end_date?: string | null;
 }
 
 // ─── Research Evidence (V2 Phase 1 — migration 010) ─────────────────────────
