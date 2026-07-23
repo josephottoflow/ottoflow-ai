@@ -33,7 +33,7 @@ import { getPlatformProfile } from "@/lib/platform/profiles";
 import { pickCta } from "@/lib/platform/platform-cta";
 import { findTrackByVibe } from "@/lib/jamendo";
 import type { AgentContext, SourceName, VideoStrategy } from "@/lib/ffmpeg-pipeline/types";
-import { resolveRenderProfile } from "@/lib/ffmpeg-pipeline/render-profile";
+import { resolveRenderProfile, isRenderProfile } from "@/lib/ffmpeg-pipeline/render-profile";
 
 export const runtime = "nodejs";
 export const maxDuration = 120; // buildVideoStrategy is one Gemini call.
@@ -148,11 +148,16 @@ const Schema = z.object({
   approve: z.boolean().optional().default(false),
   /** Optional: reuse a dryRun's strategy on approve (prevents preview/cost drift). */
   strategy: StrategySchema.optional(),
-  /** Video Quality V2 — OPTIONAL per-render presentation profile. Absent →
-   * "legacy" (the certified production default). Modern is strictly opt-in per
-   * render; there is NO global default. Legacy output stays byte-identical, so
-   * Modern can never regress an existing render. */
-  renderProfile: z.enum(["legacy", "modern_v1", "modern_v2", "experimental"]).optional(),
+  /** OPTIONAL per-render presentation profile. Absent → "legacy" (the certified
+   * production default). Modern/Creative OS are strictly opt-in per render; there
+   * is NO global default. Legacy output stays byte-identical, so an opt-in profile
+   * can never regress an existing render. Validated against the registry-derived
+   * allowlist (base profiles + creative_founder + every Creative OS philosophy id;
+   * COS migration M1) so the API, resolver, and style registry cannot drift. */
+  renderProfile: z
+    .string()
+    .refine(isRenderProfile, { message: "unknown render profile" })
+    .optional(),
 });
 
 const RATE_LIMIT = { limit: 20, windowSeconds: 60 * 60 } as const; // 20/hr
