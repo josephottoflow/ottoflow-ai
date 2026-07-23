@@ -19,7 +19,7 @@ import { QA_DEFAULT_THRESHOLD } from "../tokens/qa";
 export function activeQaEvaluation(
   candidate: QaCandidate,
   threshold: number = QA_DEFAULT_THRESHOLD,
-  env: NodeJS.ProcessEnv = process.env,
+  env: Record<string, string | undefined> = process.env,
 ): QaEvaluation | null {
   if (resolveCreativeOsFlags(env).qaMode !== "report_only") return null;
   return evaluateQa(candidate, threshold);

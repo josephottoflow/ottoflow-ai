@@ -82,7 +82,7 @@ export function buildAdvisoryReport(input: AdvisoryQaInput): AdvisoryQaReport {
 export function maybeRunAdvisoryQa(
   input: AdvisoryQaInput,
   sink?: QaSink,
-  env: NodeJS.ProcessEnv = process.env,
+  env: Record<string, string | undefined> = process.env,
 ): AdvisoryQaReport | null {
   if (resolveCreativeOsFlags(env).qaMode !== "report_only") return null;
   let report: AdvisoryQaReport;

@@ -28,6 +28,7 @@ for (const preset of SMART_PRESETS) {
         captionEngine: "animated",
         captionStyle: preset,
         accentColor: ACCENT,
+        presentationEngine: "classic-modern",
       });
       const r = matchGolden(`modern/${preset}/${fx.name}.ass`, out);
       assert.ok(
@@ -42,7 +43,7 @@ for (const preset of SMART_PRESETS) {
 
 test("Modern animated output is deterministic (same input → identical output)", () => {
   const fx = LEGACY_CAPTION_FIXTURES[3];
-  const opts = { captionEngine: "animated" as const, captionStyle: "corporate" as const, accentColor: ACCENT };
+  const opts = { captionEngine: "animated" as const, captionStyle: "corporate" as const, accentColor: ACCENT, presentationEngine: "classic-modern" as const };
   const a = renderAss(fx.captions, undefined, fx.dims, opts);
   const b = renderAss(fx.captions, undefined, fx.dims, opts);
   assert.equal(a, b);

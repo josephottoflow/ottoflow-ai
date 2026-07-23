@@ -15,7 +15,7 @@ const ALL_ON = {
   CREATIVE_OS_ENABLED: "true",
   CREATIVE_OS_REGISTER: "true",
   CREATIVE_OS_CAPTION: "true",
-} as NodeJS.ProcessEnv;
+} as Record<string, string | undefined>;
 
 const LEGACY_PROFILE: CaptionProfile = { captionEngine: "static", captionStyle: "classic", accentColor: "#E9863B" };
 

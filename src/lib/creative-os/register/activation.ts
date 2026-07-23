@@ -18,7 +18,7 @@ import type { Frame } from "../layout/engine";
 export function activeRegister(
   id: string,
   frame: Frame,
-  env: NodeJS.ProcessEnv = process.env,
+  env: Record<string, string | undefined> = process.env,
 ): ComposedRegister | null {
   if (!resolveCreativeOsFlags(env).register) return null;
   return composeRegister(id, frame);

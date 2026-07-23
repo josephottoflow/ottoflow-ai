@@ -65,7 +65,7 @@ export const typographyEnginePass: PresentationPass = {
  */
 export function withTypographyEngine(
   passes: readonly PresentationPass[],
-  env: NodeJS.ProcessEnv = process.env,
+  env: Record<string, string | undefined> = process.env,
 ): readonly PresentationPass[] {
   return resolveCreativeOsFlags(env).typography ? [...passes, typographyEnginePass] : passes;
 }

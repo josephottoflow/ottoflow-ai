@@ -21,11 +21,21 @@ const ALL_ON = {
   CREATIVE_OS_ENABLED: "true",
   CREATIVE_OS_REGISTER: "true",
   CREATIVE_OS_CAPTION: "true",
-} as NodeJS.ProcessEnv;
+} as Record<string, string | undefined>;
 
 // The creative_founder profile's BASE flags are Legacy (static/classic); the bridge
 // swaps to the corporate preset only when active.
-const FOUNDER_BASE: CaptionProfile = { captionEngine: "static", captionStyle: "classic", accentColor: ACCENT };
+// presentationEngine is PINNED to "classic-modern" (COS migration, Gate I-2): this
+// suite locks the ROLLBACK path byte-exactly, independent of the ambient
+// PRESENTATION_ENGINE env — restoring the suite's stated env-immunity after the
+// Motion Typography Engine made "motion" the ambient default. The motion path gets
+// its own golden set during real-footage certification.
+const FOUNDER_BASE: CaptionProfile = {
+  captionEngine: "static",
+  captionStyle: "classic",
+  accentColor: ACCENT,
+  presentationEngine: "classic-modern",
+};
 
 for (const fx of LEGACY_CAPTION_FIXTURES) {
   test(`Founder (flags on) renders through the certified corporate preset — ${fx.name}`, () => {
@@ -37,6 +47,7 @@ for (const fx of LEGACY_CAPTION_FIXTURES) {
       captionEngine: "animated",
       captionStyle: "corporate",
       accentColor: ACCENT,
+      presentationEngine: "classic-modern",
     });
     assert.equal(founderOut, corporateOut, `Founder must render as corporate for ${fx.name}`);
     const r = matchGolden(`founder/${fx.name}.ass`, founderOut);

@@ -40,6 +40,10 @@ export interface CaptionProfile {
   captionEngine?: "static" | "animated";
   captionStyle?: CoreCaptionPreset;
   accentColor?: string | null;
+  /** Animated-engine selector (Motion Typography Engine). Passed through untouched
+   * by applyCaptionProfile — the bridge patches engine/preset only, never the
+   * renderer selection. (COS migration, Gate I-2.) */
+  presentationEngine?: "motion" | "classic-modern";
 }
 
 /** The composed Creative OS overrides for a render (only produced when fully
@@ -68,7 +72,7 @@ export interface ComposeInput {
  */
 export function resolveComposeOverrides(
   input: ComposeInput,
-  env: NodeJS.ProcessEnv = process.env,
+  env: Record<string, string | undefined> = process.env,
 ): ComposeOverrides | null {
   try {
     const flags = resolveCreativeOsFlags(env);

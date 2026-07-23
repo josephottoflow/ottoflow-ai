@@ -20,7 +20,7 @@ import { resolveCaptionPersonality, toPresetOverrides, type CaptionPresetOverrid
  */
 export function activeCaptionOverrides(
   mode?: string,
-  env: NodeJS.ProcessEnv = process.env,
+  env: Record<string, string | undefined> = process.env,
 ): CaptionPresetOverrides | null {
   if (!resolveCreativeOsFlags(env).caption) return null;
   return toPresetOverrides(resolveCaptionPersonality(mode));

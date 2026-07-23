@@ -82,7 +82,7 @@ export interface CreativeOsFlags {
  *     CREATIVE_OS_QA_MODE is exactly "report_only". Everything else → "off".
  */
 export function resolveCreativeOsFlags(
-  env: NodeJS.ProcessEnv = process.env,
+  env: Record<string, string | undefined> = process.env,
 ): CreativeOsFlags {
   const enabled = env.CREATIVE_OS_ENABLED === "true";
   const qaMode: QaMode =
