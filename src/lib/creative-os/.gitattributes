@@ -1,0 +1,5 @@
+# Golden render snapshots MUST stay LF-normalised on every OS. renderAss emits
+# "\n"; if git rewrote these to CRLF on checkout (autocrlf), the Legacy byte-compat
+# suite would fail spuriously on Windows/CI. Pin them to LF so the guard is stable
+# and cross-platform. Applies regardless of the repo/user core.autocrlf setting.
+golden/__snapshots__/**/*.ass text eol=lf
