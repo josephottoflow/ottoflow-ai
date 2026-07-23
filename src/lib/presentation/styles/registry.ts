@@ -35,6 +35,11 @@ export const STYLE_FAMILIES: Record<string, StyleFamily> = {
   [CUSTOM.id]: CUSTOM,
 };
 
+/** The registry-derived allowlist of philosophy ids (COS migration M1). The ONE
+ * source of truth for "which Creative OS styles exist", consumed by the render-
+ * profile allowlist + the API validator so the three never drift. */
+export const PHILOSOPHY_IDS: readonly string[] = Object.keys(STYLE_FAMILIES);
+
 /** Resolve a style by id; null when unknown (caller falls back to preset path). */
 export function getStyleFamily(id?: string | null): StyleFamily | null {
   return id ? STYLE_FAMILIES[id] ?? null : null;

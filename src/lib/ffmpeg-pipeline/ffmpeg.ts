@@ -755,6 +755,10 @@ export async function composeMultiPass(input: MultiPassInput): Promise<void> {
       captionStyle: renderFlags.captionStyle,
       // Brand accent → OttoFlow marigold fallback ONLY (never hardcoded default).
       accentColor: plan.branding?.palette?.accent || "#E9863B",
+      // COS migration M1: philosophy profiles set "motion" (explicit per-render
+      // opt-in that overrides the worker's classic-modern pin). Omitted for every
+      // existing profile → engine resolves from env → production stays byte-identical.
+      ...(renderFlags.presentationEngine ? { presentationEngine: renderFlags.presentationEngine } : {}),
     },
     resolveComposeOverrides({ register: renderFlags.register, frame: { width: W, height: H } }),
   );

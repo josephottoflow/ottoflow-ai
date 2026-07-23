@@ -38,7 +38,10 @@ const REGISTER_PROFILE_PATCH: Partial<Record<string, { captionStyle: CoreCaption
 /** The caption-profile shape the composer passes to renderAss (the merge target). */
 export interface CaptionProfile {
   captionEngine?: "static" | "animated";
-  captionStyle?: CoreCaptionPreset;
+  /** A core preset (classic/bold_creator/minimal/corporate) OR a Creative OS
+   * philosophy id (COS migration M1). renderAss resolves a philosophy id via the
+   * registry before falling back to the preset table. */
+  captionStyle?: CoreCaptionPreset | string;
   accentColor?: string | null;
   /** Animated-engine selector (Motion Typography Engine). Passed through untouched
    * by applyCaptionProfile — the bridge patches engine/preset only, never the

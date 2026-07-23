@@ -6,7 +6,8 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { resolveRenderFlagsForJob, LEGACY_FLAGS, normalizeProfile } from "./render-profile";
+import { resolveRenderFlagsForJob, LEGACY_FLAGS, normalizeProfile, isRenderProfile } from "./render-profile";
+import { PHILOSOPHY_IDS } from "../presentation/styles/registry";
 
 test("creative_founder resolves with base LEGACY flags + register:founder", () => {
   const f = resolveRenderFlagsForJob("creative_founder");
@@ -52,4 +53,39 @@ test("no other register profile exists (only Founder is selectable)", () => {
     assert.equal(normalizeProfile(other), null, `${other} must not be a profile`);
     assert.equal(resolveRenderFlagsForJob(other).profile, "legacy");
   }
+});
+
+// ── COS migration M1: Creative OS philosophy profiles (registry-derived) ──────
+test("Creative OS philosophy ids are recognised render profiles", () => {
+  for (const id of PHILOSOPHY_IDS) {
+    assert.ok(isRenderProfile(id), `${id} must be a recognised profile`);
+    assert.equal(normalizeProfile(id), id);
+  }
+  assert.ok(PHILOSOPHY_IDS.includes("premium"));
+  assert.ok(PHILOSOPHY_IDS.includes("impact"));
+});
+
+test("a philosophy profile resolves to the Motion engine (explicit per-render opt-in)", () => {
+  const f = resolveRenderFlagsForJob("editorial");
+  assert.equal(f.profile, "editorial");
+  assert.equal(f.captionEngine, "animated");
+  assert.equal(f.captionStyle, "editorial"); // philosophy id passed through to renderAss
+  assert.equal(f.presentationEngine, "motion");
+  assert.equal(f.register, undefined); // not a register profile
+});
+
+test("byte-safety: NO existing profile carries presentationEngine (stays env-pinned)", () => {
+  for (const p of ["legacy", "modern_v1", "modern_v2", "experimental", "creative_founder"]) {
+    assert.equal(
+      resolveRenderFlagsForJob(p).presentationEngine,
+      undefined,
+      `${p} must not force an engine — production stays classic-modern pinned`,
+    );
+  }
+});
+
+test("isRenderProfile rejects unknown values (allowlist is strict)", () => {
+  assert.equal(isRenderProfile("nonsense"), false);
+  assert.equal(isRenderProfile(""), false);
+  assert.equal(isRenderProfile(undefined), false);
 });
