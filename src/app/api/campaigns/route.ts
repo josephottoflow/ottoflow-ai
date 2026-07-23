@@ -21,11 +21,47 @@ import type { DbBrand } from "@/lib/types";
 
 export const runtime = "nodejs";
 
-const CreateSchema = z.object({
+// Campaign Workspace V1 — optional workspace metadata accepted on create.
+const WorkspaceFields = z.object({
+  name: z.string().max(200).optional(),
+  description: z.string().max(4000).optional(),
+  objective: z.string().max(2000).optional(),
+  owner: z.string().max(200).optional(),
+  priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
+  status: z.string().max(40).optional(),
+  target_audience: z.string().max(2000).optional(),
+  channels: z.array(z.string().max(60)).max(50).optional(),
+  tags: z.array(z.string().max(60)).max(50).optional(),
+  primary_cta: z.string().max(300).optional(),
+  success_metrics: z.string().max(4000).optional(),
+  notes: z.string().max(8000).optional(),
+  color: z.string().max(20).optional(),
+  icon: z.string().max(60).optional(),
+  start_date: z.string().max(30).optional(),
+  end_date: z.string().max(30).optional(),
+});
+
+const CreateSchema = WorkspaceFields.extend({
   brandId: z.string().uuid(),
   prompt: z.string().min(4).max(2000),
   platform: z.string().min(2).max(40).optional(),
+  // Backward compatible: absent → true → create + enqueue execution (the existing
+  // flow). false → create a workspace container only (no execution).
+  execute: z.boolean().optional(),
 });
+
+// Duplicate an existing campaign's WORKSPACE metadata (never its child assets /
+// research — those stay with the original). Creates a fresh 'planning' campaign.
+const DuplicateSchema = z.object({
+  duplicateOf: z.string().uuid(),
+  name: z.string().max(200).optional(),
+});
+
+const WORKSPACE_COPY_FIELDS = [
+  "brand_id", "prompt", "platform", "description", "objective", "owner", "priority",
+  "target_audience", "channels", "tags", "primary_cta", "success_metrics", "notes",
+  "color", "icon", "start_date", "end_date",
+] as const;
 
 export async function GET() {
   const { userId } = await auth();
@@ -64,13 +100,44 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
+
+  const admin = createAdminClient();
+
+  // ── Duplicate flow (Campaign Workspace V1) ────────────────────────────────
+  if (body && typeof body === "object" && "duplicateOf" in body) {
+    const dup = DuplicateSchema.safeParse(body);
+    if (!dup.success) {
+      return NextResponse.json({ error: "duplicateOf (uuid) is required" }, { status: 400 });
+    }
+    const { data: src } = await admin
+      .from("campaigns")
+      .select("*")
+      .eq("id", dup.data.duplicateOf)
+      .maybeSingle();
+    if (!src || src.user_id !== userId) {
+      return NextResponse.json({ error: "Campaign not found" }, { status: 404 });
+    }
+    const copy: Record<string, unknown> = { user_id: userId, status: "planning", asset_count: 0 };
+    for (const f of WORKSPACE_COPY_FIELDS) copy[f] = (src as Record<string, unknown>)[f];
+    copy.name = dup.data.name ?? `${src.name ?? src.title ?? "Campaign"} (copy)`;
+    const { data: cloned, error: cloneErr } = await admin
+      .from("campaigns")
+      .insert(copy)
+      .select("*")
+      .single();
+    if (cloneErr || !cloned) {
+      captureFallback("campaign.duplicate_failed", cloneErr, { src: dup.data.duplicateOf });
+      return NextResponse.json({ error: "Failed to duplicate campaign" }, { status: 500 });
+    }
+    return NextResponse.json({ campaign: cloned }, { status: 201 });
+  }
+
   const parsed = CreateSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: "brandId (uuid) and prompt are required" }, { status: 400 });
   }
-  const { brandId, prompt, platform } = parsed.data;
+  const { brandId, prompt, platform, execute, ...workspace } = parsed.data;
 
-  const admin = createAdminClient();
   const { data: brand } = await admin
     .from("brands")
     .select("id, user_id, name")
@@ -87,14 +154,21 @@ export async function POST(req: NextRequest) {
       brand_id: brandId,
       prompt,
       platform: platform ?? "linkedin",
-      status: "planning",
+      status: workspace.status ?? "planning",
       asset_count: 0,
+      // Optional workspace metadata (undefined keys are ignored by supabase-js).
+      ...workspace,
     })
     .select("*")
     .single();
   if (insErr || !campaign) {
     captureFallback("campaign.insert_failed", insErr, { brandId });
     return NextResponse.json({ error: "Failed to create campaign" }, { status: 500 });
+  }
+
+  // Workspace container only — do not enqueue execution.
+  if (execute === false) {
+    return NextResponse.json({ campaign }, { status: 201 });
   }
 
   // Enqueue execution. If the worker/Redis is offline the campaign stays

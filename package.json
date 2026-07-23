@@ -12,7 +12,9 @@
     "lint": "next lint",
     "dev:worker": "tsx watch worker/index.ts",
     "build:worker": "node worker/build.mjs",
-    "start:worker": "node worker/dist/index.js"
+    "start:worker": "node worker/dist/index.js",
+    "test": "node --import tsx --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@clerk/nextjs": "^6.4.1",
