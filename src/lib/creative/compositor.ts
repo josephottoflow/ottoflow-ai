@@ -25,6 +25,7 @@
 import sharp from "sharp";
 import type { BrandPattern, CreativeBrief, Placement } from "./types";
 import { getTemplateLayout } from "./composition-templates";
+import { resolveImageTypography, applyCase, type ImageTypography } from "./typography";
 
 export interface CompositeInput {
   brief: CreativeBrief;
@@ -63,6 +64,13 @@ function resolveCanvas(brief: CreativeBrief): { w: number; h: number } {
 }
 
 const FONT_STACK = "DejaVu Sans, Arial, Helvetica, sans-serif";
+
+/** Prepend a Creative OS style's display font to the fallback stack. Null typo
+ * (legacy) → the unchanged default stack (byte-identical). Absent fonts fall
+ * back down the chain deterministically per host. */
+function fontFamilyFor(typo: ImageTypography | null): string {
+  return typo?.displayFont ? `'${typo.displayFont.replace(/'/g, "")}', ${FONT_STACK}` : FONT_STACK;
+}
 
 function esc(s: string): string {
   return s
@@ -156,19 +164,29 @@ function headlineBlock(
   startY: number,
   anchor: "start" | "middle",
   quote = false,
+  typo: ImageTypography | null = null,
 ): TextBlock {
+  // Registry-derived (or byte-identical defaults when typo is null).
+  const fam = fontFamilyFor(typo);
+  const weight = typo?.headline.weight ?? 800;
+  const stroke = typo?.headlineStrokePx ?? 2;
+  const hlCase = typo?.headline.textCase ?? "sentence";
+  const ls =
+    typo && typo.headline.trackingEm
+      ? ` letter-spacing="${(fontSize * typo.headline.trackingEm).toFixed(2)}"`
+      : "";
   const lines = wrapText(text, fontSize, maxWidth);
   const lineH = Math.round(fontSize * 1.18);
   const body = lines
     .map(
       (ln, i) =>
         `<text x="${x}" y="${startY + (i + 1) * lineH}" text-anchor="${anchor}" ` +
-        `font-family="${FONT_STACK}" font-size="${fontSize}" font-weight="800" ` +
-        `fill="#ffffff" style="paint-order:stroke" stroke="rgba(0,0,0,0.25)" stroke-width="2">${esc(ln)}</text>`,
+        `font-family="${fam}" font-size="${fontSize}" font-weight="${weight}"${ls} ` +
+        `fill="#ffffff" style="paint-order:stroke" stroke="rgba(0,0,0,0.25)" stroke-width="${stroke}">${esc(applyCase(ln, hlCase))}</text>`,
     )
     .join("");
   const quoteMark = quote
-    ? `<text x="${x}" y="${startY}" text-anchor="${anchor}" font-family="${FONT_STACK}" ` +
+    ? `<text x="${x}" y="${startY}" text-anchor="${anchor}" font-family="${fam}" ` +
       `font-size="${fontSize * 1.6}" font-weight="800" fill="rgba(255,255,255,0.45)">“</text>`
     : "";
   return { svg: quoteMark + body, height: lines.length * lineH + (quote ? fontSize : 0) };
@@ -182,15 +200,19 @@ function subBlock(
   x: number,
   startY: number,
   anchor: "start" | "middle",
+  typo: ImageTypography | null = null,
 ): TextBlock {
+  const fam = fontFamilyFor(typo);
+  const weight = typo?.sub.weight ?? 500;
+  const subCase = typo?.sub.textCase ?? "sentence";
   const lines = wrapText(text, fontSize, maxWidth).slice(0, 2);
   const lineH = Math.round(fontSize * 1.25);
   const body = lines
     .map(
       (ln, i) =>
         `<text x="${x}" y="${startY + (i + 1) * lineH}" text-anchor="${anchor}" ` +
-        `font-family="${FONT_STACK}" font-size="${fontSize}" font-weight="500" ` +
-        `fill="rgba(255,255,255,0.85)">${esc(ln)}</text>`,
+        `font-family="${fam}" font-size="${fontSize}" font-weight="${weight}" ` +
+        `fill="rgba(255,255,255,0.85)">${esc(applyCase(ln, subCase))}</text>`,
     )
     .join("");
   return { svg: body, height: lines.length * lineH };
@@ -202,16 +224,21 @@ function ctaPill(
   centerX: number,
   topY: number,
   accent: string,
+  typo: ImageTypography | null = null,
 ): TextBlock {
+  const fam = fontFamilyFor(typo);
+  const weight = typo?.cta.weight ?? 700;
+  const label = applyCase(text, typo?.cta.textCase ?? "sentence");
   const padX = Math.round(fontSize * 1.2);
-  const w = Math.round(text.length * fontSize * 0.56 + padX * 2);
+  // Pill width uses the label length — case transforms never change char count.
+  const w = Math.round(label.length * fontSize * 0.56 + padX * 2);
   const h = Math.round(fontSize * 2.1);
   const x = Math.round(centerX - w / 2);
   return {
     svg:
       `<rect x="${x}" y="${topY}" width="${w}" height="${h}" rx="${h / 2}" fill="${accent}"/>` +
       `<text x="${centerX}" y="${topY + h / 2 + fontSize * 0.36}" text-anchor="middle" ` +
-      `font-family="${FONT_STACK}" font-size="${fontSize}" font-weight="700" fill="#ffffff">${esc(text)}</text>`,
+      `font-family="${fam}" font-size="${fontSize}" font-weight="${weight}" fill="#ffffff">${esc(label)}</text>`,
     height: h,
   };
 }
@@ -264,6 +291,14 @@ export async function renderFallbackBackground(brief: CreativeBrief): Promise<Bu
  */
 export async function compositeCreative(input: CompositeInput): Promise<Buffer> {
   const { brief, pattern } = input;
+  // Text Overlay (COS migration M2C) — the shared Creative OS control.
+  //  overlayOn=false → clean asset: the headline/subheadline/CTA/quote-decoration
+  //    block is suppressed. Logo / headshot / wordmark / attribution (branding)
+  //    are INDEPENDENT and still render below.
+  //  typo → the style's typography, read through the shared registry. null =
+  //    legacy / absent → the compositor's existing literals (byte-identical).
+  const overlayOn = brief.text_overlay !== false;
+  const typo = overlayOn ? resolveImageTypography(brief.text_style) : null;
   // Skip any locked asset that can't be decoded rather than failing the job.
   const logo = await decodableOrNull(input.logo);
   const headshot = await decodableOrNull(input.headshot);
@@ -408,17 +443,21 @@ export async function compositeCreative(input: CompositeInput): Promise<Buffer> 
           : null;
   }
 
-  const hb = headlineBlock(brief.headline, fs, maxW, tx, startY, anchor, quote);
-  blocks.push(hb.svg);
-  let cursorY = startY + hb.height;
-  if (brief.subheadline) {
-    const sb = subBlock(brief.subheadline, Math.round(fs * 0.42), maxW, tx, cursorY + Math.round(m * 0.3), anchor);
-    blocks.push(sb.svg);
-    cursorY += Math.round(m * 0.3) + sb.height;
+  // Marketing typography — headline → subheadline → CTA. Suppressed entirely for
+  // a clean asset (overlayOn=false); the branding block below is unaffected.
+  if (overlayOn) {
+    const hb = headlineBlock(brief.headline, fs, maxW, tx, startY, anchor, quote, typo);
+    blocks.push(hb.svg);
+    let cursorY = startY + hb.height;
+    if (brief.subheadline) {
+      const sb = subBlock(brief.subheadline, Math.round(fs * 0.42), maxW, tx, cursorY + Math.round(m * 0.3), anchor, typo);
+      blocks.push(sb.svg);
+      cursorY += Math.round(m * 0.3) + sb.height;
+    }
+    const ctaX = anchor === "start" ? m + Math.round(maxW / 2) : tx;
+    const ctaSize = Math.round(fs * (h === "data_led" ? 0.38 : h === "brand_led" ? 0.48 : h === "founder_led" ? 0.5 : 0.46));
+    blocks.push(ctaPill(brief.cta, ctaSize, ctaX, ctaFixedY ?? cursorY + m, accent, typo).svg);
   }
-  const ctaX = anchor === "start" ? m + Math.round(maxW / 2) : tx;
-  const ctaSize = Math.round(fs * (h === "data_led" ? 0.38 : h === "brand_led" ? 0.48 : h === "founder_led" ? 0.5 : 0.46));
-  blocks.push(ctaPill(brief.cta, ctaSize, ctaX, ctaFixedY ?? cursorY + m, accent).svg);
 
   // Founder attribution next to a non-hero headshot.
   if (

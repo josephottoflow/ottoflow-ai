@@ -351,6 +351,15 @@ export const creativeBriefSchema = z.object({
     })
     .default({ logo: false, founder_headshot: false }),
 
+  // ── Text overlay (COS migration M2C) — the shared Creative OS text control ──
+  // Both optional & absent by default → the compositor renders exactly as before.
+  //  text_overlay=false → clean asset: suppress headline/subtitle/CTA/decorative
+  //    typography. Logo / watermark / branding stay (independent).
+  //  text_style → the Creative OS style whose typography the SVG compositor reads
+  //    through the shared registry. Absent / "legacy" → existing deterministic type.
+  text_overlay: z.boolean().optional(),
+  text_style: z.enum(["premium", "impact", "founder", "legacy"]).optional(),
+
   // ── Layout + context ─────────────────────────────────────────────────────
   aspect_ratio: z.enum(ASPECT_RATIOS),
   palette: z.object({

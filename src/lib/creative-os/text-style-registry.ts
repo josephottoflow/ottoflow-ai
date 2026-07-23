@@ -82,3 +82,26 @@ export function overlayToVideoFields(o: TextOverlay): {
   const rp = textStyleToRenderProfile(o.style);
   return rp === "legacy" ? {} : { renderProfile: rp };
 }
+
+/** Image binding: a style id → the presentation-registry philosophy id the SVG
+ * compositor reads for its typography tokens (M2C). `null` = legacy. */
+export function textStyleToPhilosophyId(id: TextStyleId): string | null {
+  return getTextStyle(id).philosophyId;
+}
+
+/**
+ * Resolve a TextOverlay to the image compositor's per-render fields — the mirror
+ * of overlayToVideoFields, so BOTH renderers read the same registry. Byte-safe
+ * default: overlay ON + legacy → {} (nothing set → the compositor's existing
+ * deterministic typography). Overlay OFF → textOverlay:false (suppresses
+ * headline/subtitle/CTA/decoration; logo / watermark / branding are independent
+ * and unaffected). A non-legacy style sets textStyle so the compositor resolves
+ * its typography through the shared registry.
+ */
+export function overlayToImageFields(o: TextOverlay): {
+  textStyle?: TextStyleId;
+  textOverlay?: false;
+} {
+  if (!o.enabled) return { textOverlay: false };
+  return o.style === "legacy" ? {} : { textStyle: o.style };
+}
