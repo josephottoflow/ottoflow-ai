@@ -259,7 +259,9 @@ export function VideoConfigModal({
   // certified default; Modern is chosen explicitly for A/B comparison. Absent
   // from the payload unless the user selects Modern, so default renders are
   // byte-identical Legacy.
-  const [renderProfile, setRenderProfile] = useState<"legacy" | "modern_v1" | "modern_v2">("legacy");
+  const [renderProfile, setRenderProfile] = useState<"legacy" | "premium" | "impact" | "creative_founder">("legacy");
+  // Creative OS M2 — "Include text overlay"; false = "No text" (no burned captions).
+  const [textOverlay, setTextOverlay] = useState(true);
   const [openSec, setOpenSec] = useState<Record<string, boolean>>({});
   const toggle = (k: string) => setOpenSec((o) => ({ ...o, [k]: !o[k] }));
 
@@ -309,11 +311,13 @@ export function VideoConfigModal({
       // Sprint 31.1 — send the chosen visual source so "pexels" routes to the
       // stock-first pipeline (no AI/Seedance cost). Only ai/pexels are selectable.
       source: source === "pexels" ? "pexels" : "ai",
-      // Only send when Modern is chosen; absent → Legacy (byte-identical default).
+      // Only send when a Creative OS style is chosen; absent → Legacy (byte-identical default).
       ...(renderProfile !== "legacy" ? { renderProfile } : {}),
+      // Creative OS M2 — only send when "No text"; absent → captions on (byte-identical).
+      ...(textOverlay === false ? { textOverlay: false } : {}),
       ...(duration !== "auto" ? { durationSec: Number(duration) } : {}), ...extra,
     }),
-    [brandId, contentItemId, platform, aspect, resolution, quality, mode, duration, source, renderProfile],
+    [brandId, contentItemId, platform, aspect, resolution, quality, mode, duration, source, renderProfile, textOverlay],
   );
 
   useEffect(() => {
@@ -813,14 +817,31 @@ export function VideoConfigModal({
                   <select className={`${selCls} mt-0.5`} value={quality} onChange={(e) => setQuality(e.target.value as Quality)}>
                     <option value="best">Best (Recommended)</option><option value="balanced" disabled>Balanced · Soon</option><option value="fast" disabled>Fast · Soon</option></select></div>
               </div>
-              {/* Video Quality V2 — per-render presentation profile (opt-in A/B). */}
-              <div className="mt-3"><label className="text-3xs text-white/45">Render Style</label>
-                <select className={`${selCls} mt-0.5`} value={renderProfile} onChange={(e) => setRenderProfile(e.target.value as "legacy" | "modern_v1" | "modern_v2")}>
-                  <option value="legacy">Legacy · Certified default</option>
-                  <option value="modern_v1">Modern V1 · Premium (professional captions)</option>
-                  <option value="modern_v2">Modern V2 · Premium (bold creator captions)</option>
-                </select>
-                <p className="text-3xs text-white/40 mt-0.5">Modern is opt-in for side-by-side comparison. Legacy remains the production default.</p></div>
+              {/* Creative OS Caption Engine (M2) — text-overlay toggle + caption style.
+                  "Include text overlay" off → "No text" (textOverlay:false suppresses the
+                  burn). Premium/Impact/Founder render through the certified Motion engine;
+                  Legacy is the static production default. renderProfile/textOverlay are sent
+                  only when non-default (see body()), so the default stays byte-identical. */}
+              <div className="mt-3">
+                <label className="flex items-center gap-2 text-2xs text-white/70 cursor-pointer select-none">
+                  <input type="checkbox" checked={textOverlay} onChange={(e) => setTextOverlay(e.target.checked)} className="accent-[#E9863B]" />
+                  Include text overlay
+                </label>
+                {textOverlay ? (
+                  <div className="mt-2">
+                    <label className="text-3xs text-white/45">Caption Style</label>
+                    <select className={`${selCls} mt-0.5`} value={renderProfile} onChange={(e) => setRenderProfile(e.target.value as "legacy" | "premium" | "impact" | "creative_founder")}>
+                      <option value="premium">Premium · refined editorial (Motion engine)</option>
+                      <option value="impact">Impact · bold creator (Motion engine)</option>
+                      <option value="creative_founder">Founder · corporate register</option>
+                      <option value="legacy">Legacy · static captions (default)</option>
+                    </select>
+                    <p className="text-3xs text-white/40 mt-0.5">Per-render. Legacy remains the production default; the Creative OS styles render through the certified Motion engine.</p>
+                  </div>
+                ) : (
+                  <p className="text-3xs text-white/40 mt-1.5">No captions will be burned onto this video.</p>
+                )}
+              </div>
             </Section>
 
             {/* ── Premium checkout (always open) ── */}

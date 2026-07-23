@@ -738,7 +738,10 @@ export async function composeMultiPass(input: MultiPassInput): Promise<void> {
   const measuredScenesSec = measured.reduce((a, d) => a + d, 0);
   const scenesEndMs =
     measuredScenesSec > 0 ? Math.round(measuredScenesSec * 1000) : plan.output.durationMs;
-  const captions = input.captions ?? plan.scenes.map((s) => s.caption);
+  // Creative OS M2 — "No text": textOverlay:false zeroes the captions so the ASS
+  // has no events and nothing is burned. Absent/true → unchanged (byte-identical).
+  const captions =
+    plan.textOverlay === false ? [] : (input.captions ?? plan.scenes.map((s) => s.caption));
   const clampedCaptions = captions
     .filter((c) => c.startMs < scenesEndMs)
     .map((c) => ({ ...c, endMs: Math.min(c.endMs, scenesEndMs) }));

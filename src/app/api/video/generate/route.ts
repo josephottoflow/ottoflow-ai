@@ -158,6 +158,9 @@ const Schema = z.object({
     .string()
     .refine(isRenderProfile, { message: "unknown render profile" })
     .optional(),
+  /** Creative OS M2 — false = render with NO caption overlay ("No text").
+   * Absent/true = captions burn as normal (byte-identical default). */
+  textOverlay: z.boolean().optional(),
 });
 
 const RATE_LIMIT = { limit: 20, windowSeconds: 60 * 60 } as const; // 20/hr
@@ -488,6 +491,8 @@ export async function POST(req: NextRequest) {
           // explicitly (Legacy / Modern V1 / Modern V2); absent → "legacy" (the
           // certified default). Modern is opt-in per render — never global.
           renderProfile: resolveRenderProfile(parsed.data.renderProfile),
+          // Creative OS M2 — persist the caption-overlay toggle (absent → captions on).
+          textOverlay: parsed.data.textOverlay,
         } as unknown as Record<string, unknown>,
       })
       .select("id")

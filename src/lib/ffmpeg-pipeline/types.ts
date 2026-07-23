@@ -317,6 +317,10 @@ export interface CompositionPlan {
    * → RENDER_PROFILE_DEFAULT → "legacy" via ./render-profile.
    */
   renderProfile?: RenderProfile;
+  /** Creative OS M2 — when false, suppress the burned caption overlay entirely
+   * (the "No text" option: captions are zeroed upstream so nothing is burned).
+   * Absent/true → captions render as normal (byte-identical default). */
+  textOverlay?: boolean;
   scenes: CompositionPlanScene[];
   audio: {
     narrationUrl: string;
