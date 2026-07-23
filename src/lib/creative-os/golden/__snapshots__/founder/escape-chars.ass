@@ -1,0 +1,16 @@
+[Script Info]
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+WrapStyle: 2
+ScaledBorderAndShadow: yes
+YCbCr Matrix: TV.709
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Caption,Plus Jakarta Sans,104,&H00FFFFFF,&H00C4B69F,&H00000000,&HFF000000,1,0,0,0,100,100,0.5,0,1,4,0,5,120,120,260,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.00,0:00:01.00,Caption,,0,0,0,,{\an5\move(540,995,540,960,0,180)\fs110\fsp-2\fad(180,160)}{\kf27\fscx48\fscy48\t(0,130,0.5,\fscx109\fscy109)\t(130,220,\fscx100\fscy100)}Braces {\kf14\fscx48\fscy48\t(26,156,0.5,\fscx109\fscy109)\t(156,246,\fscx100\fscy100)}\{x\} \N {\kf14\fscx48\fscy48\t(52,182,0.5,\fscx109\fscy109)\t(182,272,\fscx100\fscy100)}and {\kf45\fscx48\fscy48\t(78,208,0.5,\fscx109\fscy109)\t(208,298,\fscx100\fscy100)}back\\slash
+Dialogue: 0,0:00:00.00,0:00:01.00,Caption,,0,0,0,,{\an7\pos(313,1118)\1c&H3B86E9&\bord0\shad0\fad(120,160)\clip(313,1118,313,1123)\t(320,660,0.6,\clip(313,1118,767,1123))\p1}m 0 0 l 454 0 454 5 0 5{\p0}

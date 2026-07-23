@@ -93,3 +93,44 @@ export function letterCascade(word: string, t: RevealTiming, perCharMs: number):
     })
     .join("");
 }
+
+/** TYPEWRITER — reveal characters one by one via alpha (no scale), like typing.
+ * Returns the word as per-char alpha-staggered runs. Cheaper than letterCascade. */
+export function typewriter(word: string, t: RevealTiming, perCharMs: number): string {
+  return word
+    .split("")
+    .map((ch, i) => {
+      const on = t.offMs + i * perCharMs;
+      return `{\\alpha&HFF&\\t(${on},${on + 20},\\alpha&H00&)}${ch}`;
+    })
+    .join("");
+}
+
+/** FLIP-IN — 3D rotate the element in on the X (default) or Y axis. Broadcast/News. */
+export function flipIn(t: RevealTiming, axis: "x" | "y" = "x", fromDeg = 90): string {
+  const tag = axis === "y" ? "fry" : "frx";
+  return `\\${tag}${fromDeg}\\t(${t.offMs},${t.offMs + t.durMs},${acc(t.accel)}\\${tag}0)`;
+}
+
+/** ELASTIC — a springier settle than a single overshoot: past target, under, rest. */
+export function elastic(t: RevealTiming, from: number, to: number, amp = 10): string {
+  const q = Math.round(t.durMs / 3);
+  const o = t.offMs;
+  return (
+    `\\fscx${from}\\fscy${from}` +
+    `\\t(${o},${o + q},${acc(t.accel)}\\fscx${to + amp}\\fscy${to + amp})` +
+    `\\t(${o + q},${o + 2 * q},\\fscx${to - Math.round(amp / 2)}\\fscy${to - Math.round(amp / 2)})` +
+    `\\t(${o + 2 * q},${o + t.durMs},\\fscx${to}\\fscy${to})`
+  );
+}
+
+/** TRACKING EXPAND — letter-spacing opens from tight to target as it enters
+ * (luxury/editorial "settle"). `fromFsp`→`toFsp` in px. */
+export function trackingExpand(t: RevealTiming, fromFsp: number, toFsp: number): string {
+  return `\\fsp${fromFsp}\\t(${t.offMs},${t.offMs + t.durMs},${acc(t.accel)}\\fsp${toFsp})`;
+}
+
+/** COMPRESS — the inverse: spacing/scale compress inward to rest (impact snap). */
+export function compress(t: RevealTiming, fromFsp: number, toFsp = 0): string {
+  return `\\fsp${fromFsp}\\t(${t.offMs},${t.offMs + t.durMs},${acc(t.accel)}\\fsp${toFsp})`;
+}

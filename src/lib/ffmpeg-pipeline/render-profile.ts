@@ -19,13 +19,20 @@
  */
 
 /** The user-facing render profiles. Only "legacy" has behaviour today. */
-export type RenderProfile = "legacy" | "modern_v1" | "modern_v2" | "experimental";
+export type RenderProfile =
+  | "legacy" | "modern_v1" | "modern_v2" | "experimental"
+  // Creative OS · Stage 1 — the first (and only) register profile. Its base flags
+  // are LEGACY, so with the Creative OS flags OFF it is byte-identical to Legacy;
+  // it carries register:"founder" for the activation bridge, which applies the
+  // register ONLY when the Creative OS flags are on.
+  | "creative_founder";
 
 export const RENDER_PROFILES: readonly RenderProfile[] = [
   "legacy",
   "modern_v1",
   "modern_v2",
   "experimental",
+  "creative_founder",
 ] as const;
 
 /** Internal feature flags a profile resolves to. Extensible: later sprints add
@@ -42,6 +49,10 @@ export interface ResolvedRenderFlags {
   audioMixProfile: "v1" | "v2";
   /** classic = the existing static renderCtaCard end card (Legacy). */
   endScreenMode: "classic" | "animated";
+  /** Creative OS register selection (Stage 1: only "founder"). Undefined for
+   * Legacy/Modern. Consumed ONLY by the activation bridge, and only when the
+   * Creative OS flags are on — otherwise ignored (byte-identical). */
+  register?: "founder";
 }
 
 /** The one and only production behaviour today. Every future flag added here
@@ -91,6 +102,11 @@ const PROFILE_FLAGS: Record<RenderProfile, ResolvedRenderFlags> = {
     audioMixProfile: "v2",
     endScreenMode: "animated",
   },
+  // Creative OS · Stage 1 — Founder. Base flags are LEGACY (so with the Creative
+  // OS flags OFF this profile renders byte-identically to Legacy); it carries
+  // register:"founder", which the activation bridge honours ONLY when the Creative
+  // OS flags are on. Legacy remains the default; no other register is selectable.
+  creative_founder: { profile: "creative_founder", ...LEGACY_FLAGS, register: "founder" },
 };
 
 /** Coerce an arbitrary value to a known RenderProfile, or null. Accepts

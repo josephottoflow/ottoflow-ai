@@ -30,6 +30,7 @@ import { join as pathJoin } from "node:path";
 import { spawn } from "node:child_process";
 import { renderAss, type CaptionStyle } from "./ass-captions";
 import { resolveRenderFlagsForJob } from "./render-profile";
+import { resolveComposeOverrides, applyCaptionProfile } from "./creative-os-bridge";
 
 /**
  * V3 Phase 3 — locate the bundled premium fonts (assets/fonts) for libass
@@ -741,14 +742,25 @@ export async function composeMultiPass(input: MultiPassInput): Promise<void> {
   const clampedCaptions = captions
     .filter((c) => c.startMs < scenesEndMs)
     .map((c) => ({ ...c, endMs: Math.min(c.endMs, scenesEndMs) }));
-  await fs.writeFile(
-    input.assPath,
-    renderAss(clampedCaptions, input.captionStyle, { width: W, height: H }, {
+  // ── Creative OS activation bridge (Stage 1 — Founder) ──────────────────────
+  // The bridge resolves to null UNLESS the Creative OS flags are ON and the job's
+  // profile is creative_founder (register:"founder"). In every other case — the
+  // default, all Legacy/Modern jobs, and any job with the flags off — it is null,
+  // so applyCaptionProfile returns the base profile UNCHANGED and this render is
+  // byte-identical. When active, Founder renders through the certified "corporate"
+  // preset, keeping the brand accent. Fail-safe: a bridge error yields null.
+  const captionProfile = applyCaptionProfile(
+    {
       captionEngine: renderFlags.captionEngine,
       captionStyle: renderFlags.captionStyle,
       // Brand accent → OttoFlow marigold fallback ONLY (never hardcoded default).
       accentColor: plan.branding?.palette?.accent || "#E9863B",
-    }),
+    },
+    resolveComposeOverrides({ register: renderFlags.register, frame: { width: W, height: H } }),
+  );
+  await fs.writeFile(
+    input.assPath,
+    renderAss(clampedCaptions, input.captionStyle, { width: W, height: H }, captionProfile),
     "utf-8",
   );
 

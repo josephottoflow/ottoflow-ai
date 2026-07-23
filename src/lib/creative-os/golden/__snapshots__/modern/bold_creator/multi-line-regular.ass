@@ -1,0 +1,16 @@
+[Script Info]
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+WrapStyle: 2
+ScaledBorderAndShadow: yes
+YCbCr Matrix: TV.709
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Caption,Sora,100,&H0000D4FF,&H00FFFFFF,&H00000000,&HFF000000,1,0,0,0,100,100,1.5,0,1,7,5,5,120,120,260,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.20,0:00:02.20,Caption,,0,0,0,,{\an5\move(540,940,540,883,0,70)\fs177\fsp-2\fad(70,90)\blur1}{\k40\fscx40\fscy40\t(0,110,0.5,\fscx112\fscy112)\t(110,200,\fscx100\fscy100)}TWO {\k67\fscx40\fscy40\t(22,132,0.5,\fscx112\fscy112)\t(132,222,\fscx100\fscy100)}LINES \N {\k53\fscx40\fscy40\t(44,154,0.5,\fscx112\fscy112)\t(154,244,\fscx100\fscy100)}HERE {\k40\fscx40\fscy40\t(66,176,0.5,\fscx112\fscy112)\t(176,266,\fscx100\fscy100)}NOW
+Dialogue: 0,0:00:00.20,0:00:02.20,Caption,,0,0,0,,{\an7\pos(313,1138)\1c&H3B86E9&\bord0\shad0\fad(120,160)\clip(313,1138,313,1146)\t(210,550,0.6,\clip(313,1138,767,1146))\p1}m 0 0 l 454 0 454 8 0 8{\p0}

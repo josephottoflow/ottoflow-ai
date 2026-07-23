@@ -1,0 +1,16 @@
+[Script Info]
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+WrapStyle: 2
+ScaledBorderAndShadow: yes
+YCbCr Matrix: TV.709
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Caption,Sora,100,&H0000D4FF,&H00FFFFFF,&H00000000,&HFF000000,1,0,0,0,100,100,1.5,0,1,7,5,5,120,120,260,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.00,0:00:01.50,Caption,,0,0,0,,{\an5\move(540,911,540,883,0,70)\fs89\fsp-1\fad(70,90)\blur1}{\k38\fscx40\fscy40\t(0,110,0.5,\fscx112\fscy112)\t(110,200,\fscx100\fscy100)}MAKE {\k19\fscx40\fscy40\t(22,132,0.5,\fscx112\fscy112)\t(132,222,\fscx100\fscy100)}IT {\k93\fscx36\fscy36\blur7\t(44,194,0.5,\fscx138\fscy138\blur1)\t(194,284,\fscx126\fscy126)\1c&H3B86E9&}EFFORTLESS{\1c&H00D4FF&}
+Dialogue: 0,0:00:00.00,0:00:01.50,Caption,,0,0,0,,{\an7\pos(313,961)\1c&H3B86E9&\bord0\shad0\fad(120,160)\clip(313,961,313,965)\t(210,550,0.6,\clip(313,961,767,965))\p1}m 0 0 l 454 0 454 4 0 4{\p0}
