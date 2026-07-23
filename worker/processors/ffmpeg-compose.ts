@@ -222,9 +222,12 @@ export async function processFfmpegCompose(
         .select("render_context")
         .eq("id", plan.renderJobId)
         .maybeSingle();
-      const rc = jobRow?.render_context as { renderProfile?: unknown } | null;
+      const rc = jobRow?.render_context as { renderProfile?: unknown; textOverlay?: unknown } | null;
       const rp = normalizeProfile(rc?.renderProfile ?? null);
       if (rp) plan = { ...plan, renderProfile: rp };
+      // Creative OS M2 — "No text": only the explicit false suppresses captions;
+      // absent/true leaves the plan untouched (byte-identical default).
+      if (rc?.textOverlay === false) plan = { ...plan, textOverlay: false };
     } catch (err) {
       // Best-effort: a lookup failure must never break a render — fall through
       // to Legacy (undefined profile). Presentation is advisory, not critical.

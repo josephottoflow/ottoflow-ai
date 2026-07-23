@@ -89,6 +89,10 @@ export interface ComposeBriefInput {
     expertName?: string | null;
     useLogo?: boolean;
     useHeadshot?: boolean;
+    /** Text Overlay (COS migration M2C) — the shared Creative OS control. Both
+     *  absent by default → the compositor renders exactly as before. */
+    textOverlay?: boolean;
+    textStyle?: "premium" | "impact" | "founder" | "legacy";
   } | null;
 }
 
@@ -446,6 +450,11 @@ export async function composeCreativeBrief(
       logo: logo != null,
       founder_headshot: headshot != null,
     },
+
+    // Text Overlay (COS migration M2C) — pass the shared Creative OS control
+    // through to the compositor. Absent unless the caller set it → unchanged.
+    ...(input.branding?.textOverlay !== undefined ? { text_overlay: input.branding.textOverlay } : {}),
+    ...(input.branding?.textStyle ? { text_style: input.branding.textStyle } : {}),
 
     aspect_ratio: aspectRatio,
     palette,

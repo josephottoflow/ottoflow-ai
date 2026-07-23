@@ -27,6 +27,8 @@ import type { RenderCostEstimate } from "@/lib/video/cost";
 import type { StrategySummary } from "@/components/CostApprovalModal";
 import { StoryboardEditor } from "@/components/StoryboardEditor";
 import type { VideoStrategyScene } from "@/lib/ffmpeg-pipeline/types";
+import { TextOverlayControl } from "@/components/TextOverlayControl";
+import { DEFAULT_TEXT_OVERLAY, overlayToVideoFields, type TextOverlay } from "@/lib/creative-os/text-style-registry";
 
 type Resolution = "720p" | "1080p";
 type Quality = "fast" | "balanced" | "best";
@@ -259,7 +261,10 @@ export function VideoConfigModal({
   // certified default; Modern is chosen explicitly for A/B comparison. Absent
   // from the payload unless the user selects Modern, so default renders are
   // byte-identical Legacy.
-  const [renderProfile, setRenderProfile] = useState<"legacy" | "modern_v1" | "modern_v2">("legacy");
+  // Creative OS M2B — one shared overlay value (ON/OFF + style), driven by the
+  // shared TextOverlayControl + text-style registry. Default = legacy captions ON
+  // (the certified production behaviour).
+  const [overlay, setOverlay] = useState<TextOverlay>(DEFAULT_TEXT_OVERLAY);
   const [openSec, setOpenSec] = useState<Record<string, boolean>>({});
   const toggle = (k: string) => setOpenSec((o) => ({ ...o, [k]: !o[k] }));
 
@@ -309,11 +314,13 @@ export function VideoConfigModal({
       // Sprint 31.1 — send the chosen visual source so "pexels" routes to the
       // stock-first pipeline (no AI/Seedance cost). Only ai/pexels are selectable.
       source: source === "pexels" ? "pexels" : "ai",
-      // Only send when Modern is chosen; absent → Legacy (byte-identical default).
-      ...(renderProfile !== "legacy" ? { renderProfile } : {}),
+      // Creative OS M2B — the shared registry maps the overlay to the video API's
+      // per-render fields: legacy+on → nothing (byte-identical); a Creative OS style
+      // → renderProfile; OFF → textOverlay:false. One vocabulary, one mapping.
+      ...overlayToVideoFields(overlay),
       ...(duration !== "auto" ? { durationSec: Number(duration) } : {}), ...extra,
     }),
-    [brandId, contentItemId, platform, aspect, resolution, quality, mode, duration, source, renderProfile],
+    [brandId, contentItemId, platform, aspect, resolution, quality, mode, duration, source, overlay],
   );
 
   useEffect(() => {
@@ -813,14 +820,10 @@ export function VideoConfigModal({
                   <select className={`${selCls} mt-0.5`} value={quality} onChange={(e) => setQuality(e.target.value as Quality)}>
                     <option value="best">Best (Recommended)</option><option value="balanced" disabled>Balanced · Soon</option><option value="fast" disabled>Fast · Soon</option></select></div>
               </div>
-              {/* Video Quality V2 — per-render presentation profile (opt-in A/B). */}
-              <div className="mt-3"><label className="text-3xs text-white/45">Render Style</label>
-                <select className={`${selCls} mt-0.5`} value={renderProfile} onChange={(e) => setRenderProfile(e.target.value as "legacy" | "modern_v1" | "modern_v2")}>
-                  <option value="legacy">Legacy · Certified default</option>
-                  <option value="modern_v1">Modern V1 · Premium (professional captions)</option>
-                  <option value="modern_v2">Modern V2 · Premium (bold creator captions)</option>
-                </select>
-                <p className="text-3xs text-white/40 mt-0.5">Modern is opt-in for side-by-side comparison. Legacy remains the production default.</p></div>
+              {/* Creative OS M2B — the ONE shared text-overlay control (video + future
+                  image/carousel/story). Options + mapping come from the shared style
+                  registry, so the UI, API, and both renderers share one vocabulary. */}
+              <TextOverlayControl value={overlay} onChange={setOverlay} className="mt-3" />
             </Section>
 
             {/* ── Premium checkout (always open) ── */}

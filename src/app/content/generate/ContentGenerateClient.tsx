@@ -25,6 +25,8 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { CreativePanel } from "@/components/CreativePanel";
 import { PromptStudio } from "@/components/PromptStudio";
+import { TextOverlayControl } from "@/components/TextOverlayControl";
+import { DEFAULT_TEXT_OVERLAY, overlayToImageFields, type TextOverlay } from "@/lib/creative-os/text-style-registry";
 import { useSupabase } from "@/components/SupabaseProvider";
 import { captureFallback } from "@/lib/observability";
 import type { DbBrandTopic } from "@/lib/types";
@@ -184,6 +186,9 @@ export function ContentGenerateClient({
   const [expertName, setExpertName] = useState("");
   const [useLogo, setUseLogo] = useState(true);
   const [useHeadshot, setUseHeadshot] = useState(true);
+  // Text Overlay (COS migration M2D) — the shared Creative OS control. Default =
+  // legacy captions ON → overlayToImageFields returns {} → byte-identical payload.
+  const [overlay, setOverlay] = useState<TextOverlay>(DEFAULT_TEXT_OVERLAY);
 
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -264,6 +269,8 @@ export function ContentGenerateClient({
             expertName: expertName.trim() || undefined,
             useLogo,
             useHeadshot,
+            // Text Overlay → image fields. Default (legacy ON) spreads nothing.
+            ...overlayToImageFields(overlay),
           },
         }),
       });
@@ -301,7 +308,7 @@ export function ContentGenerateClient({
     } finally {
       setSubmitting(false);
     }
-  }, [submitting, brandId, platforms, selectedTopicId, userPrompt, companyName, founderName, expertName, useLogo, useHeadshot]);
+  }, [submitting, brandId, platforms, selectedTopicId, userPrompt, companyName, founderName, expertName, useLogo, useHeadshot, overlay]);
 
   // ─── Rehydrate the workspace from sessionStorage on mount ───────────────────
   // Restores "Recent Generated Content" (newest first) after refresh / reopen /
@@ -876,6 +883,8 @@ export function ContentGenerateClient({
           <p className="text-2xs text-white/30 mt-1.5">
             Locked assets are only composited (resize / crop / mask / position) — never AI-modified. Blank fields fall back to the brand profile.
           </p>
+          {/* Text Overlay — the ONE shared Creative OS control (same as video). */}
+          <TextOverlayControl value={overlay} onChange={setOverlay} className="mt-3 pt-3 border-t border-white/[0.06]" />
         </div>
 
         {submitError && (
