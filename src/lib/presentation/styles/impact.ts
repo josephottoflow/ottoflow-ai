@@ -38,6 +38,19 @@ export const IMPACT: StyleFamily = {
     hook: "single-word-hero", stat: "number", turn: "centered",
     question: "centered", cta: "centered", statement: "centered",
   },
+  // Composition Engine — Impact goes BIG and centred: heroes and CTAs command the frame
+  // as a single hero; stats/questions/statements center-focus the punch word. No editorial
+  // asymmetry — the energy is frontal and loud.
+  compositionByTreatment: {
+    // hook → center-focus (robust for multi-line hooks; emphasises the punch word).
+    // single-hero reserved for genuinely one-line beats (CTA).
+    hook: "center-focus",
+    stat: "center-focus",
+    turn: "center-focus",
+    question: "center-focus",
+    cta: "single-hero",
+    statement: "center-focus",
+  },
   motionByTreatment: {
     hook:      { supportPop: 40, keyPop: 36, overshoot: 12, wordFadeMs: 110, staggerMs: 22, ...PUNCH },
     stat:      { supportPop: 80, keyPop: 34, overshoot: 14, wordFadeMs: 130, staggerMs: 40, ...PUNCH },
@@ -50,12 +63,21 @@ export const IMPACT: StyleFamily = {
   rhythm: { maxWordsPerLine: 3, holdEvery: 4 },
   colour: { primary: "#FFD400", secondary: "#FFFFFF", accentSource: "brand" },
   fx: { outlinePx: 7, shadowPx: 5, blur: 1 },
-  // The recipe: Impact composes fast, punchy motion graphics.
+  // The recipe: Impact's complete presentation language — big, frontal, punchy. Every
+  // design decision declared here; the compiler only executes it.
   recipe: {
-    reveal: ["pop", "scatter"],
-    motion: ["punch"],
-    decoration: ["accentLine"],
+    attention: "isolate",                    // the punch word dominates, support recedes hard
+    composition: ["single-hero", "center-focus"],
     layout: "hero",
+    typography: ["heroHierarchy"],
+    hierarchy: "obvious-modular-step",
+    readingRhythm: "driving",
+    reveal: ["pop", "scatter"],              // scale-in with overshoot (punchy entrance)
+    motion: ["punch"],                       // hit on entry, then hold (no drift)
+    decoration: ["accentLine"],
+    exit: ["slide"],                         // hard slide-off
+    cta: "boxReveal",
+    finalScene: "hardCut",
     timing: "aggressive",
   },
 };

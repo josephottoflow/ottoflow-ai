@@ -19,6 +19,8 @@ import { applyStyle } from "../presentation/styles/core";
 import { getStyleFamily } from "../presentation/styles/registry";
 import { place, posTag, moveIn, lineWidthPx, type Archetype } from "../presentation/primitives/layout";
 import { accentLine } from "../presentation/primitives/decoration";
+import { renderComposedBeat } from "../presentation/render/compose-beat";
+import { decidePresentation } from "../presentation/intelligence/decide";
 
 // ─── Style header ──────────────────────────────────────────────────────────
 // Numbers are ASS conventions:
@@ -137,22 +139,36 @@ export function renderAss(
    * the composer supplies marigold only as a fallback). */
   profile?: {
     captionEngine?: "static" | "animated";
-    captionStyle?: CoreCaptionPreset;
+    /** A core preset name ("corporate"/"bold_creator"/…) OR any registered philosophy id
+     * ("premium"/"impact"/"editorial"/"broadcast"/…) — the latter derives a smart preset
+     * from the philosophy so all 12 are selectable without a new preset each. */
+    captionStyle?: CoreCaptionPreset | string;
     accentColor?: string | null;
+    /** Presentation-engine selector (rollback lever). "motion" (default) = the OttoFlow
+     * Motion Typography Engine (composition/intelligence); "classic-modern" = the previous
+     * Modern caption engine (per-word karaoke). Absent → env PRESENTATION_ENGINE → "motion".
+     * Instantly reverts Modern to the old engine with NO code change. */
+    presentationEngine?: "motion" | "classic-modern";
   },
 ): string {
-  // Sprint B — Caption Engine V1. Animated captions are opt-in and fully
-  // isolated behind CAPTION_ENGINE=animated (+ CAPTION_STYLE). When unset or
-  // "static" the byte-identical Legacy generator below runs unchanged. Any error
-  // in the animated path degrades to Legacy here — a caption effect can never
-  // break a render. Rollback is a single flag: CAPTION_ENGINE=static.
+  // Animated captions are opt-in and fully isolated behind CAPTION_ENGINE=animated
+  // (+ CAPTION_STYLE). When unset or "static" the byte-identical Legacy generator below
+  // runs unchanged. Any error in the animated path degrades to Legacy here — a caption
+  // effect can never break a render. TWO rollback levers, both code-change-free:
+  //   • CAPTION_ENGINE=static          → all the way back to Legacy static captions.
+  //   • PRESENTATION_ENGINE=classic-modern → keep Modern, but revert it from the Motion
+  //     Typography Engine to the previous per-word caption engine.
   if (resolveCaptionEngine(profile?.captionEngine) === "animated") {
     try {
+      // A philosophy id (premium/impact/editorial/…) derives a smart preset from its
+      // StyleFamily; otherwise fall back to the 4 core caption presets.
+      const philosophyPreset = presetForPhilosophy(profile?.captionStyle);
       return renderAnimatedAss(
         captions,
         dims,
-        ANIMATED_PRESETS[resolveCaptionStyle(profile?.captionStyle)],
+        philosophyPreset ?? ANIMATED_PRESETS[resolveCaptionStyle(profile?.captionStyle as CoreCaptionPreset)],
         profile?.accentColor ?? undefined,
+        resolvePresentationEngine(profile?.presentationEngine),
       );
     } catch {
       /* fall through to the Legacy static generator */
@@ -272,8 +288,45 @@ const ANIMATED_PRESETS: Record<CoreCaptionPreset, AnimatedPreset> = {
   minimal:      { font: "DejaVu Sans", sizePct: 64 / PLAY_RES_Y, bold: 0, primary: "#FFFFFF", secondary: "#FFFFFF", outlinePx: 2, shadowPx: 1, boxOpacity: 0, blur: 0, fadeInMs: 220, fadeOutMs: 200, popFromPct: 100, popMs: 0,   karaoke: false, case: "sentence", spacing: 0 },
   // Polished/professional: sentence case, bold, white active from a cool-grey unsung, moderate stroke, subtle pop.
   // V2: a bit larger + stronger stroke for premium commercial feel.
-  corporate:    { font: FONT.JAKARTA, sizePct: 104 / PLAY_RES_Y, bold: 1, primary: "#FFFFFF", secondary: "#9FB6C4", outlinePx: 5, shadowPx: 3, boxOpacity: 0, blur: 0, fadeInMs: 180, fadeOutMs: 160, popFromPct: 105, popMs: 180, karaoke: true,  case: "sentence", spacing: 0.5, karaokeFill: true, smartGroup: true, maxWordsPerLine: 3, keywordScalePct: 118, staggerMs: 45, wordFadeMs: 150, easeAccel: 0.5, emphasisMaxTier: 5, styleId: "premium" },
+  corporate:    { font: FONT.JAKARTA, sizePct: 104 / PLAY_RES_Y, bold: 1, primary: "#FFFFFF", secondary: "#9FB6C4", outlinePx: 4, shadowPx: 0, boxOpacity: 0, blur: 0, fadeInMs: 180, fadeOutMs: 160, popFromPct: 105, popMs: 180, karaoke: true,  case: "sentence", spacing: 0.5, karaokeFill: true, smartGroup: true, maxWordsPerLine: 3, keywordScalePct: 118, staggerMs: 45, wordFadeMs: 150, easeAccel: 0.5, emphasisMaxTier: 5, styleId: "premium" },
 };
+
+/**
+ * Derive a smart AnimatedPreset from a registered PHILOSOPHY id (premium/impact/editorial/
+ * broadcast/documentary/signature/minimal/cinematic/precision/momentum/pulse/custom). This
+ * is what makes all 12 philosophies selectable WITHOUT authoring a preset each — the
+ * philosophy's StyleFamily supplies fonts/colours/sizes/case and the composition path owns
+ * the rest. Returns null for non-philosophy names (caller uses the core presets). */
+function presetForPhilosophy(id?: string): AnimatedPreset | null {
+  const fam = getStyleFamily(id);
+  if (!fam) return null;
+  return {
+    font: fam.fonts.display,
+    sizePct: fam.type.body.sizePct,
+    bold: fam.type.body.weight >= 700 ? 1 : 0,
+    primary: fam.colour.primary,
+    secondary: fam.colour.secondary,
+    outlinePx: fam.fx.outlinePx,
+    shadowPx: fam.fx.shadowPx,
+    boxOpacity: 0,
+    blur: fam.fx.blur,
+    fadeInMs: 200,
+    fadeOutMs: 180,
+    popFromPct: 100,
+    popMs: 0,
+    karaoke: false,
+    case: fam.type.body.case,
+    spacing: 0,
+    smartGroup: true,
+    maxWordsPerLine: fam.rhythm.maxWordsPerLine,
+    keywordScalePct: 112,
+    staggerMs: 42,
+    wordFadeMs: 150,
+    easeAccel: 0.5,
+    emphasisMaxTier: fam.emphasis.maxTier,
+    styleId: fam.id,
+  };
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Motion Graphics V1 — per-beat MOTION SIGNATURES. Each narrative treatment
@@ -413,6 +466,16 @@ function resolveCaptionEngine(explicit?: "static" | "animated"): "static" | "ani
   return env === "animated" ? "animated" : "static";
 }
 
+/** Presentation engine selector (rollback lever). Per-render flag (explicit) wins; else
+ * env PRESENTATION_ENGINE; else "motion" (the OttoFlow Motion Typography Engine). Setting
+ * PRESENTATION_ENGINE=classic-modern instantly reverts every Modern render to the previous
+ * per-word caption engine with NO code change. Legacy/Classic/Minimal are unaffected. */
+function resolvePresentationEngine(explicit?: "motion" | "classic-modern"): "motion" | "classic-modern" {
+  if (explicit === "motion" || explicit === "classic-modern") return explicit;
+  const env = (process.env.PRESENTATION_ENGINE ?? "").trim().toLowerCase();
+  return env === "classic-modern" || env === "legacy-modern" || env === "classic" ? "classic-modern" : "motion";
+}
+
 /** Caption preset. Per-render flag (explicit) wins; else the CAPTION_STYLE dev
  * override; else "classic". Accepts spacing/hyphen variants ("Bold Creator"). */
 function resolveCaptionStyle(explicit?: CoreCaptionPreset): CoreCaptionPreset {
@@ -480,6 +543,9 @@ export function renderAnimatedAss(
   /** V3 — brand accent "#RRGGBB" for keyword emphasis. undefined → scale-only
    * (Phase-2 behaviour). Supplied by the composer (brand palette → marigold). */
   accentColor?: string,
+  /** V5 — presentation engine: "motion" (Motion Typography Engine, default) or
+   * "classic-modern" (previous per-word caption engine, the rollback path). */
+  engine: "motion" | "classic-modern" = "motion",
 ): string {
   const width = dims?.width ?? 1080;
   const height = dims?.height ?? 1920;
@@ -605,6 +671,53 @@ export function renderAnimatedAss(
           applyCase(lw.join(" "), styleType?.case ?? preset.case).split(/\s+/).filter(Boolean),
         );
         decoLines = casedWords; // for the Decoration Engine accent line (below)
+        // V5 Composition Engine — when the philosophy declares a per-beat COMPOSITION,
+        // the compiler DELEGATES layout to it (the "pure recipe executor" path):
+        // renderComposedBeat places every line per the composition + emphasis, reveals
+        // per the recipe, emphasises the focal word, and draws the composition's
+        // decoration anchors. Gated on a smart preset whose active style has
+        // compositionByTreatment (e.g. Premium) + a resolved type spec — every existing
+        // preset (no compositionByTreatment) falls through to the per-word path below,
+        // BYTE-IDENTICAL. The philosophy owns the design; the compiler only executes it.
+        // V3 Presentation INTELLIGENCE — the philosophy is now an OUTPUT: the engine reads
+        // the beat's signals, derives a presentation intent, scores candidate compositions
+        // and DECIDES (decidePresentation). The philosophy's treatment default + recipe
+        // compositions are passed as a BIAS, not a rule — strong content (a real statistic,
+        // a quote, a contrast) overrides the style's habit; ambiguous beats keep its voice.
+        // Rollback lever: "classic-modern" bypasses the Motion Typography Engine entirely
+        // and runs the previous per-word caption path below (byte-identical to before).
+        const usesIntel =
+          engine === "motion" && !!styleType && !!activeStyle && ((activeStyle.recipe?.composition?.length ?? 0) > 0 || !!activeStyle.compositionByTreatment);
+        if (usesIntel && styleType) {
+          const fallbackComp = activeStyle!.compositionByTreatment?.[treatment as keyof NonNullable<typeof activeStyle.compositionByTreatment>];
+          const prefs = Array.from(new Set([fallbackComp, ...(activeStyle!.recipe?.composition ?? [])].filter(Boolean))) as string[];
+          const decision = decidePresentation(casedWords, kwIdx, { width, height }, styleType.fontPx, prefs, ci);
+          // Intelligence also decides MOTION (move vs settle) and DECORATION (keep vs remove
+          // to control visual noise) per beat — not just composition.
+          const decidedMotion = decision.motion === "settle" ? "hold" : activeStyle?.recipe?.motion?.[0] ?? "hold";
+          const decidedDecoration = decision.decorate ? activeStyle?.recipe?.decoration : [];
+          return renderComposedBeat({
+            compositionId: decision.compositionId,
+            lines: casedWords.map((lw) => lw.join(" ")),
+            keywordByLine: kwIdx,
+            frame: { width, height },
+            startMs: c.startMs,
+            endMs: c.endMs,
+            baseFontPx: styleType.fontPx,
+            accentColorAss: accentColor ? assColorTag(accentColor) : "",
+            secondaryColorAss: assColorTag(preset.secondary),
+            attention: activeStyle?.recipe?.attention,
+            styleName: "Caption",
+            reveal: activeStyle?.recipe?.reveal?.[0] ?? "riseFade",
+            exit: activeStyle?.recipe?.exit?.[0] ?? "dissolve",
+            motion: sig.hold ? "hold" : decidedMotion,
+            decoration: decidedDecoration,
+            timing: activeStyle?.recipe?.timing,
+            trackingBias: (activeStyle?.recipe?.typography ?? []).includes("wideTracking") ? 0.05 : 0,
+            fadeInMs: sig.fadeInMs ?? preset.fadeInMs,
+            fadeOutMs: preset.fadeOutMs,
+          });
+        }
         if (preset.karaoke) {
           const flat = casedWords.flat();
           const runs = karaokeRuns(flat, c.startMs, c.endMs);

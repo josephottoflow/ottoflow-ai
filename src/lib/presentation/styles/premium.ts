@@ -39,6 +39,20 @@ export const PREMIUM: StyleFamily = {
     hook: "stacked", stat: "number", turn: "centered",
     question: "centered", cta: "centered", statement: "centered",
   },
+  // Composition Engine — Premium's per-beat spatial STRUCTURE (where attention lives).
+  // Restrained, editorial: heroes get an editorial stack, stats a metric card, quotes a
+  // quote card, CTAs a single hero; ordinary statements stay a deliberate centre-focus.
+  compositionByTreatment: {
+    hook: "editorial-stack",
+    // stat → center-focus (robust): emphasises the number word wherever grouping puts it.
+    // statistic-card stays in the library for STRUCTURED [label,number,unit] data, which
+    // free narration grouping doesn't guarantee.
+    stat: "center-focus",
+    turn: "single-hero",
+    question: "center-focus",
+    cta: "single-hero",
+    statement: "center-focus",
+  },
   motionByTreatment: {
     hook:      { supportPop: 48, keyPop: 42, overshoot: 9,  wordFadeMs: 130, staggerMs: 26, ...CALM },
     stat:      { supportPop: 86, keyPop: 40, overshoot: 11, wordFadeMs: 150, staggerMs: 46, ...CALM },
@@ -50,13 +64,26 @@ export const PREMIUM: StyleFamily = {
   emphasis: { maxTier: 5, colour: "accent" },
   rhythm: { maxWordsPerLine: 3, holdEvery: 3 },
   colour: { primary: "#FFFFFF", secondary: "#9FB6C4", accentSource: "brand" },
-  fx: { outlinePx: 5, shadowPx: 3, blur: 0 },
-  // The recipe: Premium composes calm, restrained motion graphics.
+  // Premium legibility = a clean symmetric OUTLINE, no offset drop-shadow. Footage-validated
+  // over a dark→bright gradient: outline 3 washed out on bright areas, 5 read heavy/sporty,
+  // 4 is the premium balance (white text stays legible over bright footage, still refined).
+  fx: { outlinePx: 4, shadowPx: 0, blur: 0 },
+  // The recipe: Premium's complete presentation language — a motion designer's playbook.
+  // Restraint, obvious hierarchy, sparse colour, calm confident motion. Every design
+  // decision is declared here; the compiler only executes it.
   recipe: {
-    reveal: ["riseFade", "blurResolve"],
-    motion: ["drift", "hold"],
-    decoration: ["accentLine"],
+    attention: "singleFocus",                       // one focal word per beat; support recedes
+    composition: ["editorial-stack", "single-hero", "statistic-card"],
     layout: "editorial",
+    typography: ["heroHierarchy", "opticalTracking"],
+    hierarchy: "obvious-modular-step",              // ≥1.5× step hero↔body
+    readingRhythm: "calm",
+    reveal: ["riseFade", "blurResolve"],            // slide-up + rack-focus resolve
+    motion: ["drift", "hold"],                       // near-imperceptible push-in / stillness
+    decoration: ["accentLine"],                     // one sparse drawn accent
+    exit: ["dissolve"],                             // soft fade-out (exitFade)
+    cta: "underlineReveal",                         // CTA underline draws on
+    finalScene: "cinematicHold",                    // long, still, letter-spaced end
     timing: "calm",
   },
 };

@@ -74,6 +74,14 @@ export function moveIn(p: Placement, fromDy: number, durMs: number): string {
   return `\\an${p.an}\\move(${p.x},${p.y + fromDy},${p.x},${p.y},0,${Math.round(durMs)})`;
 }
 
+/** SLIDE-IN — enter from a direction into the placement (kinetic/broadcast). */
+export function slideIn(p: Placement, dir: "left" | "right" | "up" | "down", distPx: number, durMs: number): string {
+  const d = Math.round(distPx);
+  const x1 = p.x + (dir === "left" ? -d : dir === "right" ? d : 0);
+  const y1 = p.y + (dir === "up" ? -d : dir === "down" ? d : 0);
+  return `\\an${p.an}\\move(${x1},${y1},${p.x},${p.y},0,${Math.round(durMs)})`;
+}
+
 /** Estimate a line's on-screen width (px) for mask-wipe boxes / centering.
  * Conservative average advance ≈ 0.56em (matches the rest of the engine). */
 export function lineWidthPx(text: string, fontPx: number, trackingPx = 0): number {
