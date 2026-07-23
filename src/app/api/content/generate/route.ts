@@ -58,6 +58,10 @@ const Schema = z
         expertName: z.string().max(120).optional(),
         useLogo: z.boolean().optional(),
         useHeadshot: z.boolean().optional(),
+        // Text Overlay (COS migration M2D) — the shared Creative OS control.
+        // Absent by default → composeCreativeBrief leaves the brief unchanged.
+        textOverlay: z.boolean().optional(),
+        textStyle: z.enum(["premium", "impact", "founder", "legacy"]).optional(),
       })
       .optional(),
   })
